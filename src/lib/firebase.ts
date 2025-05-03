@@ -7,6 +7,7 @@ import {
   disableNetwork 
 } from 'firebase/firestore';
 import { getStorage, connectStorageEmulator } from 'firebase/storage';
+import { initializeIndexes } from './db/init-indexes';
 
 // Firebase configuration
 const firebaseConfig = {
@@ -25,6 +26,15 @@ const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
 export const auth = getAuth(app);
 export const db = getFirestore(app);
 export const storage = getStorage(app);
+
+// Initialize database indexes by running queries that will generate index creation links
+setTimeout(async () => {
+  try {
+    await initializeIndexes();
+  } catch (err) {
+    console.error("Erreur lors de l'initialisation des index:", err);
+  }
+}, 2000);
 
 // Flag to track connectivity state
 let isOffline = false;

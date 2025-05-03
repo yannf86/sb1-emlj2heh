@@ -20,16 +20,23 @@ import {
   Edit,
   Trash2,
   History,
-  Clock8
+  Clock8,
+  PlusCircle,
+  CheckCircle,
+  Star
 } from 'lucide-react';
 import { Maintenance } from './types/maintenance.types';
 import { useToast } from '@/hooks/use-toast';
 import { getCurrentUser } from '@/lib/auth';
 import { deleteMaintenanceRequest } from '@/lib/db/maintenance';
-import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
+import { addQuoteToMaintenance, updateQuoteStatus } from '@/lib/db/quotes';
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "../ui/accordion";
 import MaintenanceEdit from './MaintenanceEdit';
 import QuoteFileDisplay from './QuoteFileDisplay';
 import PhotoDisplay from './PhotoDisplay';
+import QuoteForm from './QuoteForm';
+import QuoteAcceptDialog from './QuoteAcceptDialog';
+import { getTechnician } from '@/lib/db/technicians';
 
 // Import DB helper functions
 import { getHotelName } from '@/lib/db/hotels';
@@ -56,9 +63,13 @@ const MaintenanceDialog: React.FC<MaintenanceDialogProps> = ({
   onDelete
 }) => {
   const [isDeleting, setIsDeleting] = useState(false);
+  const [isProcessing, setIsProcessing] = useState(false);
   const [editMode, setEditMode] = useState(false);
+  const [quoteFormOpen, setQuoteFormOpen] = useState(false);
+  const [quoteAcceptDialogOpen, setQuoteAcceptDialogOpen] = useState(false);
   const [userNames, setUserNames] = useState<{[key: string]: string}>({});
   const [resolvedLabels, setResolvedLabels] = useState<{[key: string]: string}>({});
+  const [technicianData, setTechnicianData] = useState<any>(null);
   const { toast } = useToast();
   const currentUser = getCurrentUser();
   const isAdmin = currentUser?.role === 'admin';
@@ -141,7 +152,111 @@ const MaintenanceDialog: React.FC<MaintenanceDialogProps> = ({
     loadLabels();
   }, [maintenance]);
 
+  // Load technician data if available
+  useEffect(() => {
+    const loadTechnicianData = async () => {
+      if (!maintenance?.technicianId) {
+        setTechnicianData(null);
+        return;
+      }
+
+      try {
+        const data = await getTechnician(maintenance.technicianId);
+        setTechnicianData(data);
+      } catch (error) {
+        console.error('Error loading technician data:', error);
+        setTechnicianData(null);
+      }
+    };
+
+    loadTechnicianData();
+  }, [maintenance?.technicianId]);
+
   if (!maintenance) return null;
+
+  // Add quote
+  const handleAddQuote = async (quoteData: any) => {
+    try {
+      setIsProcessing(true);
+      await addQuoteToMaintenance(maintenance.id, quoteData);
+      
+      toast({
+        title: "Devis ajouté",
+        description: "Le devis a été ajouté avec succès",
+      });
+      
+      // Refresh maintenance data
+      if (onUpdate) {
+        const updatedMaintenance = {
+          ...maintenance,
+          quoteAmount: quoteData.quoteAmount ? parseFloat(quoteData.quoteAmount) : null,
+          quoteUrl: quoteData.quoteUrl,
+          quoteStatus: quoteData.quoteStatus || 'pending',
+          technicianId: quoteData.technicianId || maintenance.technicianId,
+          updatedAt: new Date().toISOString()
+        };
+        onUpdate(updatedMaintenance);
+      }
+      
+      setQuoteFormOpen(false);
+    } catch (error) {
+      console.error('Error adding quote:', error);
+      toast({
+        title: "Erreur",
+        description: "Une erreur est survenue lors de l'ajout du devis",
+        variant: "destructive"
+      });
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  // Handle quote status update (accept/reject)
+  const handleQuoteStatusUpdate = async (status: 'accepted' | 'rejected', comments?: string) => {
+    try {
+      setIsProcessing(true);
+      
+      // Use the first quote for now (legacy support)
+      await updateQuoteStatus(maintenance.id, 0, status, comments);
+      
+      toast({
+        title: status === 'accepted' ? "Devis accepté" : "Devis refusé",
+        description: status === 'accepted' 
+          ? "Le devis a été accepté et l'intervention peut commencer" 
+          : "Le devis a été refusé"
+      });
+      
+      // Refresh maintenance data
+      if (onUpdate) {
+        const updatedMaintenance = {
+          ...maintenance,
+          quoteStatus: status,
+          quoteAccepted: status === 'accepted',
+          quoteAcceptedDate: status === 'accepted' ? new Date().toISOString() : null,
+          quoteAcceptedById: status === 'accepted' ? currentUser?.id : null,
+          updatedAt: new Date().toISOString()
+        };
+        
+        // If accepted, also update the status to 'in progress'
+        if (status === 'accepted') {
+          updatedMaintenance.statusId = 'stat2';  // In progress
+        }
+        
+        onUpdate(updatedMaintenance);
+      }
+      
+      setQuoteAcceptDialogOpen(false);
+    } catch (error) {
+      console.error('Error updating quote status:', error);
+      toast({
+        title: "Erreur",
+        description: "Une erreur est survenue lors de la mise à jour du statut du devis",
+        variant: "destructive"
+      });
+    } finally {
+      setIsProcessing(false);
+    }
+  };
 
   // Handle delete maintenance
   const handleDelete = async () => {
@@ -187,6 +302,9 @@ const MaintenanceDialog: React.FC<MaintenanceDialogProps> = ({
         break;
       case 'delete':
         actionText = 'a supprimé l\'intervention';
+        break;
+      case 'rate_technician':
+        actionText = 'a évalué le technicien';
         break;
       default:
         actionText = 'a effectué une action';
@@ -261,6 +379,13 @@ const MaintenanceDialog: React.FC<MaintenanceDialogProps> = ({
                 </div>
               );
             })}
+          </div>
+        )}
+        
+        {entry.action === 'rate_technician' && entry.details && (
+          <div className="text-xs space-y-1 ml-5 bg-blue-50 p-2 rounded">
+            <div>Évaluation: {entry.details.rating}/5</div>
+            {entry.details.comments && <div>"{entry.details.comments}"</div>}
           </div>
         )}
       </div>
@@ -422,75 +547,207 @@ const MaintenanceDialog: React.FC<MaintenanceDialogProps> = ({
             </div>
           )}
           
+          {/* Technician Details */}
+          <div className="space-y-4 pt-2 border-t">
+            <div className="flex justify-between items-center">
+              <h3 className="text-lg font-medium flex items-center">
+                <User className="h-5 w-5 mr-2 text-slate-500" />
+                Technicien
+              </h3>
+              
+              {!maintenance.technicianId && !maintenance.quoteStatus && (
+                <Button 
+                  size="sm" 
+                  variant="outline" 
+                  onClick={() => setQuoteFormOpen(true)}
+                  disabled={isProcessing}
+                >
+                  <PlusCircle className="mr-2 h-4 w-4" />
+                  Ajouter un devis
+                </Button>
+              )}
+            </div>
+            
+            {technicianData ? (
+              <div className="bg-slate-50 border rounded-md p-4">
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h4 className="text-base font-medium">{technicianData.name}</h4>
+                      {technicianData.company && (
+                        <p className="text-sm text-muted-foreground">{technicianData.company}</p>
+                      )}
+                    </div>
+                    <div className="flex items-center">
+                      {technicianData.rating > 0 && (
+                        <div className="flex items-center mr-3">
+                          <Star className="h-4 w-4 text-amber-500 mr-1" />
+                          <span>{technicianData.rating.toFixed(1)}</span>
+                        </div>
+                      )}
+                      {technicianData.available ? (
+                        <span className="inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium bg-green-50 text-green-600 border-green-200">
+                          <CheckCircle className="h-3 w-3 mr-1" /> Disponible
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium bg-amber-50 text-amber-600 border-amber-200">
+                          Occupé
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  
+                  <div className="grid grid-cols-2 gap-4 text-sm">
+                    <div className="space-y-1">
+                      <div className="flex items-center">
+                        <Mail className="h-4 w-4 mr-1 text-slate-400" />
+                        <span>{technicianData.email}</span>
+                      </div>
+                      <div className="flex items-center">
+                        <Phone className="h-4 w-4 mr-1 text-slate-400" />
+                        <span>{technicianData.phone}</span>
+                      </div>
+                    </div>
+                    <div className="space-y-1">
+                      {technicianData.hourlyRate && (
+                        <div className="flex items-center">
+                          <Euro className="h-4 w-4 mr-1 text-slate-400" />
+                          <span>{technicianData.hourlyRate}€/heure</span>
+                        </div>
+                      )}
+                      {technicianData.completedJobs > 0 && (
+                        <div className="flex items-center">
+                          <CheckCircle className="h-4 w-4 mr-1 text-slate-400" />
+                          <span>{technicianData.completedJobs} intervention{technicianData.completedJobs > 1 ? 's' : ''}</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                  
+                  {technicianData.specialties?.length > 0 && (
+                    <div className="flex flex-wrap gap-1 mt-2">
+                      {technicianData.specialties.map((specialty: string) => (
+                        <span 
+                          key={specialty}
+                          className="inline-flex items-center rounded-full bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-700 ring-1 ring-inset ring-blue-700/10"
+                        >
+                          {specialty}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            ) : maintenance.technicianId ? (
+              <div className="flex items-center">
+                <p className="font-medium">{resolvedLabels.technicianName || 'Chargement...'}</p>
+              </div>
+            ) : (
+              <div className="text-muted-foreground italic">Aucun technicien assigné</div>
+            )}
+          </div>
+          
           {/* Quotes and financial information */}
-          {(maintenance.quoteUrl || maintenance.estimatedAmount || maintenance.finalAmount) && (
-            <div className="space-y-4 pt-2 border-t">
+          <div className="space-y-4 pt-2 border-t">
+            <div className="flex justify-between items-center">
               <h3 className="text-lg font-medium flex items-center">
                 <Euro className="h-5 w-5 mr-2 text-slate-500" />
                 Informations financières
               </h3>
               
-              {maintenance.quoteUrl && (
-                <div className="bg-amber-50 border border-amber-200 rounded-md p-4">
-                  <div className="space-y-3">
-                    <div className="flex justify-between items-start">
-                      <div>
-                        <h4 className="font-medium">Devis</h4>
-                        <p className="text-sm text-amber-800">
-                          Un devis a été fourni pour cette intervention
-                        </p>
-                      </div>
-                      <QuoteFileDisplay 
-                        quoteUrl={maintenance.quoteUrl} 
-                        isEditable={false} 
-                      />
-                    </div>
-                    
-                    {maintenance.quoteAmount && (
-                      <div className="flex items-center space-x-2">
-                        <p className="text-sm font-medium text-amber-800">Montant du devis:</p>
-                        <p className="text-sm font-bold text-amber-800">{maintenance.quoteAmount} €</p>
-                      </div>
-                    )}
-                    
-                    <div className="flex items-center space-x-2">
-                      <p className="text-sm font-medium text-amber-800">Statut:</p>
-                      {renderQuoteStatusBadge()}
-                    </div>
-                    
-                    {(maintenance.quoteStatus === 'accepted' || maintenance.quoteAccepted === true) && maintenance.quoteAcceptedDate && (
-                      <div className="flex items-center space-x-2">
-                        <p className="text-sm font-medium text-amber-800">Date d'acceptation:</p>
-                        <p className="text-sm text-amber-800">{formatDate(maintenance.quoteAcceptedDate)}</p>
-                      </div>
-                    )}
-                    
-                    {(maintenance.quoteStatus === 'accepted' || maintenance.quoteAccepted === true) && maintenance.quoteAcceptedById && (
-                      <div className="flex items-center space-x-2">
-                        <p className="text-sm font-medium text-amber-800">Accepté par:</p>
-                        <p className="text-sm text-amber-800">{maintenance.quoteAcceptedById ? (resolvedLabels.quoteAcceptedByName || 'Chargement...') : '-'}</p>
-                      </div>
-                    )}
-                  </div>
-                </div>
+              {/* Only show Add Quote button if there's no quote yet or it was rejected */}
+              {(!maintenance.quoteUrl && maintenance.quoteStatus !== 'pending') && (
+                <Button 
+                  size="sm" 
+                  variant="outline" 
+                  onClick={() => setQuoteFormOpen(true)}
+                  disabled={isProcessing}
+                >
+                  <PlusCircle className="mr-2 h-4 w-4" />
+                  Ajouter un devis
+                </Button>
               )}
-              
-              <div className="grid grid-cols-2 gap-4">
-                {maintenance.estimatedAmount && (
-                  <div className="space-y-1">
-                    <p className="text-sm font-medium text-muted-foreground">Montant estimé</p>
-                    <p className="font-medium">{maintenance.estimatedAmount} €</p>
-                  </div>
-                )}
-                {maintenance.finalAmount && (
-                  <div className="space-y-1">
-                    <p className="text-sm font-medium text-muted-foreground">Montant final</p>
-                    <p className="font-medium">{maintenance.finalAmount} €</p>
-                  </div>
-                )}
-              </div>
             </div>
-          )}
+            
+            {(maintenance.quoteUrl || maintenance.estimatedAmount || maintenance.finalAmount) && (
+              <div className="space-y-4">
+                {maintenance.quoteUrl && (
+                  <div className="bg-amber-50 border border-amber-200 rounded-md p-4">
+                    <div className="space-y-3">
+                      <div className="flex justify-between items-start">
+                        <div>
+                          <h4 className="font-medium">Devis</h4>
+                          <p className="text-sm text-amber-800">
+                            Un devis a été fourni pour cette intervention
+                          </p>
+                        </div>
+                        <QuoteFileDisplay 
+                          quoteUrl={maintenance.quoteUrl} 
+                          isEditable={false} 
+                        />
+                      </div>
+                      
+                      {maintenance.quoteAmount && (
+                        <div className="flex items-center space-x-2">
+                          <p className="text-sm font-medium text-amber-800">Montant du devis:</p>
+                          <p className="text-sm font-bold text-amber-800">{maintenance.quoteAmount} €</p>
+                        </div>
+                      )}
+                      
+                      <div className="flex items-center space-x-2">
+                        <p className="text-sm font-medium text-amber-800">Statut:</p>
+                        {renderQuoteStatusBadge()}
+                      </div>
+
+                      {!['accepted', 'rejected'].includes(maintenance.quoteStatus || '') && 
+                       maintenance.quoteAccepted !== true && 
+                       maintenance.quoteAccepted !== false && (
+                        <div className="flex justify-end">
+                          <Button 
+                            size="sm"
+                            onClick={() => setQuoteAcceptDialogOpen(true)}
+                            variant="outline"
+                            className="mr-2"
+                          >
+                            Examiner le devis
+                          </Button>
+                        </div>
+                      )}
+                      
+                      {(maintenance.quoteStatus === 'accepted' || maintenance.quoteAccepted === true) && maintenance.quoteAcceptedDate && (
+                        <div className="flex items-center space-x-2">
+                          <p className="text-sm font-medium text-amber-800">Date d'acceptation:</p>
+                          <p className="text-sm text-amber-800">{formatDate(maintenance.quoteAcceptedDate)}</p>
+                        </div>
+                      )}
+                      
+                      {(maintenance.quoteStatus === 'accepted' || maintenance.quoteAccepted === true) && maintenance.quoteAcceptedById && (
+                        <div className="flex items-center space-x-2">
+                          <p className="text-sm font-medium text-amber-800">Accepté par:</p>
+                          <p className="text-sm text-amber-800">{maintenance.quoteAcceptedById ? (resolvedLabels.quoteAcceptedByName || 'Chargement...') : '-'}</p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+                
+                <div className="grid grid-cols-2 gap-4">
+                  {maintenance.estimatedAmount && (
+                    <div className="space-y-1">
+                      <p className="text-sm font-medium text-muted-foreground">Montant estimé</p>
+                      <p className="font-medium">{maintenance.estimatedAmount} €</p>
+                    </div>
+                  )}
+                  {maintenance.finalAmount && (
+                    <div className="space-y-1">
+                      <p className="text-sm font-medium text-muted-foreground">Montant final</p>
+                      <p className="font-medium">{maintenance.finalAmount} €</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
           
           {/* Assignation and timeline */}
           <div className="space-y-4 pt-2 border-t">
@@ -627,6 +884,26 @@ const MaintenanceDialog: React.FC<MaintenanceDialogProps> = ({
           </Button>
         </DialogFooter>
       </DialogContent>
+
+      {/* Quote Form Dialog */}
+      {maintenance && (
+        <QuoteForm 
+          isOpen={quoteFormOpen}
+          onClose={() => setQuoteFormOpen(false)}
+          maintenance={maintenance}
+          onSave={handleAddQuote}
+        />
+      )}
+
+      {/* Quote Accept/Reject Dialog */}
+      {maintenance && (
+        <QuoteAcceptDialog
+          isOpen={quoteAcceptDialogOpen}
+          onClose={() => setQuoteAcceptDialogOpen(false)}
+          maintenance={maintenance}
+          onUpdateQuoteStatus={handleQuoteStatusUpdate}
+        />
+      )}
     </Dialog>
   );
 };

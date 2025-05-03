@@ -5,18 +5,19 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
-import { Image, FileUp, X, Loader2 } from 'lucide-react';
+import { Image, X, FileUp, Loader2 } from 'lucide-react';
 import { Maintenance, MaintenanceFormData } from './types/maintenance.types';
 import { getHotels } from '@/lib/db/hotels';
 import { getHotelLocations } from '@/lib/db/parameters-locations';
 import { getInterventionTypeParameters } from '@/lib/db/parameters-intervention-type';
 import { getStatusParameters } from '@/lib/db/parameters-status';
-import { getUsers } from '@/lib/db/users';
-import { getCurrentUser } from '@/lib/auth';
 import { useToast } from '@/hooks/use-toast';
 import { deleteFromSupabase } from '@/lib/supabase';
+import { getTechniciansByHotel } from '@/lib/db/technicians';
 import QuoteFileDisplay from './QuoteFileDisplay';
 import PhotoDisplay from './PhotoDisplay';
+import { CheckboxGroup } from '@/pages/components/CheckboxGroup';
+import { getCurrentUser } from '@/lib/auth';
 
 interface MaintenanceFormProps {
   isOpen: boolean;
@@ -43,7 +44,7 @@ const MaintenanceForm: React.FC<MaintenanceFormProps> = ({
         ...maintenance,
         photoBeforePreview: maintenance.photoBefore || '',
         photoAfterPreview: maintenance.photoAfter || '',
-        hasQuote: !!maintenance.quoteUrl
+        quoteFile: null
       };
     } else {
       return {
@@ -55,7 +56,7 @@ const MaintenanceForm: React.FC<MaintenanceFormProps> = ({
         description: '',
         statusId: '',
         receivedById: currentUser?.id || '',
-        technicianId: null,
+        technicianIds: [],
         estimatedAmount: '',
         finalAmount: '',
         startDate: '',
@@ -70,32 +71,36 @@ const MaintenanceForm: React.FC<MaintenanceFormProps> = ({
   const [locations, setLocations] = useState<any[]>([]);
   const [interventionTypes, setInterventionTypes] = useState<any[]>([]);
   const [statusParams, setStatusParams] = useState<any[]>([]);
-  const [users, setUsers] = useState<any[]>([]);
+  const [technicians, setTechnicians] = useState<any[]>([]);
+  const [selectedTechnicians, setSelectedTechnicians] = useState<string[]>(formData.technicianIds || []);
   const [loading, setLoading] = useState(true);
   const [loadingLocations, setLoadingLocations] = useState(false);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [formErrors, setFormErrors] = useState<{[key: string]: string}>({});
+  const [loadingTechnicians, setLoadingTechnicians] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [photoBeforeUploading, setPhotoBeforeUploading] = useState(false);
   const [photoAfterUploading, setPhotoAfterUploading] = useState(false);
 
   // Initialize the quote status from legacy data if needed
   useEffect(() => {
-    if (isEditing && maintenance && !formData.quoteStatus) {
-      if (maintenance.quoteAccepted !== undefined) {
-        setFormData(prev => ({
-          ...prev,
-          quoteStatus: maintenance.quoteAccepted ? 'accepted' : 'rejected'
-        }));
-      } else if (maintenance.quoteUrl) {
-        setFormData(prev => ({
-          ...prev,
-          quoteStatus: 'pending'
-        }));
-      }
+    if (!formData.quoteStatus && formData.quoteAccepted !== undefined) {
+      setFormData(prev => ({
+        ...prev,
+        quoteStatus: formData.quoteAccepted ? 'accepted' : 'rejected'
+      }));
+    } else if (!formData.quoteStatus && formData.quoteUrl) {
+      setFormData(prev => ({
+        ...prev,
+        quoteStatus: 'pending'
+      }));
+    } else if (!formData.quoteStatus) {
+      setFormData(prev => ({
+        ...prev,
+        quoteStatus: 'pending'
+      }));
     }
-  }, [isEditing, maintenance, formData.quoteStatus]);
+  }, [formData.quoteStatus, formData.quoteAccepted, formData.quoteUrl]);
 
-  // Load all data on mount
+  // Load data on mount
   useEffect(() => {
     const loadData = async () => {
       try {
@@ -113,13 +118,14 @@ const MaintenanceForm: React.FC<MaintenanceFormProps> = ({
         const statusesData = await getStatusParameters();
         setStatusParams(statusesData);
         
-        // Load users for technician selection
-        const usersData = await getUsers();
-        setUsers(usersData);
+        // Initialize technicians if we have a hotel selected
+        if (formData.hotelId) {
+          loadTechniciansForHotel(formData.hotelId);
+        }
         
-        // Load locations for the selected hotel if editing
-        if (isEditing && maintenance?.hotelId) {
-          const locationsData = await getHotelLocations(maintenance.hotelId);
+        // Load locations for the selected hotel
+        if (formData.hotelId) {
+          const locationsData = await getHotelLocations(formData.hotelId);
           setLocations(locationsData);
         }
       } catch (error) {
@@ -135,18 +141,45 @@ const MaintenanceForm: React.FC<MaintenanceFormProps> = ({
     };
     
     loadData();
-  }, [isEditing, maintenance, toast]);
+  }, [formData.hotelId, toast]);
+
+  // Load technicians for a specific hotel
+  const loadTechniciansForHotel = async (hotelId: string) => {
+    try {
+      setLoadingTechnicians(true);
+      const technicianData = await getTechniciansByHotel(hotelId);
+      setTechnicians(technicianData);
+      
+      // Initialize selected technicians from existing data
+      if (isEditing && maintenance && maintenance.technicianIds) {
+        setSelectedTechnicians(maintenance.technicianIds);
+      } else if (isEditing && maintenance && maintenance.technicianId) {
+        // Support legacy data with single technicianId
+        setSelectedTechnicians([maintenance.technicianId]);
+      }
+    } catch (error) {
+      console.error('Error loading technicians:', error);
+      toast({
+        title: "Erreur",
+        description: "Impossible de charger les techniciens pour cet hôtel",
+        variant: "destructive",
+      });
+    } finally {
+      setLoadingTechnicians(false);
+    }
+  };
 
   // Load locations when hotel changes
   useEffect(() => {
     const loadLocations = async () => {
       if (!formData.hotelId) {
         setLocations([]);
-        // Clear locationId when hotel is changed
         setFormData(prev => ({
           ...prev,
           locationId: ''
         }));
+        setTechnicians([]);
+        setSelectedTechnicians([]);
         return;
       }
 
@@ -155,18 +188,14 @@ const MaintenanceForm: React.FC<MaintenanceFormProps> = ({
         const locationsData = await getHotelLocations(formData.hotelId);
         setLocations(locationsData);
         
-        // If current locationId is not in the new locations, reset it
-        if (formData.locationId && !locationsData.some(loc => loc.id === formData.locationId)) {
-          setFormData(prev => ({
-            ...prev,
-            locationId: ''
-          }));
-        }
+        // Also load technicians for this hotel
+        await loadTechniciansForHotel(formData.hotelId);
+        
       } catch (error) {
-        console.error('Error loading locations:', error);
+        console.error('Error loading locations/technicians:', error);
         toast({
           title: "Erreur",
-          description: "Impossible de charger les lieux pour cet hôtel",
+          description: "Impossible de charger les données pour cet hôtel",
           variant: "destructive",
         });
         setLocations([]);
@@ -177,16 +206,6 @@ const MaintenanceForm: React.FC<MaintenanceFormProps> = ({
 
     loadLocations();
   }, [formData.hotelId, toast]);
-
-  // Set receivedById to current user's ID if not already set
-  useEffect(() => {
-    if (currentUser && !formData.receivedById && !isEditing) {
-      setFormData(prev => ({
-        ...prev,
-        receivedById: currentUser.id
-      }));
-    }
-  }, [currentUser, formData.receivedById, isEditing]);
 
   // Handle form input changes
   const handleFormChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
@@ -200,17 +219,18 @@ const MaintenanceForm: React.FC<MaintenanceFormProps> = ({
   // Handle select changes
   const handleSelectChange = (name: string, value: string | null) => {
     if (name === 'hotelId') {
-      // When hotel changes, reset locationId and technicianId
+      // When hotel changes, reset locationId and technicianIds
       setFormData(prev => ({
         ...prev,
         [name]: value,
-        locationId: '', // Reset location when hotel changes
-        technicianId: null // Reset technician when hotel changes
+        locationId: '',
+        technicianIds: []
       }));
+      setSelectedTechnicians([]);
     } else {
       setFormData(prev => ({
         ...prev,
-        [name]: value === "none" ? null : value
+        [name]: value
       }));
     }
   };
@@ -220,6 +240,15 @@ const MaintenanceForm: React.FC<MaintenanceFormProps> = ({
     setFormData(prev => ({
       ...prev,
       [name]: value
+    }));
+  };
+
+  // Handle technician selection changes
+  const handleTechniciansChange = (selectedIds: string[]) => {
+    setSelectedTechnicians(selectedIds);
+    setFormData(prev => ({
+      ...prev,
+      technicianIds: selectedIds
     }));
   };
 
@@ -234,7 +263,7 @@ const MaintenanceForm: React.FC<MaintenanceFormProps> = ({
         if (fileType === 'photoBefore') setPhotoBeforeUploading(true);
         else setPhotoAfterUploading(true);
         
-        // Validate file size (2MB max)
+        // Validate file size and type
         if (file.size > 2 * 1024 * 1024) {
           toast({
             title: "Fichier trop volumineux",
@@ -246,7 +275,6 @@ const MaintenanceForm: React.FC<MaintenanceFormProps> = ({
           return;
         }
         
-        // Validate file type
         if (!file.type.startsWith('image/')) {
           toast({
             title: "Format de fichier incorrect",
@@ -304,11 +332,6 @@ const MaintenanceForm: React.FC<MaintenanceFormProps> = ({
           ...prev,
           quoteFile: file
         }));
-        
-        toast({
-          title: "Fichier ajouté",
-          description: `Le fichier ${file.name} a été ajouté avec succès`
-        });
       }
     } catch (error) {
       if (fileType === 'photoBefore') setPhotoBeforeUploading(false);
@@ -325,8 +348,8 @@ const MaintenanceForm: React.FC<MaintenanceFormProps> = ({
   // Handle delete photo before
   const handleDeletePhotoBefore = async () => {
     try {
-      // If we are in edit mode and have an existing photo URL, delete it from Supabase
-      if (isEditing && maintenance?.photoBefore) {
+      // If we have an existing photo URL, delete it from Supabase
+      if (maintenance?.photoBefore) {
         console.log('🗑️ Deleting photoBefore from Supabase:', maintenance.photoBefore);
         const success = await deleteFromSupabase(maintenance.photoBefore);
         if (success) {
@@ -345,7 +368,7 @@ const MaintenanceForm: React.FC<MaintenanceFormProps> = ({
         }
       }
       
-      // Update form data to remove the photo reference
+      // Update form data
       setFormData(prev => ({
         ...prev,
         photoBefore: null,
@@ -364,8 +387,8 @@ const MaintenanceForm: React.FC<MaintenanceFormProps> = ({
   // Handle delete photo after
   const handleDeletePhotoAfter = async () => {
     try {
-      // If we are in edit mode and have an existing photo URL, delete it from Supabase
-      if (isEditing && maintenance?.photoAfter) {
+      // If we have an existing photo URL, delete it from Supabase
+      if (maintenance?.photoAfter) {
         console.log('🗑️ Deleting photoAfter from Supabase:', maintenance.photoAfter);
         const success = await deleteFromSupabase(maintenance.photoAfter);
         if (success) {
@@ -384,7 +407,7 @@ const MaintenanceForm: React.FC<MaintenanceFormProps> = ({
         }
       }
       
-      // Update form data to remove the photo reference
+      // Update form data
       setFormData(prev => ({
         ...prev,
         photoAfter: null,
@@ -399,13 +422,13 @@ const MaintenanceForm: React.FC<MaintenanceFormProps> = ({
       });
     }
   };
-  
+
   // Handle delete quote file
   const handleDeleteQuoteFile = async () => {
     try {
-      // If we are in edit mode and have an existing quote URL, delete it from Supabase
-      if (isEditing && maintenance?.quoteUrl) {
-        console.log('🗑️ Deleting quoteUrl from Supabase:', maintenance.quoteUrl);
+      // If we have an existing quote URL, delete it from Supabase
+      if (maintenance?.quoteUrl) {
+        console.log('🗑️ Deleting quote file from Supabase:', maintenance.quoteUrl);
         const success = await deleteFromSupabase(maintenance.quoteUrl);
         if (success) {
           console.log('✅ Quote file deleted successfully from Supabase');
@@ -414,7 +437,7 @@ const MaintenanceForm: React.FC<MaintenanceFormProps> = ({
             description: "Le fichier de devis a été supprimé avec succès",
           });
         } else {
-          console.error('❌ Failed to delete quote from Supabase');
+          console.error('❌ Failed to delete quote file from Supabase');
           toast({
             title: "Avertissement",
             description: "Le devis a été retiré du formulaire mais peut-être pas du stockage",
@@ -423,18 +446,17 @@ const MaintenanceForm: React.FC<MaintenanceFormProps> = ({
         }
       }
       
-      // Update form data to remove quote references
+      // Update form data
       setFormData(prev => ({
         ...prev,
-        quoteFile: null,
-        quoteUrl: null,
-        hasQuote: false
+        quoteUrl: '',
+        quoteFile: null
       }));
     } catch (error) {
       console.error('Error deleting quote file:', error);
       toast({
         title: "Erreur",
-        description: "Une erreur est survenue lors de la suppression du devis",
+        description: "Une erreur est survenue lors de la suppression du fichier de devis",
         variant: "destructive",
       });
     }
@@ -467,6 +489,11 @@ const MaintenanceForm: React.FC<MaintenanceFormProps> = ({
       }
     }
     
+    // Validation pour les techniciens sélectionnés si hasQuote est activé
+    if (formData.hasQuote && (!selectedTechnicians || selectedTechnicians.length === 0)) {
+      return { valid: false, message: "Veuillez sélectionner au moins un technicien pour la demande de devis" };
+    }
+    
     return { valid: true, message: "" };
   };
 
@@ -484,13 +511,26 @@ const MaintenanceForm: React.FC<MaintenanceFormProps> = ({
     }
     
     try {
-      setIsSubmitting(true);
+      setSaving(true);
       
       // For new interventions, set default status if not specified
       if (!isEditing && !formData.statusId) {
         // Find the "open" status
         const openStatus = statusParams.find(s => s.code === 'open');
         formData.statusId = openStatus ? openStatus.id : statusParams[0]?.id;
+      }
+      
+      // Make sure technicianIds is properly set from selectedTechnicians
+      formData.technicianIds = selectedTechnicians;
+      
+      // If we have a single technician selected, set technicianId for backwards compatibility
+      if (selectedTechnicians.length === 1) {
+        formData.technicianId = selectedTechnicians[0];
+      } else if (selectedTechnicians.length > 0) {
+        // Just use the first one for backwards compatibility, but all are in technicianIds array
+        formData.technicianId = selectedTechnicians[0];
+      } else {
+        formData.technicianId = null;
       }
       
       await onSubmit(formData);
@@ -503,7 +543,7 @@ const MaintenanceForm: React.FC<MaintenanceFormProps> = ({
         variant: "destructive"
       });
     } finally {
-      setIsSubmitting(false);
+      setSaving(false);
     }
   };
 
@@ -549,7 +589,7 @@ const MaintenanceForm: React.FC<MaintenanceFormProps> = ({
                 type="date"
                 value={formData.date || ''}
                 onChange={handleFormChange}
-                disabled={isSubmitting}
+                disabled={saving}
               />
             </div>
             
@@ -561,7 +601,7 @@ const MaintenanceForm: React.FC<MaintenanceFormProps> = ({
                 type="time"
                 value={formData.time || ''}
                 onChange={handleFormChange}
-                disabled={isSubmitting}
+                disabled={saving}
               />
             </div>
           </div>
@@ -572,7 +612,7 @@ const MaintenanceForm: React.FC<MaintenanceFormProps> = ({
               <Select 
                 value={formData.hotelId} 
                 onValueChange={(value) => handleSelectChange('hotelId', value)}
-                disabled={currentUser?.role === 'standard' && currentUser?.hotels?.length === 1 || isSubmitting}
+                disabled={currentUser?.role === 'standard' && currentUser?.hotels?.length === 1 || saving}
               >
                 <SelectTrigger id="hotelId">
                   <SelectValue placeholder="Sélectionnez un hôtel" />
@@ -594,7 +634,7 @@ const MaintenanceForm: React.FC<MaintenanceFormProps> = ({
               <Select 
                 value={formData.locationId} 
                 onValueChange={(value) => handleSelectChange('locationId', value)}
-                disabled={!formData.hotelId || loadingLocations || isSubmitting}
+                disabled={!formData.hotelId || loadingLocations || saving}
               >
                 <SelectTrigger id="locationId">
                   <SelectValue placeholder={!formData.hotelId ? "Sélectionnez d'abord un hôtel" : loadingLocations ? "Chargement..." : "Sélectionnez un lieu"} />
@@ -605,9 +645,11 @@ const MaintenanceForm: React.FC<MaintenanceFormProps> = ({
                   ) : locations.length === 0 ? (
                     <SelectItem value="none" disabled>Aucun lieu disponible pour cet hôtel</SelectItem>
                   ) : (
-                    locations.map(location => (
-                      <SelectItem key={location.id} value={location.id}>{location.label}</SelectItem>
-                    ))
+                    locations
+                      .filter(location => location.id && location.id !== '')
+                      .map(location => (
+                        <SelectItem key={location.id} value={location.id}>{location.label}</SelectItem>
+                      ))
                   )}
                 </SelectContent>
               </Select>
@@ -619,7 +661,7 @@ const MaintenanceForm: React.FC<MaintenanceFormProps> = ({
             <Select 
               value={formData.interventionTypeId} 
               onValueChange={(value) => handleSelectChange('interventionTypeId', value)}
-              disabled={isSubmitting}
+              disabled={saving}
             >
               <SelectTrigger id="interventionTypeId">
                 <SelectValue placeholder="Sélectionnez un type d'intervention" />
@@ -645,7 +687,7 @@ const MaintenanceForm: React.FC<MaintenanceFormProps> = ({
               placeholder="Décrivez le problème technique..."
               value={formData.description}
               onChange={handleFormChange}
-              disabled={isSubmitting}
+              disabled={saving}
             />
           </div>
           
@@ -668,7 +710,7 @@ const MaintenanceForm: React.FC<MaintenanceFormProps> = ({
               />
             ) : (
               <div className="flex items-center justify-center w-full">
-                <label className={`flex flex-col items-center justify-center w-full h-36 border-2 border-dashed rounded-lg cursor-pointer bg-gray-50 hover:bg-gray-100 ${isSubmitting ? 'opacity-50 cursor-not-allowed' : ''}`}>
+                <label className={`flex flex-col items-center justify-center w-full h-36 border-2 border-dashed rounded-lg cursor-pointer bg-gray-50 hover:bg-gray-100 ${saving ? 'opacity-50 cursor-not-allowed' : ''}`}>
                   <div className="flex flex-col items-center justify-center pt-5 pb-6">
                     <Image className="w-8 h-8 mb-3 text-gray-400" />
                     <p className="mb-2 text-sm text-gray-500">
@@ -681,7 +723,7 @@ const MaintenanceForm: React.FC<MaintenanceFormProps> = ({
                     className="hidden" 
                     accept="image/*"
                     onChange={(e) => handleFileUpload(e, 'photoBefore')}
-                    disabled={isSubmitting || photoBeforeUploading}
+                    disabled={saving || photoBeforeUploading}
                   />
                 </label>
               </div>
@@ -707,7 +749,7 @@ const MaintenanceForm: React.FC<MaintenanceFormProps> = ({
               />
             ) : (
               <div className="flex items-center justify-center w-full">
-                <label className={`flex flex-col items-center justify-center w-full h-36 border-2 border-dashed rounded-lg cursor-pointer bg-gray-50 hover:bg-gray-100 ${isSubmitting ? 'opacity-50 cursor-not-allowed' : ''}`}>
+                <label className={`flex flex-col items-center justify-center w-full h-36 border-2 border-dashed rounded-lg cursor-pointer bg-gray-50 hover:bg-gray-100 ${saving ? 'opacity-50 cursor-not-allowed' : ''}`}>
                   <div className="flex flex-col items-center justify-center pt-5 pb-6">
                     <Image className="w-8 h-8 mb-3 text-gray-400" />
                     <p className="mb-2 text-sm text-gray-500">
@@ -720,7 +762,7 @@ const MaintenanceForm: React.FC<MaintenanceFormProps> = ({
                     className="hidden" 
                     accept="image/*"
                     onChange={(e) => handleFileUpload(e, 'photoAfter')}
-                    disabled={isSubmitting || photoAfterUploading}
+                    disabled={saving || photoAfterUploading}
                   />
                 </label>
               </div>
@@ -731,7 +773,7 @@ const MaintenanceForm: React.FC<MaintenanceFormProps> = ({
             <div className="flex items-center space-x-2">
               <Switch 
                 id="hasQuote" 
-                checked={formData.hasQuote} 
+                checked={Boolean(formData.quoteUrl || formData.quoteFile || formData.hasQuote)}
                 onCheckedChange={(checked) => {
                   if (!checked && formData.quoteUrl) {
                     handleDeleteQuoteFile();
@@ -739,33 +781,59 @@ const MaintenanceForm: React.FC<MaintenanceFormProps> = ({
                     handleSwitchChange('hasQuote', checked);
                   }
                 }}
-                disabled={isSubmitting}
+                disabled={saving}
               />
-              <Label htmlFor="hasQuote">Devis disponible</Label>
+              <Label htmlFor="hasQuote">Demande de devis</Label>
             </div>
             
-            {formData.hasQuote && (
+            {(formData.quoteUrl || formData.quoteFile || formData.hasQuote) && (
               <>
-                {/* Affichage du fichier de devis s'il existe déjà */}
+                {/* Affiche le fichier de devis existant */}
                 {formData.quoteUrl && !formData.quoteFile && (
-                  <div className="mb-3">
-                    <QuoteFileDisplay 
-                      quoteUrl={formData.quoteUrl}
-                      onDelete={handleDeleteQuoteFile}
-                    />
-                  </div>
+                  <QuoteFileDisplay 
+                    quoteUrl={formData.quoteUrl}
+                    onDelete={handleDeleteQuoteFile}
+                  />
                 )}
-                
-                {/* Champ d'upload pour un nouveau fichier de devis */}
+
+                {/* Liste de sélection des techniciens */}
+                <div className="space-y-2">
+                  <Label htmlFor="technicians" className="after:content-['*'] after:ml-0.5 after:text-red-500">
+                    Techniciens à consulter
+                  </Label>
+                  
+                  {technicians.length === 0 ? (
+                    <div className="p-4 bg-slate-50 rounded-md text-center">
+                      {loadingTechnicians ? (
+                        <p className="text-sm text-slate-500">Chargement des techniciens...</p>
+                      ) : (
+                        <p className="text-sm text-slate-500">Aucun technicien disponible pour cet hôtel. Veuillez en ajouter dans la section Techniciens.</p>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="p-4 border rounded-md max-h-36 overflow-y-auto">
+                      <CheckboxGroup
+                        items={technicians.map(tech => ({ 
+                          id: tech.id, 
+                          name: `${tech.name}${tech.company ? ` (${tech.company})` : ''}`
+                        }))}
+                        selectedItems={selectedTechnicians}
+                        onSelectionChange={handleTechniciansChange}
+                      />
+                    </div>
+                  )}
+                  <p className="text-xs text-muted-foreground">
+                    Les techniciens sélectionnés recevront une notification par email pour soumettre un devis.
+                  </p>
+                </div>
+
                 <div className="space-y-2">
                   <Label htmlFor="quoteFile">Fichier du devis {formData.quoteUrl ? '(remplacer)' : ''}</Label>
                   <div className="flex items-center justify-center w-full">
-                    <label className={`flex flex-col items-center justify-center w-full h-24 border-2 border-dashed rounded-lg cursor-pointer bg-gray-50 hover:bg-gray-100 ${isSubmitting ? 'opacity-50 cursor-not-allowed' : ''}`}>
+                    <label className="flex flex-col items-center justify-center w-full h-24 border-2 border-dashed rounded-lg cursor-pointer bg-gray-50 hover:bg-gray-100">
                       <div className="flex flex-col items-center justify-center pt-5 pb-6">
                         <FileUp className="w-6 h-6 mb-2 text-gray-400" />
-                        <p className="text-sm text-gray-500">
-                          <span className="font-semibold">Cliquez pour uploader le devis</span>
-                        </p>
+                        <p className="text-xs text-gray-500">Cliquez pour uploader le devis</p>
                         <p className="text-xs text-gray-500">PDF, DOC, DOCX (MAX. 5MB)</p>
                       </div>
                       <input 
@@ -773,7 +841,6 @@ const MaintenanceForm: React.FC<MaintenanceFormProps> = ({
                         className="hidden" 
                         accept=".pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
                         onChange={(e) => handleFileUpload(e, 'quoteFile')}
-                        disabled={isSubmitting}
                       />
                     </label>
                   </div>
@@ -785,7 +852,6 @@ const MaintenanceForm: React.FC<MaintenanceFormProps> = ({
                       <Button 
                         variant="ghost" 
                         size="sm"
-                        className="text-red-500 hover:text-red-700 hover:bg-red-50"
                         onClick={() => setFormData(prev => ({ ...prev, quoteFile: null }))}
                       >
                         <X className="h-4 w-4" />
@@ -804,26 +870,8 @@ const MaintenanceForm: React.FC<MaintenanceFormProps> = ({
                       placeholder="0.00"
                       value={formData.quoteAmount || ''}
                       onChange={handleFormChange}
-                      disabled={isSubmitting}
+                      disabled={saving}
                     />
-                  </div>
-                  
-                  <div className="space-y-2">
-                    <Label htmlFor="quoteStatus">Statut du devis</Label>
-                    <Select
-                      value={formData.quoteStatus || 'pending'}
-                      onValueChange={(value) => handleSelectChange('quoteStatus', value as 'pending' | 'accepted' | 'rejected')}
-                      disabled={isSubmitting}
-                    >
-                      <SelectTrigger id="quoteStatus">
-                        <SelectValue placeholder="Sélectionner un statut" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="pending">En attente</SelectItem>
-                        <SelectItem value="accepted">Accepté</SelectItem>
-                        <SelectItem value="rejected">Refusé</SelectItem>
-                      </SelectContent>
-                    </Select>
                   </div>
                 </div>
               </>
@@ -835,30 +883,11 @@ const MaintenanceForm: React.FC<MaintenanceFormProps> = ({
             
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="technicianId">Technicien</Label>
-                <Select 
-                  value={formData.technicianId || "unassigned"} 
-                  onValueChange={(value) => handleSelectChange('technicianId', value === "unassigned" ? null : value)}
-                  disabled={isSubmitting}
-                >
-                  <SelectTrigger id="technicianId">
-                    <SelectValue placeholder="Sélectionner un technicien" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="unassigned">Non assigné</SelectItem>
-                    {users.map(user => (
-                      <SelectItem key={user.id} value={user.id}>{user.name}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              
-              <div className="space-y-2">
                 <Label htmlFor="statusId" className="after:content-['*'] after:ml-0.5 after:text-red-500">Statut</Label>
                 <Select 
                   value={formData.statusId} 
                   onValueChange={(value) => handleSelectChange('statusId', value)}
-                  disabled={isSubmitting}
+                  disabled={saving}
                 >
                   <SelectTrigger id="statusId">
                     <SelectValue placeholder="Sélectionner un statut" />
@@ -885,7 +914,7 @@ const MaintenanceForm: React.FC<MaintenanceFormProps> = ({
                   type="date"
                   value={formData.startDate || ''}
                   onChange={handleFormChange}
-                  disabled={isSubmitting}
+                  disabled={saving}
                 />
               </div>
               
@@ -897,7 +926,7 @@ const MaintenanceForm: React.FC<MaintenanceFormProps> = ({
                   type="date"
                   value={formData.endDate || ''}
                   onChange={handleFormChange}
-                  disabled={isSubmitting}
+                  disabled={saving}
                 />
               </div>
             </div>
@@ -912,7 +941,7 @@ const MaintenanceForm: React.FC<MaintenanceFormProps> = ({
                   placeholder="0.00"
                   value={formData.estimatedAmount || ''}
                   onChange={handleFormChange}
-                  disabled={isSubmitting}
+                  disabled={saving}
                 />
               </div>
               
@@ -925,7 +954,7 @@ const MaintenanceForm: React.FC<MaintenanceFormProps> = ({
                   placeholder="0.00"
                   value={formData.finalAmount || ''}
                   onChange={handleFormChange}
-                  disabled={isSubmitting}
+                  disabled={saving}
                 />
               </div>
             </div>
@@ -939,7 +968,7 @@ const MaintenanceForm: React.FC<MaintenanceFormProps> = ({
                 placeholder="Commentaires additionnels..."
                 value={formData.comments || ''}
                 onChange={handleFormChange}
-                disabled={isSubmitting}
+                disabled={saving}
               />
             </div>
           </div>
@@ -949,15 +978,15 @@ const MaintenanceForm: React.FC<MaintenanceFormProps> = ({
           <Button 
             variant="outline" 
             onClick={onClose} 
-            disabled={isSubmitting || photoBeforeUploading || photoAfterUploading}
+            disabled={saving || photoBeforeUploading || photoAfterUploading}
           >
             Annuler
           </Button>
           <Button 
             onClick={handleSubmit} 
-            disabled={isSubmitting || photoBeforeUploading || photoAfterUploading}
+            disabled={saving || photoBeforeUploading || photoAfterUploading}
           >
-            {isSubmitting ? (
+            {saving ? (
               <>
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                 Traitement en cours...

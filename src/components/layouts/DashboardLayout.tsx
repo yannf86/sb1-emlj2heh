@@ -20,7 +20,8 @@ import {
   Moon, 
   Sun,
   Trophy,
-  Truck
+  Truck,
+  Wrench
 } from 'lucide-react';
 import { getCurrentUser, logout } from '@/lib/auth';
 import { modules, hotels } from '@/lib/data';
@@ -71,6 +72,7 @@ const DashboardLayout = () => {
     { icon: <LayoutDashboard size={20} />, label: 'Tableau de Bord', path: 'dashboard', moduleId: 'mod1' },
     { icon: <AlertTriangle size={20} />, label: 'Suivi Incidents', path: 'incidents', moduleId: 'mod2' },
     { icon: <Tool size={20} />, label: 'Suivi Technique', path: 'maintenance', moduleId: 'mod3' },
+    { icon: <Wrench size={20} />, label: 'Techniciens', path: 'technicians', moduleId: 'mod9' },
     { icon: <ClipboardCheck size={20} />, label: 'Visites Qualité', path: 'quality', moduleId: 'mod4' },
     { icon: <Search size={20} />, label: 'Objets Trouvés', path: 'lost-found', moduleId: 'mod5' },
     { icon: <FileText size={20} />, label: 'Procédures', path: 'procedures', moduleId: 'mod6' },

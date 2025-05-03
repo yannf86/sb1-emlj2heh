@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 // Layout
 import DashboardLayout from './components/layouts/DashboardLayout';
+import TechnicianLayout from './components/technician/TechnicianLayout';
 
 // Pages
 import LoginPage from './pages/LoginPage';
@@ -19,9 +20,16 @@ import UsersPage from './pages/UsersPage';
 import GamificationPage from './pages/GamificationPage';
 import GamificationConfigPage from './pages/GamificationConfigPage';
 import SuppliersPage from './pages/SuppliersPage';
+import TechniciansPage from './pages/TechniciansPage';
+
+// Technician pages
+import TechnicianDashboard from './pages/technician/TechnicianDashboard';
+import TechnicianQuoteRequests from './pages/technician/TechnicianQuoteRequests';
+import TechnicianSettings from './pages/technician/TechnicianSettings';
 
 // Auth
 import { isAuthenticated, hasModuleAccess } from './lib/auth';
+import TechnicianProtectedRoute from './components/technician/TechnicianProtectedRoute';
 
 // Toast
 import { ToastProvider } from './components/ui/toast';
@@ -92,6 +100,20 @@ function App() {
           <Routes>
             <Route path="/login" element={<LoginPage />} />
             
+            {/* Technician routes */}
+            <Route path="/technician" element={
+              <TechnicianProtectedRoute>
+                <TechnicianLayout />
+              </TechnicianProtectedRoute>
+            }>
+              <Route index element={<Navigate to="/technician/dashboard" replace />} />
+              <Route path="dashboard" element={<TechnicianDashboard />} />
+              <Route path="quote-requests" element={<TechnicianQuoteRequests />} />
+              <Route path="settings" element={<TechnicianSettings />} />
+              {/* Add other technician pages here */}
+              <Route path="*" element={<Navigate to="/technician/dashboard" replace />} />
+            </Route>
+            
             <Route path="/" element={
               <ProtectedRoute>
                 <DashboardLayout />
@@ -114,6 +136,12 @@ function App() {
               <Route path="maintenance" element={
                 <ProtectedRoute moduleCode="mod3">
                   <MaintenancePage />
+                </ProtectedRoute>
+              } />
+              
+              <Route path="technicians" element={
+                <ProtectedRoute moduleCode="mod9">
+                  <TechniciansPage />
                 </ProtectedRoute>
               } />
               

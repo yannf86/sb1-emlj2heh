@@ -9,7 +9,8 @@ export interface Maintenance {
   interventionTypeId: string;
   description: string;
   receivedById: string;
-  technicianId?: string;
+  technicianId?: string; // Pour rétrocompatibilité
+  technicianIds?: string[]; // Nouveau: liste des techniciens
   statusId: string;
   estimatedAmount?: number;
   finalAmount?: number;
@@ -20,9 +21,11 @@ export interface Maintenance {
   quoteUrl?: string;
   quoteAmount?: number;
   quoteStatus?: 'pending' | 'accepted' | 'rejected';  // Remplace quoteAccepted avec 3 états possibles
+  quoteAccepted?: boolean; // Ancien champ pour rétrocompatibilité
   quoteAcceptedDate?: string;
   quoteAcceptedById?: string;
   comments?: string;
+  quotes?: MaintenanceQuote[]; // Nouveau: tableau de devis
   createdAt: string;
   updatedAt: string;
   createdBy?: string;
@@ -36,6 +39,25 @@ export interface Maintenance {
   // Champs temporaires pour le formulaire
   photoBeforePreview?: string;
   photoAfterPreview?: string;
+}
+
+export interface MaintenanceQuote {
+  technicianId: string;
+  amount: number;
+  url: string;
+  status: 'pending' | 'accepted' | 'rejected' | 'negotiating';
+  comments?: string;
+  statusComments?: string;
+  createdAt: string;
+  createdBy: string;
+  statusUpdatedAt?: string;
+  statusUpdatedBy?: string;
+  negotiationHistory?: {
+    timestamp: string;
+    userId: string;
+    message: string;
+    amount?: number;
+  }[];
 }
 
 export interface MaintenanceFormData {
