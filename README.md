@@ -1,7 +1,5 @@
 # CREHO - Gestion Multi-Hôtels
 
-✅ Test final après ajout dans authorized_keys
-
 Application de gestion complète pour les chaînes hôtelières, permettant de suivre les incidents, les maintenances, les visites qualité, et plus encore.
 
 ## Fonctionnalités
