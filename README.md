@@ -1,6 +1,6 @@
 # CREHO - Gestion Multi-Hôtels
 
-Test de déploiement automatique le 11 mai 2025
+Test 2 de déploiement automatique le 11 mai 2025
 Application de gestion complète pour les chaînes hôtelières, permettant de suivre les incidents, les maintenances, les visites qualité, et plus encore.
 
 ## Fonctionnalités
