@@ -204,8 +204,12 @@ export const getCurrentUser = (): AuthUser | null => {
   // Check if user is stored in localStorage
   const storedUser = localStorage.getItem('currentUser');
   if (storedUser) {
-    currentUser = JSON.parse(storedUser);
-    return currentUser;
+    try {
+      currentUser = JSON.parse(storedUser);
+      return currentUser;
+    } catch (e) {
+      localStorage.removeItem('currentUser');
+    }
   }
   
   return null;

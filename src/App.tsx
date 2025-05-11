@@ -28,7 +28,7 @@ import TechnicianQuoteRequests from './pages/technician/TechnicianQuoteRequests'
 import TechnicianSettings from './pages/technician/TechnicianSettings';
 
 // Auth
-import { isAuthenticated, hasModuleAccess } from './lib/auth';
+import { isAuthenticated, hasModuleAccess, initAuth } from './lib/auth';
 import TechnicianProtectedRoute from './components/technician/TechnicianProtectedRoute';
 
 // Toast
@@ -37,7 +37,7 @@ import { Toaster } from './components/ui/toaster';
 
 // Connection Status Alert
 import { Alert, AlertDescription } from './components/ui/alert';
-import { WifiOff } from 'lucide-react';
+import { WifiOff, Loader2 } from 'lucide-react';
 
 // Create a client
 const queryClient = new QueryClient({
@@ -57,6 +57,26 @@ type ProtectedRouteProps = {
 };
 
 const ProtectedRoute = ({ moduleCode, children }: ProtectedRouteProps) => {
+  const [loading, setLoading] = useState(true);
+
+  // Check authentication status with a loading state
+  useEffect(() => {
+    const checkAuth = () => {
+      setLoading(false);
+    };
+    // Give a short delay to ensure auth state is ready
+    const timer = setTimeout(checkAuth, 300);
+    return () => clearTimeout(timer);
+  }, []);
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-screen">
+        <Loader2 className="h-8 w-8 animate-spin text-brand-500" />
+      </div>
+    );
+  }
+  
   if (!isAuthenticated()) {
     return <Navigate to="/login" replace />;
   }
@@ -70,6 +90,11 @@ const ProtectedRoute = ({ moduleCode, children }: ProtectedRouteProps) => {
 
 function App() {
   const [isOnline, setIsOnline] = useState<boolean>(navigator.onLine);
+
+  // Initialize auth on app load
+  useEffect(() => {
+    initAuth();
+  }, []);
 
   // Monitor online/offline status
   useEffect(() => {

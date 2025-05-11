@@ -23,6 +23,9 @@ const LoginPage = () => {
   const [techPassword, setTechPassword] = useState('');
   const [techLoading, setTechLoading] = useState(false);
   const [techErrorMessage, setTechErrorMessage] = useState<string | null>(null);
+  
+  // Auth check loading state
+  const [checkingAuth, setCheckingAuth] = useState(true);
 
   // Tab state
   const [activeTab, setActiveTab] = useState<string>('user');
@@ -30,14 +33,25 @@ const LoginPage = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
   
-  // Redirect if already authenticated
+  // Check authentication status on mount
   useEffect(() => {
-    if (isAuthenticated()) {
-      navigate('/dashboard');
-    }
-    if (isTechnicianLoggedIn()) {
-      navigate('/technician/dashboard');
-    }
+    const checkAuth = () => {
+      if (isAuthenticated()) {
+        navigate('/dashboard', { replace: true });
+        return;
+      }
+      
+      if (isTechnicianLoggedIn()) {
+        navigate('/technician/dashboard', { replace: true });
+        return;
+      }
+      
+      setCheckingAuth(false);
+    };
+    
+    // Short delay to ensure auth state is ready
+    const timer = setTimeout(checkAuth, 500);
+    return () => clearTimeout(timer);
   }, [navigate]);
   
   // Handle user login form submission
@@ -120,6 +134,18 @@ const LoginPage = () => {
       setTechLoading(false);
     }
   };
+
+  // Show loading state while checking authentication
+  if (checkingAuth) {
+    return (
+      <div className="min-h-screen bg-cream-100 dark:bg-charcoal-900 flex items-center justify-center p-4">
+        <div className="text-center">
+          <Buildings className="h-12 w-12 text-brand-500 animate-pulse mx-auto mb-4" />
+          <p className="text-lg font-medium">Vérification de l'authentification...</p>
+        </div>
+      </div>
+    );
+  }
   
   return (
     <div className="min-h-screen bg-cream-100 dark:bg-charcoal-900 flex items-center justify-center p-4">

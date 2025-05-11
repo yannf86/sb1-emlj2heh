@@ -9,7 +9,7 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey);
 /**
  * Upload a file to Supabase Storage
  * @param file File to upload
- * @param bucket Bucket name ('photoavant', 'photoapres', 'devis', or 'objettrouve')
+ * @param bucket Bucket name ('photoavant', 'photoapres', 'devis', 'objettrouve', or 'photosincident')
  * @param customPath Optional custom path within the bucket
  * @returns URL to the uploaded file
  */
@@ -73,7 +73,7 @@ export const extractPathFromSupabaseUrl = (url: string): { bucket: string | null
     
     // Find which bucket the file belongs to by checking the URL
     let bucket = null;
-    const buckets = ['photoavant', 'photoapres', 'devis', 'objettrouve'];
+    const buckets = ['photoavant', 'photoapres', 'devis', 'objettrouve', 'photosincident'];
     
     for (const b of buckets) {
       if (url.includes(`/${b}/`)) {

@@ -7,10 +7,55 @@ import { uploadToSupabase, isDataUrl, dataUrlToFile } from '../supabase';
 // Get all lost items
 export const getLostItems = async (hotelId?: string) => {
   try {
-    let q = collection(db, 'lost_items');
-    if (hotelId) {
-      q = query(q, where('hotelId', '==', hotelId));
+    const currentUser = getCurrentUser();
+    
+    // If no current user, return empty array
+    if (!currentUser) {
+      console.error('No current user found');
+      return [];
     }
+    
+    let q;
+    
+    // Admin users can see all lost items
+    if (currentUser.role === 'admin') {
+      if (hotelId) {
+        // If hotelId is provided, filter by it
+        q = query(collection(db, 'lost_items'), where('hotelId', '==', hotelId));
+      } else {
+        // Otherwise, get all lost items
+        q = collection(db, 'lost_items');
+      }
+    } else {
+      // Standard users can only see lost items from their assigned hotels
+      if (hotelId) {
+        // If hotelId is provided, check if user has access to it
+        if (!currentUser.hotels.includes(hotelId)) {
+          console.error('User does not have access to this hotel');
+          return [];
+        }
+        q = query(collection(db, 'lost_items'), where('hotelId', '==', hotelId));
+      } else if (currentUser.hotels.length === 1) {
+        // If user has only one hotel, filter by it
+        q = query(collection(db, 'lost_items'), where('hotelId', '==', currentUser.hotels[0]));
+      } else if (currentUser.hotels.length > 0) {
+        // If user has multiple hotels, we'll need to make separate queries and combine results
+        const results = [];
+        for (const hotel of currentUser.hotels) {
+          const hotelQuery = query(collection(db, 'lost_items'), where('hotelId', '==', hotel));
+          const querySnapshot = await getDocs(hotelQuery);
+          results.push(...querySnapshot.docs.map(doc => ({
+            id: doc.id,
+            ...doc.data()
+          })));
+        }
+        return results;
+      } else {
+        // User has no hotels assigned
+        return [];
+      }
+    }
+    
     const querySnapshot = await getDocs(q);
     return querySnapshot.docs.map(doc => ({
       id: doc.id,
@@ -32,10 +77,21 @@ export const getLostItem = async (id: string) => {
       return null;
     }
     
-    return {
+    const itemData = {
       id: docSnap.id,
       ...docSnap.data()
     };
+    
+    // Check if current user has access to this lost item
+    const currentUser = getCurrentUser();
+    if (!currentUser) return null;
+    
+    if (currentUser.role !== 'admin' && !currentUser.hotels.includes(itemData.hotelId)) {
+      console.error('User does not have access to this lost item');
+      return null;
+    }
+    
+    return itemData;
   } catch (error) {
     console.error('Error getting lost item:', error);
     throw error;
@@ -50,6 +106,14 @@ export const createLostItem = async (data: any) => {
     
     // Get current user
     const currentUser = getCurrentUser();
+    if (!currentUser) {
+      throw new Error('User not authenticated');
+    }
+    
+    // Verify user has access to the hotel
+    if (currentUser.role !== 'admin' && !currentUser.hotels.includes(lostItemData.hotelId)) {
+      throw new Error('You do not have permission to create lost items for this hotel');
+    }
     
     // Create the lost item payload
     const lostItemPayload: any = {
@@ -148,11 +212,20 @@ export const updateLostItem = async (id: string, data: any) => {
     
     const oldData = docSnap.data();
     
+    // Get current user
+    const currentUser = getCurrentUser();
+    if (!currentUser) {
+      throw new Error('User not authenticated');
+    }
+    
+    // Verify user has access to this lost item
+    if (currentUser.role !== 'admin' && !currentUser.hotels.includes(oldData.hotelId)) {
+      throw new Error('You do not have permission to update this lost item');
+    }
+    
     // Extract file fields if present
     const { photo, photoPreview, ...itemData } = data;
     
-    // Get current user
-    const currentUser = getCurrentUser();
     const userId = currentUser?.id || 'system';
     
     // Track what has changed
@@ -243,6 +316,8 @@ export const deleteLostItem = async (id: string) => {
   try {
     // Get current user
     const currentUser = getCurrentUser();
+    if (!currentUser) throw new Error('Not authenticated');
+    
     const userId = currentUser?.id || 'system';
     
     // Get the current lost item
@@ -254,6 +329,11 @@ export const deleteLostItem = async (id: string) => {
     }
     
     const oldData = docSnap.data();
+    
+    // Verify user has access to this lost item
+    if (currentUser.role !== 'admin' && !currentUser.hotels.includes(oldData.hotelId)) {
+      throw new Error('You do not have permission to delete this lost item');
+    }
     
     // Delete the photo file from storage if it exists
     if (oldData.photoUrl) {

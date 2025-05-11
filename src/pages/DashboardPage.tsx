@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { 
   BarChart, 
   Bar, 
@@ -22,7 +23,6 @@ import {
   Radar,
   ComposedChart
 } from 'recharts';
-import { useNavigate } from 'react-router-dom';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -41,7 +41,8 @@ import {
   TrendingUp,
   Star,
   BarChart as BarChartIcon,
-  LineChart as LineChartIcon
+  LineChart as LineChartIcon,
+  Loader2
 } from 'lucide-react';
 import { parameters } from '@/lib/data';
 import { useGamification } from '@/components/gamification/GamificationContext';
@@ -50,6 +51,8 @@ import { getIncidents } from '@/lib/db/incidents';
 import { getMaintenanceRequests } from '@/lib/db/maintenance';
 import { getHotels } from '@/lib/db/hotels';
 import { useToast } from '@/hooks/use-toast';
+import { getCurrentUser } from '@/lib/auth';
+import { getLostItems } from '@/lib/db/lost-items';
 
 // Define chart colors
 const COLORS = ['#D4A017', '#B08214', '#8C6410', '#68470C', '#442E07'];
@@ -58,8 +61,17 @@ const QUALITY_COLORS = ['#22c55e', '#84cc16', '#f59e0b', '#ef4444', '#6b7280'];
 const DashboardPage = () => {
   const [selectedHotel, setSelectedHotel] = useState('all');
   const [dateRange, setDateRange] = useState('30'); // days
+  const [availableHotels, setAvailableHotels] = useState<any[]>([]);
   const navigate = useNavigate();
   const { toast } = useToast();
+  const currentUser = getCurrentUser();
+
+  // Redirect to login if not authenticated
+  useEffect(() => {
+    if (!currentUser) {
+      navigate('/login');
+    }
+  }, [currentUser, navigate]);
 
   // State for data
   const [incidents, setIncidents] = useState<any[]>([]);
@@ -75,22 +87,51 @@ const DashboardPage = () => {
       try {
         setLoading(true);
         
+        // Don't attempt to load data if user is not authenticated
+        if (!currentUser) {
+          return;
+        }
+        
         // Load hotels
         const hotelsData = await getHotels();
-        setHotels(hotelsData);
         
-        // Load incidents
+        // Filter hotels based on user permissions
+        if (currentUser?.role === 'admin') {
+          setHotels(hotelsData);
+          setAvailableHotels(hotelsData);
+        } else if (currentUser) {
+          const filteredHotels = hotelsData.filter(hotel => 
+            currentUser.hotels.includes(hotel.id)
+          );
+          setHotels(filteredHotels);
+          setAvailableHotels(filteredHotels);
+          
+          // If user has only one hotel, automatically select it
+          if (filteredHotels.length === 1 && selectedHotel === 'all') {
+            setSelectedHotel(filteredHotels[0].id);
+          }
+        } else {
+          setHotels([]);
+          setAvailableHotels([]);
+        }
+        
+        console.log("Loading incidents for hotel:", selectedHotel === 'all' ? 'ALL HOTELS' : selectedHotel);
+        // Load incidents - getIncidents() already handles permissions
         const incidentsData = await getIncidents(selectedHotel === 'all' ? undefined : selectedHotel);
+        console.log("Loaded incidents:", incidentsData);
         setIncidents(incidentsData);
 
-        // Load maintenance requests
+        // Load maintenance requests - getMaintenanceRequests() already handles permissions
         const maintenanceData = await getMaintenanceRequests(selectedHotel === 'all' ? undefined : selectedHotel);
         setMaintenanceRequests(maintenanceData);
+        
+        // Load lost items
+        const lostItemsData = await getLostItems(selectedHotel === 'all' ? undefined : selectedHotel);
+        setLostItems(lostItemsData);
 
-        // TODO: Add API calls for quality visits and lost items once implemented
+        // TODO: Add API calls for quality visits once implemented
         // For now, using empty arrays
         setQualityVisits([]);
-        setLostItems([]);
 
       } catch (error) {
         console.error('Error loading dashboard data:', error);
@@ -105,7 +146,7 @@ const DashboardPage = () => {
     };
 
     loadData();
-  }, [selectedHotel, toast]);
+  }, [selectedHotel, toast, currentUser, navigate]);
   
   // Filter data based on selected period
   const filterByPeriod = (data: { date: string }[]) => {
@@ -127,32 +168,50 @@ const DashboardPage = () => {
   
   // Get statistics
   const getStats = () => {
-    // Count open incidents (status 'stat1' = open)
-    const openIncidents = filteredIncidents.filter(inc => inc.statusId === 'stat1').length;
+    // Debugging logs pour voir les valeurs uniques de statusId
+    const uniqueStatuses = [...new Set(incidents.map(inc => inc.statusId))];
+    console.log("Valeurs uniques de statusId:", uniqueStatuses);
     
-    // Count resolved incidents (status 'stat3' = resolved or 'stat4' = closed)
-    const resolvedIncidents = filteredIncidents.filter(inc => 
-      inc.statusId === 'stat3' || inc.statusId === 'stat4'
-    ).length;
+    // Count open incidents with exact status "En cours"
+    const openIncidents = filteredIncidents.filter(inc => {
+      // Le statut peut être "En cours" ou l'ID spécifique "CZa3iy84r8pVqjVOQHNL"
+      return inc.statusId === "En cours" || inc.statusId === "CZa3iy84r8pVqjVOQHNL";
+    }).length;
+    
+    console.log("Nombre d'incidents ouverts:", openIncidents);
+    
+    // Count resolved incidents
+    const resolvedIncidents = filteredIncidents.filter(inc => {
+      const status = inc.statusId;
+      return status === 'Clôturé' || status === 'Résolu' || 
+             (typeof status === 'string' && (status.toLowerCase() === 'clôturé' || status.toLowerCase() === 'résolu'));
+    }).length;
     
     // Count open maintenance requests
-    const openMaintenance = filteredMaintenance.filter(req => 
-      req.statusId === 'stat1' || req.statusId === 'stat2'
-    ).length;
+    const openMaintenance = filteredMaintenance.filter(req => {
+      const status = req.statusId;
+      return status === 'En cours' || 
+             (typeof status === 'string' && status.toLowerCase() === 'en cours');
+    }).length;
     
     // Count completed maintenance requests
-    const completedMaintenance = filteredMaintenance.filter(req => 
-      req.statusId === 'stat3' || req.statusId === 'stat4'
-    ).length;
+    const completedMaintenance = filteredMaintenance.filter(req => {
+      const status = req.statusId;
+      return status === 'Clôturé' || status === 'Résolu' ||
+             (typeof status === 'string' && (status.toLowerCase() === 'clôturé' || status.toLowerCase() === 'résolu'));
+    }).length;
     
     // Calculate average quality score
-    const avgQualityScore = Math.round(
-      filteredQualityVisits.reduce((acc, visit) => acc + visit.conformityRate, 0) / 
-      (filteredQualityVisits.length || 1)
-    );
+    const avgQualityScore = filteredQualityVisits.length > 0
+      ? Math.round(
+        filteredQualityVisits.reduce((acc, visit) => acc + visit.conformityRate, 0) / 
+        filteredQualityVisits.length
+      )
+      : 0;
     
     // Count lost and returned items
-    const lostItemsCount = filteredLostItems.length;
+    // Only count items with status 'conservé' for the main count
+    const lostItemsCount = filteredLostItems.filter(item => item.status === 'conservé').length;
     const returnedItemsCount = filteredLostItems.filter(item => item.status === 'rendu').length;
     
     return {
@@ -285,12 +344,41 @@ const DashboardPage = () => {
     { name: 'Télévision', count: 20 },
   ];
 
+  // If not authenticated, show nothing while redirecting
+  if (!currentUser) {
+    return (
+      <div className="flex items-center justify-center h-full">
+        <div className="text-center">
+          <Loader2 className="h-8 w-8 animate-spin mx-auto mb-2 text-brand-500" />
+          <h2 className="text-xl font-semibold mb-2">Vérification de l'authentification...</h2>
+          <p className="text-muted-foreground">Redirection vers la page de connexion.</p>
+        </div>
+      </div>
+    );
+  }
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-full">
         <div className="text-center">
+          <Loader2 className="h-8 w-8 animate-spin mx-auto mb-2 text-brand-500" />
           <h2 className="text-xl font-semibold mb-2">Chargement des données...</h2>
           <p className="text-muted-foreground">Veuillez patienter pendant le chargement du tableau de bord.</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (availableHotels.length === 0 && !loading) {
+    return (
+      <div className="flex items-center justify-center h-full">
+        <div className="text-center max-w-md">
+          <AlertTriangle className="h-8 w-8 text-amber-500 mx-auto mb-2" />
+          <h2 className="text-xl font-semibold mb-2">Accès limité</h2>
+          <p className="text-muted-foreground mb-4">
+            Vous n'avez pas accès à des hôtels dans le système. 
+            Veuillez contacter votre administrateur pour obtenir les autorisations nécessaires.
+          </p>
         </div>
       </div>
     );
@@ -308,13 +396,16 @@ const DashboardPage = () => {
           <Select
             value={selectedHotel}
             onValueChange={setSelectedHotel}
+            disabled={availableHotels.length === 0}
           >
             <SelectTrigger className="w-full sm:w-[220px]">
-              <SelectValue placeholder="Sélectionner un hôtel" />
+              <SelectValue placeholder={loading ? "Chargement..." : "Sélectionner un hôtel"} />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">Tous les hôtels</SelectItem>
-              {hotels.map((hotel) => (
+              {currentUser?.role === 'admin' && (
+                <SelectItem value="all">Tous les hôtels</SelectItem>
+              )}
+              {availableHotels.map((hotel) => (
                 <SelectItem key={hotel.id} value={hotel.id}>{hotel.name}</SelectItem>
               ))}
             </SelectContent>
@@ -510,6 +601,7 @@ const DashboardPage = () => {
                   <XAxis dataKey="name" />
                   <YAxis domain={[0, 100]} />
                   <Tooltip formatter={(value) => [`${value}%`, 'Score']} />
+                  <Legend />
                   <Bar dataKey="score" name="Score Qualité" fill="#10b981">
                     {qualityByHotel.map((entry, index) => (
                       <Cell key={`cell-${index}`} fill={

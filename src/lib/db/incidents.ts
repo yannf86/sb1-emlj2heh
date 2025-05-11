@@ -1,17 +1,62 @@
-import { collection, addDoc, getDocs, query, where, orderBy, deleteDoc, doc, updateDoc, getDoc } from 'firebase/firestore';
+import { collection, addDoc, getDocs, query, where, orderBy, deleteDoc, doc, getDoc, updateDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import type { Incident } from '../schema';
 import { getCurrentUser } from '../auth';
-import { uploadToSupabase, isDataUrl, dataUrlToFile } from '../supabase';
 import { deleteFile } from './file-upload';
+import { uploadToSupabase, isDataUrl, dataUrlToFile, deleteFromSupabase } from '../supabase';
 
 // Get all incidents
 export const getIncidents = async (hotelId?: string) => {
   try {
-    let q = collection(db, 'incidents');
-    if (hotelId) {
-      q = query(q, where('hotelId', '==', hotelId));
+    const currentUser = getCurrentUser();
+    
+    // If no current user, return empty array
+    if (!currentUser) {
+      console.error('No current user found');
+      return [];
     }
+    
+    let q;
+    
+    // Admin users can see all incidents
+    if (currentUser.role === 'admin') {
+      if (hotelId) {
+        // If hotelId is provided, filter by it
+        q = query(collection(db, 'incidents'), where('hotelId', '==', hotelId));
+      } else {
+        // Otherwise, get all incidents
+        q = collection(db, 'incidents');
+      }
+    } else {
+      // Standard users can only see incidents from their assigned hotels
+      if (hotelId) {
+        // If hotelId is provided, check if user has access to it
+        if (!currentUser.hotels.includes(hotelId)) {
+          console.error('User does not have access to this hotel');
+          return [];
+        }
+        q = query(collection(db, 'incidents'), where('hotelId', '==', hotelId));
+      } else if (currentUser.hotels.length === 1) {
+        // If user has only one hotel, filter by it
+        q = query(collection(db, 'incidents'), where('hotelId', '==', currentUser.hotels[0]));
+      } else if (currentUser.hotels.length > 1) {
+        // If user has multiple hotels, we'll need to make separate queries and combine results
+        const results = [];
+        for (const hotel of currentUser.hotels) {
+          const hotelQuery = query(collection(db, 'incidents'), where('hotelId', '==', hotel));
+          const querySnapshot = await getDocs(hotelQuery);
+          results.push(...querySnapshot.docs.map(doc => ({
+            id: doc.id,
+            ...doc.data()
+          })));
+        }
+        return results as Incident[];
+      } else {
+        // User has no hotels assigned
+        return [];
+      }
+    }
+    
     const querySnapshot = await getDocs(q);
     return querySnapshot.docs.map(doc => ({
       id: doc.id,
@@ -33,10 +78,21 @@ export const getIncident = async (id: string) => {
       return null;
     }
     
-    return {
+    const incidentData = {
       id: docSnap.id,
       ...docSnap.data()
     } as Incident;
+    
+    // Check if current user has access to this incident
+    const currentUser = getCurrentUser();
+    if (!currentUser) return null;
+    
+    if (currentUser.role !== 'admin' && !currentUser.hotels.includes(incidentData.hotelId)) {
+      console.error('User does not have access to this incident');
+      return null;
+    }
+    
+    return incidentData;
   } catch (error) {
     console.error('Error getting incident:', error);
     throw error;
@@ -57,6 +113,7 @@ export const createIncident = async (data: any) => {
       ...incidentData,
       concludedById: incidentData.concludedById || null,
       resolutionDescription: incidentData.resolutionDescription || null,
+      concludedAt: incidentData.concludedById ? new Date().toISOString() : null,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       createdBy: currentUser?.id || 'system',
@@ -73,7 +130,8 @@ export const createIncident = async (data: any) => {
     // Process photo upload to Supabase
     if (photo instanceof File) {
       try {
-        const photoUrl = await uploadToSupabase(photo, 'photoavant');
+        // Use the photosincident bucket as specified
+        const photoUrl = await uploadToSupabase(photo, 'photosincident');
         incidentPayload.photoUrl = photoUrl;
         console.log('Photo URL saved:', photoUrl);
       } catch (error) {
@@ -85,7 +143,8 @@ export const createIncident = async (data: any) => {
       const file = await dataUrlToFile(photoPreview, 'incident_photo.jpg');
       if (file) {
         try {
-          const photoUrl = await uploadToSupabase(file, 'photoavant');
+          // Use the photosincident bucket
+          const photoUrl = await uploadToSupabase(file, 'photosincident');
           incidentPayload.photoUrl = photoUrl;
           console.log('Photo URL saved from data URL:', photoUrl);
         } catch (error) {
@@ -172,44 +231,52 @@ export const updateIncident = async (id: string, data: Partial<Incident>) => {
       throw new Error('Incident not found');
     }
     
+    // Verify user has access to this incident
+    const currentUser = getCurrentUser();
+    if (!currentUser) throw new Error('Not authenticated');
+    
+    const incidentData = docSnap.data();
+    if (currentUser.role !== 'admin' && !currentUser.hotels.includes(incidentData.hotelId)) {
+      throw new Error('You do not have permission to update this incident');
+    }
+    
     const oldData = docSnap.data();
     
     // Extract file fields if present
-    const { photo, photoPreview, document, documentName, ...incidentData } = data as any;
+    const { photo, photoPreview, document, documentName, ...updatedIncidentData } = data as any;
     
     // Get current user
-    const currentUser = getCurrentUser();
     const userId = currentUser?.id || 'system';
     
     // Track what has changed
-    const changes = trackChanges(oldData, incidentData);
-    
-    // Check if concludedById was set and set timestamp
-    let concludedAt = oldData.concludedAt;
-    if (incidentData.concludedById && !oldData.concludedById) {
-      concludedAt = new Date().toISOString();
-    } else if (incidentData.concludedById === null && oldData.concludedById) {
-      concludedAt = null;
-    }
+    const changes = trackChanges(oldData, updatedIncidentData);
     
     // Create update payload
-    const payload: any = { ...incidentData, concludedAt };
+    const payload: any = { ...updatedIncidentData };
+    
+    // Set concludedAt based on concludedById
+    if (payload.concludedById) {
+      // If concludedById is set, ensure concludedAt is set
+      payload.concludedAt = payload.concludedAt || new Date().toISOString();
+    } else {
+      // If concludedById is null or undefined, ensure concludedAt is also null
+      payload.concludedAt = null;
+      payload.concludedById = null;
+    }
     
     // Process photo upload to Supabase
     if (photo instanceof File) {
       try {
-        // Upload new photo
-        const photoUrl = await uploadToSupabase(photo, 'photoavant');
-        payload.photoUrl = photoUrl;
+        // Upload photo to photosincident bucket
+        const photoUrl = await uploadToSupabase(photo, 'photosincident');
         
         // Delete old photo if exists
         if (oldData.photoUrl) {
-          await deleteFile(oldData.photoUrl);
+          await deleteFromSupabase(oldData.photoUrl);
         }
         
-        if (!changes['photoUrl'] && photoUrl !== oldData.photoUrl) {
-          changes['photoUrl'] = { old: oldData.photoUrl || null, new: 'Updated' };
-        }
+        payload.photoUrl = photoUrl;
+        changes['photoUrl'] = { old: oldData.photoUrl || null, new: 'Updated' };
       } catch (error) {
         console.error('Error uploading photo to Supabase during update:', error);
         throw new Error(`Failed to update photo: ${error instanceof Error ? error.message : String(error)}`);
@@ -219,11 +286,11 @@ export const updateIncident = async (id: string, data: Partial<Incident>) => {
       const file = await dataUrlToFile(photoPreview, 'incident_photo.jpg');
       if (file) {
         try {
-          const photoUrl = await uploadToSupabase(file, 'photoavant');
+          const photoUrl = await uploadToSupabase(file, 'photosincident');
           
           // Delete old photo if exists
           if (oldData.photoUrl) {
-            await deleteFile(oldData.photoUrl);
+            await deleteFromSupabase(oldData.photoUrl);
           }
           
           payload.photoUrl = photoUrl;
@@ -234,7 +301,7 @@ export const updateIncident = async (id: string, data: Partial<Incident>) => {
       }
     }
     
-    // Process document upload to Supabase
+    // Process document upload
     if (document instanceof File) {
       try {
         const docUrl = await uploadToSupabase(document, 'devis');
@@ -289,6 +356,8 @@ export const deleteIncident = async (id: string) => {
   try {
     // Get current user
     const currentUser = getCurrentUser();
+    if (!currentUser) throw new Error('Not authenticated');
+    
     const userId = currentUser?.id || 'system';
     
     // Get the current incident
@@ -301,10 +370,15 @@ export const deleteIncident = async (id: string) => {
     
     const oldData = docSnap.data();
     
+    // Verify user has access to this incident
+    if (currentUser.role !== 'admin' && !currentUser.hotels.includes(oldData.hotelId)) {
+      throw new Error('You do not have permission to delete this incident');
+    }
+    
     // Delete associated files (photo and document)
     if (oldData.photoUrl) {
       try {
-        await deleteFile(oldData.photoUrl);
+        await deleteFromSupabase(oldData.photoUrl);
         console.log('Photo deleted successfully');
       } catch (error) {
         console.error('Error deleting photo:', error);

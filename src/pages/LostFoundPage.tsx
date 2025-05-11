@@ -58,6 +58,7 @@ const LostFoundPage = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [filtersExpanded, setFiltersExpanded] = useState(false);
   const [lostItems, setLostItems] = useState<any[]>([]);
+  const [availableHotels, setAvailableHotels] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const { toast } = useToast();
   const currentUser = getCurrentUser();
@@ -68,6 +69,7 @@ const LostFoundPage = () => {
   // Load lost items on mount
   useEffect(() => {
     loadLostItems();
+    loadAvailableHotels();
   }, []);
 
   // Function to load lost items
@@ -85,6 +87,31 @@ const LostFoundPage = () => {
       });
     } finally {
       setLoading(false);
+    }
+  };
+  
+  // Function to load hotels the current user has access to
+  const loadAvailableHotels = async () => {
+    try {
+      // For admin users, get all hotels
+      // For standard users, filter hotels by user's assigned hotels
+      const allHotels = await getHotels();
+      
+      if (currentUser?.role === 'admin') {
+        setAvailableHotels(allHotels);
+      } else if (currentUser) {
+        const userHotels = allHotels.filter(hotel => 
+          currentUser.hotels.includes(hotel.id)
+        );
+        setAvailableHotels(userHotels);
+      }
+    } catch (error) {
+      console.error('Error loading hotels:', error);
+      toast({
+        title: "Erreur",
+        description: "Impossible de charger les hôtels",
+        variant: "destructive",
+      });
     }
   };
 

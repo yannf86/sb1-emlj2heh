@@ -73,9 +73,6 @@ const IncidentForm: React.FC<IncidentFormProps> = ({
   
   const { toast } = useToast();
   const currentUser = getCurrentUser();
-  
-  // Define filteredHotels based on the current user's role and access
-  const filteredHotels = currentUser?.role === 'admin' ? hotels : hotels.filter(hotel => currentUser?.hotels?.includes(hotel.id));
 
   // Initialiser le formulaire avec les données de l'incident si en mode édition
   useEffect(() => {
@@ -92,16 +89,29 @@ const IncidentForm: React.FC<IncidentFormProps> = ({
           if (openStatusId) {
             setFormData(prev => ({
               ...prev,
-              statusId: openStatusId
+              statusId: openStatusId,
+              // Make sure receivedById is set to current user
+              receivedById: currentUser?.id || ''
+            }));
+          } else {
+            // If no status found, still set the current user
+            setFormData(prev => ({
+              ...prev,
+              receivedById: currentUser?.id || ''
             }));
           }
         } catch (error) {
           console.error('Error finding default status:', error);
+          // Even on error, ensure current user is set
+          setFormData(prev => ({
+            ...prev,
+            receivedById: currentUser?.id || ''
+          }));
         }
       };
       initializeDefaultStatus();
     }
-  }, [isEditing, incident]);
+  }, [isEditing, incident, currentUser]);
 
   // Load all data on mount
   useEffect(() => {
@@ -129,19 +139,20 @@ const IncidentForm: React.FC<IncidentFormProps> = ({
         const bookingOriginsData = await getBookingOriginParameters();
         setBookingOrigins(bookingOriginsData);
         
-        // Load all users for initial state
+        // Load all users initially
         const allUsers = await getUsers();
         setUsers(allUsers);
-        // Initially, filter users for the current hotel if editing
-        if (isEditing && incident?.hotelId) {
+        
+        // Filter users based on selected hotel
+        if (incident?.hotelId) {
           const hotelUsers = await getUsersByHotel(incident.hotelId);
           setFilteredUsers(hotelUsers);
         } else {
           setFilteredUsers(allUsers);
         }
         
-        // Load locations for the current hotel if editing
-        if (isEditing && incident?.hotelId) {
+        // Load locations for the current hotel
+        if (incident?.hotelId) {
           const locationsData = await getHotelLocations(incident.hotelId);
           setLocations(locationsData);
         }
@@ -156,9 +167,9 @@ const IncidentForm: React.FC<IncidentFormProps> = ({
         setLoading(false);
       }
     };
-    
+
     loadData();
-  }, [isEditing, incident, toast]);
+  }, [incident?.hotelId, toast]);
 
   // Load locations when hotel changes
   useEffect(() => {
@@ -186,7 +197,7 @@ const IncidentForm: React.FC<IncidentFormProps> = ({
 
     loadLocations();
   }, [formData.hotelId, toast]);
-
+  
   // Load users filtered by hotel when hotel selection changes
   useEffect(() => {
     const loadFilteredUsers = async () => {
@@ -249,12 +260,11 @@ const IncidentForm: React.FC<IncidentFormProps> = ({
   // Handle select changes
   const handleSelectChange = (name: string, value: string | null) => {
     if (name === 'hotelId') {
-      // When hotel changes, reset locationId and concludedById
+      // When hotel changes, reset locationId
       setFormData(prev => ({
         ...prev,
         [name]: value,
-        locationId: '',
-        concludedById: null
+        locationId: ''
       }));
     } else {
       setFormData(prev => ({
@@ -366,7 +376,7 @@ const IncidentForm: React.FC<IncidentFormProps> = ({
   // Handle form submission
   const handleSubmit = async () => {
     // Validate required fields
-    if (!formData.hotelId || !formData.locationId || !formData.categoryId || !formData.impactId || !formData.description || !formData.statusId) {
+    if (!formData.hotelId || !formData.locationId || !formData.categoryId || !formData.impactId || !formData.description || !formData.statusId || !formData.receivedById) {
       toast({
         title: "Champs manquants",
         description: "Veuillez remplir tous les champs obligatoires",
@@ -381,7 +391,10 @@ const IncidentForm: React.FC<IncidentFormProps> = ({
       date: incidentDate.date,
       time: incidentDate.time,
       arrivalDate: arrivalDate.date,
-      departureDate: departureDate.date
+      departureDate: departureDate.date,
+      // Ensure concludedAt and concludedById are properly handled
+      concludedAt: formData.concludedById ? new Date().toISOString() : null,
+      concludedById: formData.concludedById || null
     };
 
     onSave(updatedFormData);
@@ -440,6 +453,11 @@ const IncidentForm: React.FC<IncidentFormProps> = ({
     );
   }
 
+  // Filter hotels based on user permissions
+  const filteredHotels = currentUser?.role === 'admin' 
+    ? hotels 
+    : hotels.filter(hotel => currentUser?.hotels?.includes(hotel.id));
+
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
       <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto">
@@ -476,12 +494,11 @@ const IncidentForm: React.FC<IncidentFormProps> = ({
                   setFormData(prev => ({
                     ...prev,
                     hotelId: value,
-                    locationId: '', // Reset location when hotel changes
-                    concludedById: '' // Reset concludedBy when hotel changes
+                    locationId: '' // Reset location when hotel changes
                   }));
                 }}
               >
-                <SelectTrigger>
+                <SelectTrigger id="hotelId">
                   <SelectValue placeholder="Sélectionnez un hôtel" />
                 </SelectTrigger>
                 <SelectContent>
@@ -508,7 +525,7 @@ const IncidentForm: React.FC<IncidentFormProps> = ({
                 } as React.ChangeEvent<HTMLSelectElement>)}
                 disabled={!formData.hotelId || loadingLocations}
               >
-                <SelectTrigger>
+                <SelectTrigger id="locationId">
                   <SelectValue placeholder={
                     !formData.hotelId 
                       ? "Sélectionnez d'abord un hôtel" 
@@ -523,9 +540,11 @@ const IncidentForm: React.FC<IncidentFormProps> = ({
                   ) : locations.length === 0 ? (
                     <SelectItem value="none" disabled>Aucun lieu disponible</SelectItem>
                   ) : (
-                    locations.map(location => (
-                      <SelectItem key={location.id} value={location.id}>{location.label}</SelectItem>
-                    ))
+                    locations
+                      .filter(location => location.id && location.id !== '')
+                      .map(location => (
+                        <SelectItem key={location.id} value={location.id}>{location.label}</SelectItem>
+                      ))
                   )}
                 </SelectContent>
               </Select>
@@ -544,16 +563,18 @@ const IncidentForm: React.FC<IncidentFormProps> = ({
                   target: { name: 'categoryId', value } 
                 } as React.ChangeEvent<HTMLSelectElement>)}
               >
-                <SelectTrigger>
+                <SelectTrigger id="categoryId">
                   <SelectValue placeholder="Sélectionnez une catégorie" />
                 </SelectTrigger>
                 <SelectContent>
                   {categories.length === 0 ? (
                     <SelectItem value="none" disabled>Aucune catégorie disponible</SelectItem>
                   ) : (
-                    categories.map(category => (
-                      <SelectItem key={category.id} value={category.id}>{category.label}</SelectItem>
-                    ))
+                    categories
+                      .filter(category => category.id && category.id !== '')
+                      .map(category => (
+                        <SelectItem key={category.id} value={category.id}>{category.label}</SelectItem>
+                      ))
                   )}
                 </SelectContent>
               </Select>
@@ -570,16 +591,18 @@ const IncidentForm: React.FC<IncidentFormProps> = ({
                   target: { name: 'impactId', value } 
                 } as React.ChangeEvent<HTMLSelectElement>)}
               >
-                <SelectTrigger>
+                <SelectTrigger id="impactId">
                   <SelectValue placeholder="Sélectionnez un impact" />
                 </SelectTrigger>
                 <SelectContent>
                   {impacts.length === 0 ? (
                     <SelectItem value="none" disabled>Aucun niveau d'impact disponible</SelectItem>
                   ) : (
-                    impacts.map(impact => (
-                      <SelectItem key={impact.id} value={impact.id}>{impact.label}</SelectItem>
-                    ))
+                    impacts
+                      .filter(impact => impact.id && impact.id !== '')
+                      .map(impact => (
+                        <SelectItem key={impact.id} value={impact.id}>{impact.label}</SelectItem>
+                      ))
                   )}
                 </SelectContent>
               </Select>
@@ -652,13 +675,37 @@ const IncidentForm: React.FC<IncidentFormProps> = ({
           
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="receivedById">Reçu par</Label>
-              <Input
-                id="receivedById"
-                name="receivedById"
-                value={currentUser?.name || ''}
-                disabled
-              />
+              <Label htmlFor="receivedById" className="after:content-['*'] after:ml-0.5 after:text-red-500">Reçu par</Label>
+              <Select 
+                value={formData.receivedById || "none"} 
+                onValueChange={(value) => handleFormChange({ 
+                  target: { name: 'receivedById', value: value === "none" ? "" : value } 
+                } as React.ChangeEvent<HTMLSelectElement>)}
+                disabled={loadingUsers}
+              >
+                <SelectTrigger id="receivedById">
+                  <SelectValue placeholder={
+                    !formData.hotelId
+                      ? "Sélectionnez d'abord un hôtel"
+                      : loadingUsers
+                        ? "Chargement..."
+                        : "Sélectionnez un utilisateur"
+                  } />
+                </SelectTrigger>
+                <SelectContent>
+                  {loadingUsers ? (
+                    <SelectItem value="loading" disabled>Chargement des utilisateurs...</SelectItem>
+                  ) : filteredUsers.length === 0 ? (
+                    <SelectItem value="none" disabled>Aucun utilisateur disponible</SelectItem>
+                  ) : (
+                    filteredUsers
+                      .filter(user => user.id && user.id !== '')
+                      .map(user => (
+                        <SelectItem key={user.id} value={user.id}>{user.name}</SelectItem>
+                      ))
+                  )}
+                </SelectContent>
+              </Select>
             </div>
             
             <div className="space-y-2">
@@ -668,9 +715,9 @@ const IncidentForm: React.FC<IncidentFormProps> = ({
                 onValueChange={(value) => handleFormChange({ 
                   target: { name: 'concludedById', value: value === "none" ? "" : value } 
                 } as React.ChangeEvent<HTMLSelectElement>)}
-                disabled={loadingUsers}
+                disabled={loadingUsers || !formData.hotelId}
               >
-                <SelectTrigger>
+                <SelectTrigger id="concludedById">
                   <SelectValue placeholder={
                     !formData.hotelId
                       ? "Sélectionnez d'abord un hôtel"
@@ -684,11 +731,13 @@ const IncidentForm: React.FC<IncidentFormProps> = ({
                   {loadingUsers ? (
                     <SelectItem value="loading" disabled>Chargement des utilisateurs...</SelectItem>
                   ) : filteredUsers.length === 0 ? (
-                    <SelectItem value="empty" disabled>Aucun utilisateur disponible</SelectItem>
+                    <SelectItem value="none" disabled>Aucun utilisateur disponible</SelectItem>
                   ) : (
-                    filteredUsers.map(user => (
-                      <SelectItem key={user.id} value={user.id}>{user.name}</SelectItem>
-                    ))
+                    filteredUsers
+                      .filter(user => user.id && user.id !== '')
+                      .map(user => (
+                        <SelectItem key={user.id} value={user.id}>{user.name}</SelectItem>
+                      ))
                   )}
                 </SelectContent>
               </Select>
@@ -697,9 +746,7 @@ const IncidentForm: React.FC<IncidentFormProps> = ({
           
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="statusId" className="after:content-['*'] after:ml-0.5 after:text-red-500">
-                Statut
-              </Label>
+              <Label htmlFor="statusId" className="after:content-['*'] after:ml-0.5 after:text-red-500">Statut</Label>
               <Select 
                 name="statusId" 
                 value={formData.statusId} 
@@ -707,16 +754,18 @@ const IncidentForm: React.FC<IncidentFormProps> = ({
                   target: { name: 'statusId', value } 
                 } as React.ChangeEvent<HTMLSelectElement>)}
               >
-                <SelectTrigger>
+                <SelectTrigger id="statusId">
                   <SelectValue placeholder="Sélectionner un statut" />
                 </SelectTrigger>
                 <SelectContent>
                   {statuses.length === 0 ? (
                     <SelectItem value="none" disabled>Aucun statut disponible</SelectItem>
                   ) : (
-                    statuses.map(status => (
-                      <SelectItem key={status.id} value={status.id}>{status.label}</SelectItem>
-                    ))
+                    statuses
+                      .filter(status => status.id && status.id !== '') // Filter out empty IDs
+                      .map(status => (
+                        <SelectItem key={status.id} value={status.id}>{status.label}</SelectItem>
+                      ))
                   )}
                 </SelectContent>
               </Select>
@@ -797,13 +846,12 @@ const IncidentForm: React.FC<IncidentFormProps> = ({
               <div className="space-y-2">
                 <Label htmlFor="origin">Origine réservation</Label>
                 <Select 
-                  name="origin" 
                   value={formData.origin || "none"} 
                   onValueChange={(value) => handleFormChange({ 
                     target: { name: 'origin', value: value === "none" ? "" : value } 
                   } as React.ChangeEvent<HTMLSelectElement>)}
                 >
-                  <SelectTrigger>
+                  <SelectTrigger id="origin">
                     <SelectValue placeholder="Sélectionnez une origine" />
                   </SelectTrigger>
                   <SelectContent>

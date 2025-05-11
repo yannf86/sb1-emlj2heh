@@ -76,6 +76,7 @@ import { useToast } from '@/hooks/use-toast';
 import { getCurrentUser } from '@/lib/auth';
 import { getMaintenanceRequests, createMaintenanceRequest, updateMaintenanceRequest, deleteMaintenanceRequest } from '@/lib/db/maintenance';
 import { ensureMaintenanceCollection } from '@/lib/db/ensure-collections';
+import { getHotels } from '@/lib/db/hotels';
 
 // Import components
 import MaintenanceDialog from '@/components/maintenance/MaintenanceDialog';
@@ -94,9 +95,11 @@ const MaintenancePage = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [filtersExpanded, setFiltersExpanded] = useState(false);
   const [maintenanceRequests, setMaintenanceRequests] = useState<any[]>([]);
+  const [availableHotels, setAvailableHotels] = useState<any[]>([]);
   const [collectionChecked, setCollectionChecked] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const { toast } = useToast();
+  const currentUser = getCurrentUser();
   
   // Load maintenance requests on mount
   useEffect(() => {
@@ -120,7 +123,33 @@ const MaintenancePage = () => {
       }
     };
     loadMaintenanceRequests();
+    loadAvailableHotels();
   }, [collectionChecked, toast]);
+  
+  // Function to load hotels the current user has access to
+  const loadAvailableHotels = async () => {
+    try {
+      // For admin users, get all hotels
+      // For standard users, filter hotels by user's assigned hotels
+      const allHotels = await getHotels();
+      
+      if (currentUser?.role === 'admin') {
+        setAvailableHotels(allHotels);
+      } else if (currentUser) {
+        const userHotels = allHotels.filter(hotel => 
+          currentUser.hotels.includes(hotel.id)
+        );
+        setAvailableHotels(userHotels);
+      }
+    } catch (error) {
+      console.error('Error loading hotels:', error);
+      toast({
+        title: "Erreur",
+        description: "Impossible de charger les hôtels",
+        variant: "destructive",
+      });
+    }
+  };
   
   // New maintenance dialog
   const [newMaintenanceDialogOpen, setNewMaintenanceDialogOpen] = useState(false);

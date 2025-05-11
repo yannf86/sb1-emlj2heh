@@ -9,6 +9,22 @@ export const getStatusParameters = async () => {
       where('active', '==', true)
     );
     const querySnapshot = await getDocs(q);
+    
+    // If there are no results from parameters_status, try to get from the legacy parameters collection
+    if (querySnapshot.empty) {
+      console.log('No status parameters found in parameters_status, trying legacy collection');
+      const legacyQuery = query(
+        collection(db, 'parameters'),
+        where('type', '==', 'status'),
+        where('active', '==', true)
+      );
+      const legacySnapshot = await getDocs(legacyQuery);
+      return legacySnapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }));
+    }
+    
     return querySnapshot.docs.map(doc => ({
       id: doc.id,
       ...doc.data()
@@ -73,6 +89,17 @@ export const getStatusParameter = async (id: string) => {
         ...docSnap.data()
       };
     }
+    
+    // Try fallback to legacy parameters collection
+    const legacyRef = doc(db, 'parameters', id);
+    const legacySnap = await getDoc(legacyRef);
+    if (legacySnap.exists() && legacySnap.data().type === 'status') {
+      return {
+        id: legacySnap.id,
+        ...legacySnap.data()
+      };
+    }
+    
     return null;
   } catch (error) {
     console.error('Error getting status parameter:', error);
@@ -83,15 +110,43 @@ export const getStatusParameter = async (id: string) => {
 // Get status label
 export const getStatusLabel = async (id: string): Promise<string> => {
   try {
+    // First try to get from parameters_status collection
     const docRef = doc(db, 'parameters_status', id);
     const docSnap = await getDoc(docRef);
     if (docSnap.exists()) {
       return docSnap.data().label;
     }
+    
+    // Try fallback to legacy parameters collection
+    const legacyRef = doc(db, 'parameters', id);
+    const legacySnap = await getDoc(legacyRef);
+    if (legacySnap.exists()) {
+      if (legacySnap.data().type === 'status') {
+        return legacySnap.data().label;
+      }
+    }
+    
+    // If we have a known status ID, return a hardcoded value
+    // This helps when Firebase is temporarily unavailable
+    const statusMap: {[key: string]: string} = {
+      'stat1': 'Ouvert',
+      'stat2': 'En cours',
+      'stat3': 'Résolu',
+      'stat4': 'Fermé',
+      'stat5': 'Annulé',
+      'CZa3iy84r8pVqjVOQHNL': 'En cours',
+      'JyK8HpAF5qwg39QbQeS1': 'Résolu',
+    };
+    
+    if (statusMap[id]) {
+      return statusMap[id];
+    }
+    
     return 'Inconnu';
   } catch (error) {
     console.error('Error getting status label:', error);
-    return 'Inconnu';
+    // Return a reasonable default instead of throwing error
+    return 'Statut';
   }
 };
 
@@ -106,7 +161,18 @@ export const findStatusIdByCode = async (code: string): Promise<string | null> =
     
     const querySnapshot = await getDocs(q);
     if (querySnapshot.empty) {
-      return null;
+      // Try legacy params collection
+      const legacyQ = query(
+        collection(db, 'parameters'),
+        where('type', '==', 'status'),
+        where('code', '==', code),
+        where('active', '==', true)
+      );
+      const legacySnapshot = await getDocs(legacyQ);
+      if (legacySnapshot.empty) {
+        return null;
+      }
+      return legacySnapshot.docs[0].id;
     }
     
     return querySnapshot.docs[0].id;

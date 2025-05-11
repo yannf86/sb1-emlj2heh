@@ -6,6 +6,7 @@ import { Search, SlidersHorizontal, RefreshCw } from 'lucide-react';
 import { getHotels } from '@/lib/db/hotels';
 import { getLostItemTypeParameters } from '@/lib/db/parameters-lost-item-type';
 import { useToast } from '@/hooks/use-toast';
+import { getCurrentUser } from '@/lib/auth';
 
 interface LostItemFiltersProps {
   searchQuery: string;
@@ -38,6 +39,7 @@ const LostItemFilters: React.FC<LostItemFiltersProps> = ({
   const [itemTypes, setItemTypes] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const { toast } = useToast();
+  const currentUser = getCurrentUser();
 
   // Load hotels and item types from Firebase
   useEffect(() => {
@@ -47,7 +49,18 @@ const LostItemFilters: React.FC<LostItemFiltersProps> = ({
         
         // Load hotels
         const hotelsData = await getHotels();
-        setHotels(hotelsData);
+        
+        // Filter hotels based on user permissions
+        if (currentUser?.role === 'admin') {
+          setHotels(hotelsData);
+        } else if (currentUser) {
+          const filteredHotels = hotelsData.filter(hotel => 
+            currentUser.hotels.includes(hotel.id)
+          );
+          setHotels(filteredHotels);
+        } else {
+          setHotels([]);
+        }
         
         // Load item types
         const itemTypesData = await getLostItemTypeParameters();
@@ -65,7 +78,7 @@ const LostItemFilters: React.FC<LostItemFiltersProps> = ({
     };
     
     loadData();
-  }, [toast]);
+  }, [toast, currentUser]);
 
   return (
     <div className="flex flex-col space-y-2">
@@ -81,9 +94,9 @@ const LostItemFilters: React.FC<LostItemFiltersProps> = ({
           />
         </div>
         
-        <Select value={filterHotel} onValueChange={onHotelChange}>
+        <Select value={filterHotel} onValueChange={onHotelChange} disabled={hotels.length === 0}>
           <SelectTrigger className="w-full sm:w-[180px]">
-            <SelectValue placeholder="Tous les hôtels" />
+            <SelectValue placeholder={loading ? "Chargement..." : "Tous les hôtels"} />
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">Tous les hôtels</SelectItem>

@@ -6,6 +6,7 @@ import { Search, SlidersHorizontal, RefreshCw } from 'lucide-react';
 import { parameters } from '@/lib/data';
 import { getHotels } from '@/lib/db/hotels';
 import { useToast } from '@/hooks/use-toast';
+import { getCurrentUser } from '@/lib/auth';
 
 interface MaintenanceFiltersProps {
   searchQuery: string;
@@ -37,6 +38,7 @@ const MaintenanceFilters: React.FC<MaintenanceFiltersProps> = ({
   const [hotels, setHotels] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const { toast } = useToast();
+  const currentUser = getCurrentUser();
 
   const statusParams = parameters.filter(p => p.type === 'status');
   const interventionTypeParams = parameters.filter(p => p.type === 'intervention_type');
@@ -47,7 +49,18 @@ const MaintenanceFilters: React.FC<MaintenanceFiltersProps> = ({
       try {
         setLoading(true);
         const hotelsData = await getHotels();
-        setHotels(hotelsData);
+        
+        // Filter hotels based on user permissions
+        if (currentUser?.role === 'admin') {
+          setHotels(hotelsData);
+        } else if (currentUser) {
+          const filteredHotels = hotelsData.filter(hotel => 
+            currentUser.hotels.includes(hotel.id)
+          );
+          setHotels(filteredHotels);
+        } else {
+          setHotels([]);
+        }
       } catch (error) {
         console.error('Error loading hotels:', error);
         toast({
@@ -61,7 +74,7 @@ const MaintenanceFilters: React.FC<MaintenanceFiltersProps> = ({
     };
     
     loadHotels();
-  }, [toast]);
+  }, [toast, currentUser]);
 
   return (
     <div className="flex flex-col space-y-2">
@@ -77,9 +90,9 @@ const MaintenanceFilters: React.FC<MaintenanceFiltersProps> = ({
           />
         </div>
         
-        <Select value={filterHotel} onValueChange={onHotelChange}>
+        <Select value={filterHotel} onValueChange={onHotelChange} disabled={hotels.length === 0}>
           <SelectTrigger className="w-full sm:w-[180px]">
-            <SelectValue placeholder="Tous les hôtels" />
+            <SelectValue placeholder={loading ? "Chargement..." : "Tous les hôtels"} />
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">Tous les hôtels</SelectItem>

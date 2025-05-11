@@ -9,10 +9,55 @@ import { removeDummyDoc } from './ensure-collections';
 // Get all maintenance requests
 export const getMaintenanceRequests = async (hotelId?: string) => {
   try {
-    let q = collection(db, 'maintenance');
-    if (hotelId) {
-      q = query(q, where('hotelId', '==', hotelId));
+    const currentUser = getCurrentUser();
+    
+    // If no current user, return empty array without throwing an error
+    if (!currentUser) {
+      // Just return empty array silently instead of logging an error
+      return [];
     }
+    
+    let q;
+    
+    // Admin users can see all maintenance requests
+    if (currentUser.role === 'admin') {
+      if (hotelId) {
+        // If hotelId is provided, filter by it
+        q = query(collection(db, 'maintenance'), where('hotelId', '==', hotelId));
+      } else {
+        // Otherwise, get all maintenance requests
+        q = collection(db, 'maintenance');
+      }
+    } else {
+      // Standard users can only see requests from their assigned hotels
+      if (hotelId) {
+        // If hotelId is provided, check if user has access to it
+        if (!currentUser.hotels.includes(hotelId)) {
+          console.error('User does not have access to this hotel');
+          return [];
+        }
+        q = query(collection(db, 'maintenance'), where('hotelId', '==', hotelId));
+      } else if (currentUser.hotels.length === 1) {
+        // If user has only one hotel, filter by it
+        q = query(collection(db, 'maintenance'), where('hotelId', '==', currentUser.hotels[0]));
+      } else if (currentUser.hotels.length > 0) {
+        // If user has multiple hotels, we'll need to make separate queries and combine results
+        const results = [];
+        for (const hotel of currentUser.hotels) {
+          const hotelQuery = query(collection(db, 'maintenance'), where('hotelId', '==', hotel));
+          const querySnapshot = await getDocs(hotelQuery);
+          results.push(...querySnapshot.docs.map(doc => ({
+            id: doc.id,
+            ...doc.data()
+          })));
+        }
+        return results as Maintenance[];
+      } else {
+        // User has no hotels assigned
+        return [];
+      }
+    }
+    
     const querySnapshot = await getDocs(q);
     
     // Filter out dummy_doc if it exists
@@ -41,10 +86,21 @@ export const getMaintenanceRequest = async (id: string) => {
       return null;
     }
     
-    return {
+    const maintenanceData = {
       id: docSnap.id,
       ...docSnap.data()
     } as Maintenance;
+    
+    // Check if current user has access to this maintenance request
+    const currentUser = getCurrentUser();
+    if (!currentUser) return null;
+    
+    if (currentUser.role !== 'admin' && !currentUser.hotels.includes(maintenanceData.hotelId)) {
+      console.error('User does not have access to this maintenance request');
+      return null;
+    }
+    
+    return maintenanceData;
   } catch (error) {
     console.error('Error getting maintenance request:', error);
     throw error;
@@ -59,6 +115,14 @@ export const createMaintenanceRequest = async (data: Omit<Maintenance, 'id' | 'c
     
     // Get current user
     const currentUser = getCurrentUser();
+    if (!currentUser) {
+      throw new Error('User not authenticated');
+    }
+    
+    // Verify user has access to the hotel
+    if (currentUser.role !== 'admin' && !currentUser.hotels.includes(maintenanceData.hotelId)) {
+      throw new Error('You do not have permission to create maintenance requests for this hotel');
+    }
     
     // Create payload
     const payload: any = {
@@ -225,10 +289,19 @@ export const updateMaintenanceRequest = async (id: string, data: Partial<Mainten
     
     // Get current user
     const currentUser = getCurrentUser();
-    const userId = currentUser?.id || 'system';
+    if (!currentUser) {
+      throw new Error('User not authenticated');
+    }
+    
+    // Verify user has access to this maintenance request
+    if (currentUser.role !== 'admin' && !currentUser.hotels.includes(oldData.hotelId)) {
+      throw new Error('You do not have permission to update this maintenance request');
+    }
     
     // Extract file fields if present
     const { photoBefore, photoBeforePreview, photoAfter, photoAfterPreview, quoteFile, hasQuote, ...maintenanceData } = data as any;
+    
+    const userId = currentUser?.id || 'system';
     
     // Create update payload
     const payload: any = { ...maintenanceData };
@@ -425,6 +498,8 @@ export const deleteMaintenanceRequest = async (id: string) => {
     
     // Get current user
     const currentUser = getCurrentUser();
+    if (!currentUser) throw new Error('Not authenticated');
+    
     const userId = currentUser?.id || 'system';
     
     // Get the current maintenance request
@@ -436,6 +511,11 @@ export const deleteMaintenanceRequest = async (id: string) => {
     }
     
     const oldData = docSnap.data();
+    
+    // Verify user has access to this maintenance request
+    if (currentUser.role !== 'admin' && !currentUser.hotels.includes(oldData.hotelId)) {
+      throw new Error('You do not have permission to delete this maintenance request');
+    }
     
     // Delete associated files
     if (oldData.photoBefore) {

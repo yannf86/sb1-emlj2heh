@@ -21,6 +21,7 @@ import { exportIncidentsToPDF } from '@/lib/pdfUtils';
 import { useToast } from '@/hooks/use-toast';
 import { getIncidents, createIncident, updateIncident } from '@/lib/db/incidents';
 import { getCurrentUser } from '@/lib/auth';
+import { getHotels } from '@/lib/db/hotels';
 
 // Import components
 import IncidentDialog from '@/components/incidents/IncidentDialog';
@@ -38,13 +39,15 @@ const IncidentsPage = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [filtersExpanded, setFiltersExpanded] = useState(false);
   const [incidents, setIncidents] = useState<any[]>([]);
+  const [availableHotels, setAvailableHotels] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const { toast } = useToast();
   const currentUser = getCurrentUser();
   
-  // Load incidents on mount
+  // Load incidents and hotels on mount
   useEffect(() => {
     loadIncidents();
+    loadAvailableHotels();
   }, []);
 
   // Function to load incidents
@@ -62,6 +65,31 @@ const IncidentsPage = () => {
       });
     } finally {
       setLoading(false);
+    }
+  };
+  
+  // Function to load hotels the current user has access to
+  const loadAvailableHotels = async () => {
+    try {
+      // For admin users, get all hotels
+      // For standard users, filter hotels by user's assigned hotels
+      const allHotels = await getHotels();
+      
+      if (currentUser?.role === 'admin') {
+        setAvailableHotels(allHotels);
+      } else if (currentUser) {
+        const userHotels = allHotels.filter(hotel => 
+          currentUser.hotels.includes(hotel.id)
+        );
+        setAvailableHotels(userHotels);
+      }
+    } catch (error) {
+      console.error('Error loading hotels:', error);
+      toast({
+        title: "Erreur",
+        description: "Impossible de charger les hôtels",
+        variant: "destructive",
+      });
     }
   };
   
@@ -207,8 +235,26 @@ const IncidentsPage = () => {
   // Handle save from edit form directly (not via view dialog)
   const handleSaveEdit = async (updatedIncident: any) => {
     try {
+      // Create a copy of the incident to avoid modifying the original
+      const incidentToUpdate = { ...updatedIncident };
+      
+      // Ensure fields are never undefined (convert undefined to null)
+      if (incidentToUpdate.concludedAt === undefined) {
+        incidentToUpdate.concludedAt = null;
+      }
+      
+      if (incidentToUpdate.concludedById === undefined) {
+        incidentToUpdate.concludedById = null;
+      }
+      
+      // If concludedById is falsy (null, empty, etc.), ensure concludedAt is also null
+      if (!incidentToUpdate.concludedById) {
+        incidentToUpdate.concludedAt = null;
+        incidentToUpdate.concludedById = null;
+      }
+      
       // Update incident in Firebase
-      await updateIncident(updatedIncident.id, updatedIncident);
+      await updateIncident(incidentToUpdate.id, incidentToUpdate);
       
       toast({
         title: "Incident mis à jour",
@@ -220,6 +266,7 @@ const IncidentsPage = () => {
       
       // Close edit dialog
       setEditIncidentDialogOpen(false);
+      setSelectedIncident(null);
     } catch (error) {
       console.error('Error updating incident:', error);
       toast({
