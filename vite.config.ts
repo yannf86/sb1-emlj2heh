@@ -13,7 +13,7 @@ export default defineConfig({
       '@': path.resolve(__dirname, './src'),
     },
   },
-  base:'/dev/',
+  base: process.env.NODE_ENV === 'production' ? '/dev/' : '/',
   server: {
     historyApiFallback: true, // Pour gérer les routes React
   }
