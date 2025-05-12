@@ -1,6 +1,8 @@
 # CREHO - Gestion Multi-Hôtels
 
 Application de gestion complète pour les chaînes hôtelières, permettant de suivre les incidents, les maintenances, les visites qualité, et plus encore.
+Test de modification depuis Bolt 2
+
 
 ## Fonctionnalités
 
