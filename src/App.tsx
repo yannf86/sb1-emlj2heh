@@ -225,7 +225,14 @@ function App() {
               } />
             </Route>
             
-            <Route path="*" element={<Navigate to="/dashboard" replace />} />
+            <Route 
+              path="*" 
+              element={
+                window.location.pathname.startsWith("/dev")
+                  ? <div style={{ padding: "2rem", textAlign: "center" }}><h2>Page non trouvée</h2></div>
+                  : <Navigate to="/dashboard" replace />
+              } 
+            />
           </Routes>
         </Router>
         <Toaster />
