@@ -19,3 +19,5 @@ jobs:
           script: |
             cd /var/www/html/${{ github.ref_name }}
             git pull origin ${{ github.ref_name }}
+            npm install
+            npm run build
