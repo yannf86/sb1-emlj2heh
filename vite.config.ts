@@ -13,5 +13,8 @@ export default defineConfig({
       '@': path.resolve(__dirname, './src'),
     },
   },
-  base: './', // Utilisez des chemins relatifs plutôt qu'absolus
+  base: process.env.NODE_ENV === 'production' ? '/dev/' : '/',
+  server: {
+    historyApiFallback: true, // Pour gérer les routes React
+  }
 });
