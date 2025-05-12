@@ -3,21 +3,50 @@ name: Deploy to VPS
 on:
   push:
     branches:
-      - main
-      - dev
+      - main    # déployer en prod
+      - dev     # déployer l'environnement dev
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
+
     steps:
       - name: Deploy to VPS via SSH
         uses: appleboy/ssh-action@v0.1.10
         with:
-          host: 147.93.94.132
+          host:     147.93.94.132
           username: root
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          key:      ${{ secrets.SSH_PRIVATE_KEY }}
+
+          # stoppe à la première erreur
+          script_stop: true
+
           script: |
-            cd /var/www/html/${{ github.ref_name }}
-            git pull origin ${{ github.ref_name }}
-            npm install
+            set -euo pipefail
+            echo "🔀 Branche : ${{ github.ref_name }}"
+
+            # 1) Choix du dossier selon la branche
+            if [ "${{ github.ref_name }}" = "dev" ]; then
+              TARGET="/var/www/html/dev"
+            else
+              TARGET="/var/www/html/main"
+            fi
+            echo "📂 Cible : $TARGET"
+            cd "$TARGET"
+
+            # 2) On remet l'arbre de travail PROPRE
+            git fetch origin
+            git reset --hard origin/${{ github.ref_name }}
+            git clean -fd
+
+            # 3) Pull & build
+            echo "📥 Pull origin/${{ github.ref_name }}…"
+            git pull origin ${{ github.ref_name }} --ff-only
+
+            echo "📦 npm ci"
+            npm ci
+
+            echo "🏗  npm run build"
             npm run build
+
+            echo "✅ Déploy de ${{ github.ref_name }} terminé !"
