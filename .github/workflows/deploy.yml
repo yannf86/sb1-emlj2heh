@@ -1,52 +1,37 @@
-name: Deploy to VPS
+name: Deploy to Hostinger
 
 on:
   push:
     branches:
-      - main    # déployer en prod
-      - dev     # déployer l'environnement dev
+      - main    # deploy to production
+      - dev     # deploy development environment
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Deploy to VPS via SSH
-        uses: appleboy/ssh-action@v0.1.10
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v3
         with:
-          host:     147.93.94.132
-          username: root
-          key:      ${{ secrets.SSH_PRIVATE_KEY }}
+          node-version: '18'
+          cache: 'npm'
 
-          # stoppe à la première erreur
-          script_stop: true
+      - name: Install dependencies
+        run: npm ci
 
-          script: |
-            set -euo pipefail
-            echo "🔀 Branche : ${{ github.ref_name }}"
+      - name: Build application
+        run: npm run build
 
-            # 1) Choix du dossier selon la branche
-            if [ "${{ github.ref_name }}" = "dev" ]; then
-              TARGET="/var/www/html/dev"
-            else
-              TARGET="/var/www/html/main"
-            fi
-            echo "📂 Cible : $TARGET"
-            cd "$TARGET"
-
-            # 2) On remet l'arbre de travail PROPRE
-            git fetch origin
-            git reset --hard origin/${{ github.ref_name }}
-            git clean -fd
-
-            # 3) Pull & build
-            echo "📥 Pull origin/${{ github.ref_name }}…"
-            git pull origin ${{ github.ref_name }} --ff-only
-
-            echo "📦 npm ci"
-            npm ci
-
-            echo "🏗  npm run build"
-            npm run build
-
-            echo "✅ Déploy de ${{ github.ref_name }} terminé !"
+      - name: Deploy to Hostinger via SFTP
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.4
+        with:
+          server: ${{ secrets.HOSTINGER_SERVER }}
+          username: ${{ secrets.HOSTINGER_USERNAME }}
+          password: ${{ secrets.HOSTINGER_PASSWORD }}
+          local-dir: ./dist/
+          server-dir: ${{ github.ref_name == 'dev' ? secrets.HOSTINGER_DEV_PATH : secrets.HOSTINGER_PROD_PATH }}/
+          dangerous-clean-slate: true # Use with caution! This will delete all files on the server directory first
