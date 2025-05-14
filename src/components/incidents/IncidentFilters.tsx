@@ -3,8 +3,10 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Search, SlidersHorizontal, RefreshCw } from 'lucide-react';
-import { parameters } from '@/lib/data';
 import { getHotels } from '@/lib/db/hotels';
+import { getStatusParameters } from '@/lib/db/parameters-status';
+import { getIncidentCategoryParameters } from '@/lib/db/parameters-incident-categories';
+import { getImpactParameters } from '@/lib/db/parameters-impact';
 import { useToast } from '@/hooks/use-toast';
 import { getCurrentUser } from '@/lib/auth';
 
@@ -40,19 +42,20 @@ const IncidentFilters: React.FC<IncidentFiltersProps> = ({
   onReset
 }) => {
   const [hotels, setHotels] = useState<any[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [statusParams, setStatusParams] = useState<any[]>([]);
+  const [categoryParams, setCategoryParams] = useState<any[]>([]);
+  const [impactParams, setImpactParams] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
   const { toast } = useToast();
   const currentUser = getCurrentUser();
 
-  const statusParams = parameters.filter(p => p.type === 'status');
-  const categoryParams = parameters.filter(p => p.type === 'incident_category');
-  const impactParams = parameters.filter(p => p.type === 'impact');
-  
-  // Load hotels from Firebase
+  // Load data from Firebase collections
   useEffect(() => {
-    const loadHotels = async () => {
+    const loadData = async () => {
       try {
         setLoading(true);
+        
+        // Load hotels
         const hotelsData = await getHotels();
         
         // Filter hotels based on user permissions
@@ -66,11 +69,23 @@ const IncidentFilters: React.FC<IncidentFiltersProps> = ({
         } else {
           setHotels([]);
         }
+        
+        // Load status parameters from parameters_status collection
+        const statusData = await getStatusParameters();
+        setStatusParams(statusData);
+        
+        // Load category parameters from parameters_incident_category collection
+        const categoryData = await getIncidentCategoryParameters();
+        setCategoryParams(categoryData);
+        
+        // Load impact parameters from parameters_impact collection
+        const impactData = await getImpactParameters();
+        setImpactParams(impactData);
       } catch (error) {
-        console.error('Error loading hotels:', error);
+        console.error('Error loading filters data:', error);
         toast({
           title: "Erreur",
-          description: "Impossible de charger la liste des hôtels",
+          description: "Impossible de charger les données pour les filtres",
           variant: "destructive",
         });
       } finally {
@@ -78,7 +93,7 @@ const IncidentFilters: React.FC<IncidentFiltersProps> = ({
       }
     };
     
-    loadHotels();
+    loadData();
   }, [toast, currentUser]);
 
   return (
