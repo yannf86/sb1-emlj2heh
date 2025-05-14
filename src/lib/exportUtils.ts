@@ -133,6 +133,7 @@ export const exportIncidents = async (
     const impactName = await getImpactLabel(incident.impactId);
     const statusName = await getStatusLabel(incident.statusId);
     const receivedByName = await getUserName(incident.receivedById);
+    const concludedByName = incident.concludedById ? await getUserName(incident.concludedById) : '-';
     
     return {
       'Date': formatDate(new Date(incident.date)),
@@ -143,7 +144,9 @@ export const exportIncidents = async (
       'Impact': impactName,
       'Client': incident.clientName || '-',
       'Description': incident.description,
+      'Description de la résolution': incident.resolutionDescription || '-',
       'Reçu par': receivedByName,
+      'Conclu par': concludedByName,
       'Statut': statusName,
       'Date de création': formatDate(incident.createdAt)
     };

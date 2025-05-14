@@ -117,7 +117,9 @@ export const exportIncidentsToPDF = async (
       'Impact', 
       'Client', 
       'Description',
+      'Description de la résolution',
       'Reçu par',
+      'Conclu par',
       'Statut'
     ];
     
@@ -129,6 +131,7 @@ export const exportIncidentsToPDF = async (
       const impactName = await getImpactLabel(incident.impactId);
       const statusName = await getStatusLabel(incident.statusId);
       const receivedByName = await getUserName(incident.receivedById);
+      const concludedByName = incident.concludedById ? await getUserName(incident.concludedById) : '-';
       
       return [
         `${formatDate(new Date(incident.date))} ${incident.time}`,
@@ -138,7 +141,9 @@ export const exportIncidentsToPDF = async (
         impactName,
         incident.clientName || '-',
         incident.description,
+        incident.resolutionDescription || '-',
         receivedByName,
+        concludedByName,
         statusName
       ];
     }));
@@ -174,9 +179,11 @@ export const exportIncidentsToPDF = async (
         3: { cellWidth: 25 }, // Catégorie
         4: { cellWidth: 20 }, // Impact
         5: { cellWidth: 25 }, // Client
-        6: { cellWidth: 'auto' }, // Description
-        7: { cellWidth: 30 }, // Reçu par
-        8: { cellWidth: 20 }, // Statut
+        6: { cellWidth: 30 }, // Description
+        7: { cellWidth: 30 }, // Description de la résolution
+        8: { cellWidth: 25 }, // Reçu par
+        9: { cellWidth: 25 }, // Conclu par
+        10: { cellWidth: 20 }, // Statut
       },
       margin: PDF_CONFIG.pageMargins,
       didDrawPage: (data) => {
