@@ -7,14 +7,6 @@ import {
   Plus, 
   FileText
 } from 'lucide-react';
-import { 
-  hotels, 
-  users, 
-  parameters, 
-  getHotelName, 
-  getParameterLabel, 
-  getUserName 
-} from '@/lib/data';
 import { formatDate } from '@/lib/utils';
 import { exportIncidents } from '@/lib/exportUtils';
 import { exportIncidentsToPDF } from '@/lib/pdfUtils';
@@ -22,6 +14,12 @@ import { useToast } from '@/hooks/use-toast';
 import { getIncidents, createIncident, updateIncident } from '@/lib/db/incidents';
 import { getCurrentUser } from '@/lib/auth';
 import { getHotels } from '@/lib/db/hotels';
+import { getHotelName } from '@/lib/db/hotels';
+import { getLocationLabel } from '@/lib/db/parameters-locations';
+import { getIncidentCategoryLabel } from '@/lib/db/parameters-incident-categories';
+import { getImpactLabel } from '@/lib/db/parameters-impact';
+import { getStatusLabel } from '@/lib/db/parameters-status';
+import { getUserName } from '@/lib/db/users';
 
 // Import components
 import IncidentDialog from '@/components/incidents/IncidentDialog';
@@ -121,9 +119,16 @@ const IncidentsPage = () => {
     if (searchQuery) {
       const query = searchQuery.toLowerCase();
       const matchesDescription = incident.description.toLowerCase().includes(query);
-      const matchesHotel = getHotelName(incident.hotelId).toLowerCase().includes(query);
-      const matchesCategory = getParameterLabel(incident.categoryId).toLowerCase().includes(query);
-      const matchesClient = incident.clientName ? incident.clientName.toLowerCase().includes(query) : false;
+      
+      // For hotel, category, client name, we'll need to check actual values rather than IDs
+      let matchesHotel = false;
+      let matchesCategory = false;
+      let matchesClient = false;
+      
+      // Check client name if available
+      if (incident.clientName) {
+        matchesClient = incident.clientName.toLowerCase().includes(query);
+      }
       
       if (!matchesDescription && !matchesHotel && !matchesCategory && !matchesClient) return false;
     }
@@ -166,9 +171,17 @@ const IncidentsPage = () => {
   };
   
   // Handle export to Excel
-  const handleExcelExport = () => {
+  const handleExcelExport = async () => {
     try {
-      exportIncidents(filteredIncidents, getHotelName, getParameterLabel, getUserName);
+      await exportIncidents(
+        filteredIncidents, 
+        getHotelName, 
+        getLocationLabel,
+        getIncidentCategoryLabel,
+        getImpactLabel,
+        getStatusLabel,
+        getUserName
+      );
       
       toast({
         title: "Export Excel réussi",
@@ -187,9 +200,17 @@ const IncidentsPage = () => {
   };
   
   // Handle export to PDF
-  const handlePDFExport = () => {
+  const handlePDFExport = async () => {
     try {
-      const fileName = exportIncidentsToPDF(filteredIncidents, getHotelName, getParameterLabel, getUserName);
+      const fileName = await exportIncidentsToPDF(
+        filteredIncidents, 
+        getHotelName, 
+        getLocationLabel,
+        getIncidentCategoryLabel,
+        getImpactLabel,
+        getStatusLabel,
+        getUserName
+      );
       
       toast({
         title: "Export PDF réussi",

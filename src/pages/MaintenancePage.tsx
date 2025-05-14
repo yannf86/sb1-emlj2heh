@@ -61,14 +61,6 @@ import {
   User,
   Loader2
 } from 'lucide-react';
-import { 
-  hotels, 
-  users, 
-  parameters, 
-  getHotelName, 
-  getParameterLabel, 
-  getUserName 
-} from '@/lib/data';
 import { formatDate } from '@/lib/utils';
 import { exportMaintenanceRequests } from '@/lib/exportUtils';
 import { exportMaintenanceRequestsToPDF } from '@/lib/pdfUtils';
@@ -76,7 +68,11 @@ import { useToast } from '@/hooks/use-toast';
 import { getCurrentUser } from '@/lib/auth';
 import { getMaintenanceRequests, createMaintenanceRequest, updateMaintenanceRequest, deleteMaintenanceRequest } from '@/lib/db/maintenance';
 import { ensureMaintenanceCollection } from '@/lib/db/ensure-collections';
-import { getHotels } from '@/lib/db/hotels';
+import { getHotels, getHotelName } from '@/lib/db/hotels';
+import { getLocationLabel } from '@/lib/db/parameters-locations';
+import { getInterventionTypeLabel } from '@/lib/db/parameters-intervention-type';
+import { getStatusLabel } from '@/lib/db/parameters-status';
+import { getUserName } from '@/lib/db/users';
 
 // Import components
 import MaintenanceDialog from '@/components/maintenance/MaintenanceDialog';
@@ -161,11 +157,6 @@ const MaintenancePage = () => {
   const [viewMaintenanceDialogOpen, setViewMaintenanceDialogOpen] = useState(false);
   const [selectedMaintenance, setSelectedMaintenance] = useState<any>(null);
   
-  // Extract parameters by type
-  const locationParams = parameters.filter(p => p.type === 'location');
-  const interventionTypeParams = parameters.filter(p => p.type === 'intervention_type');
-  const statusParams = parameters.filter(p => p.type === 'status');
-  
   // Filter maintenance requests based on selected filters
   const filteredRequests = maintenanceRequests.filter(request => {
     // Filter by hotel
@@ -181,10 +172,8 @@ const MaintenancePage = () => {
     if (searchQuery) {
       const query = searchQuery.toLowerCase();
       const matchesDescription = request.description.toLowerCase().includes(query);
-      const matchesHotel = getHotelName(request.hotelId).toLowerCase().includes(query);
-      const matchesType = getParameterLabel(request.interventionTypeId).toLowerCase().includes(query);
       
-      if (!matchesDescription && !matchesHotel && !matchesType) return false;
+      if (!matchesDescription) return false;
     }
     
     return true;
@@ -271,9 +260,16 @@ const MaintenancePage = () => {
   };
   
   // Handle export to Excel
-  const handleExcelExport = () => {
+  const handleExcelExport = async () => {
     try {
-      exportMaintenanceRequests(filteredRequests, getHotelName, getParameterLabel, getUserName);
+      await exportMaintenanceRequests(
+        filteredRequests,
+        getHotelName,
+        getLocationLabel,
+        getInterventionTypeLabel,
+        getStatusLabel,
+        getUserName
+      );
       
       toast({
         title: "Export Excel réussi",
@@ -292,9 +288,16 @@ const MaintenancePage = () => {
   };
   
   // Handle export to PDF
-  const handlePDFExport = () => {
+  const handlePDFExport = async () => {
     try {
-      const fileName = exportMaintenanceRequestsToPDF(filteredRequests, getHotelName, getParameterLabel, getUserName);
+      const fileName = await exportMaintenanceRequestsToPDF(
+        filteredRequests,
+        getHotelName,
+        getLocationLabel,
+        getInterventionTypeLabel,
+        getStatusLabel,
+        getUserName
+      );
       
       toast({
         title: "Export PDF réussi",
@@ -448,7 +451,7 @@ const MaintenancePage = () => {
         
         <TabsContent value="analytics" className="space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {/* Interventions by Type */}
+            {/* Interventions by Type - using real data */}
             <Card className="col-span-1">
               <CardHeader>
                 <CardTitle>Interventions par Type</CardTitle>
@@ -458,10 +461,22 @@ const MaintenancePage = () => {
                   <ResponsiveContainer width="100%" height="100%">
                     <PieChart>
                       <Pie
-                        data={interventionTypeParams.map(type => ({
-                          name: type.label,
-                          value: filteredRequests.filter(req => req.interventionTypeId === type.id).length
-                        }))}
+                        data={filteredRequests.reduce((acc: any[], request) => {
+                          // Find existing type or add new one
+                          const existingType = acc.find(
+                            item => item.id === request.interventionTypeId
+                          );
+                          if (existingType) {
+                            existingType.value++;
+                          } else {
+                            acc.push({
+                              id: request.interventionTypeId,
+                              name: request.interventionTypeId,
+                              value: 1
+                            });
+                          }
+                          return acc;
+                        }, [])}
                         cx="50%"
                         cy="50%"
                         labelLine={false}
@@ -469,8 +484,24 @@ const MaintenancePage = () => {
                         fill="#8884d8"
                         dataKey="value"
                         label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                        nameKey="name"
                       >
-                        {interventionTypeParams.map((_, index) => (
+                        {filteredRequests.reduce((acc: any[], request) => {
+                          // Find existing type or add new one
+                          const existingType = acc.find(
+                            item => item.id === request.interventionTypeId
+                          );
+                          if (existingType) {
+                            existingType.value++;
+                          } else {
+                            acc.push({
+                              id: request.interventionTypeId,
+                              name: request.interventionTypeId,
+                              value: 1
+                            });
+                          }
+                          return acc;
+                        }, []).map((entry, index) => (
                           <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                         ))}
                       </Pie>
@@ -482,7 +513,7 @@ const MaintenancePage = () => {
               </CardContent>
             </Card>
             
-            {/* Interventions by Status */}
+            {/* Interventions by Status - using real data */}
             <Card className="col-span-1">
               <CardHeader>
                 <CardTitle>Interventions par Statut</CardTitle>
@@ -492,10 +523,22 @@ const MaintenancePage = () => {
                   <ResponsiveContainer width="100%" height="100%">
                     <PieChart>
                       <Pie
-                        data={statusParams.map(status => ({
-                          name: status.label,
-                          value: filteredRequests.filter(req => req.statusId === status.id).length
-                        }))}
+                        data={filteredRequests.reduce((acc: any[], request) => {
+                          // Find existing status or add new one
+                          const existingStatus = acc.find(
+                            item => item.id === request.statusId
+                          );
+                          if (existingStatus) {
+                            existingStatus.value++;
+                          } else {
+                            acc.push({
+                              id: request.statusId,
+                              name: request.statusId,
+                              value: 1
+                            });
+                          }
+                          return acc;
+                        }, [])}
                         cx="50%"
                         cy="50%"
                         labelLine={false}
@@ -503,8 +546,24 @@ const MaintenancePage = () => {
                         fill="#8884d8"
                         dataKey="value"
                         label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                        nameKey="name"
                       >
-                        {statusParams.map((_, index) => (
+                        {filteredRequests.reduce((acc: any[], request) => {
+                          // Find existing status or add new one
+                          const existingStatus = acc.find(
+                            item => item.id === request.statusId
+                          );
+                          if (existingStatus) {
+                            existingStatus.value++;
+                          } else {
+                            acc.push({
+                              id: request.statusId,
+                              name: request.statusId,
+                              value: 1
+                            });
+                          }
+                          return acc;
+                        }, []).map((_, index) => (
                           <Cell 
                             key={`cell-${index}`} 
                             fill={

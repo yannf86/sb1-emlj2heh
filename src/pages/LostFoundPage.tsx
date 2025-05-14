@@ -303,21 +303,15 @@ const LostFoundPage = () => {
   };
   
   // Handle export to Excel
-  const handleExcelExport = () => {
+  const handleExcelExport = async () => {
     try {
-      exportLostItems(filteredItems, getHotelName, async (id) => {
-        let label = 'Inconnu';
-        try {
-          if (id.startsWith('lit')) {
-            label = await getLostItemTypeLabel(id);
-          } else if (id.startsWith('loc')) {
-            label = await getLocationLabel(id);
-          }
-          return label;
-        } catch (error) {
-          return 'Inconnu';
-        }
-      }, getUserName);
+      await exportLostItems(
+        filteredItems,
+        getHotelName,
+        getLocationLabel,
+        getLostItemTypeLabel,
+        getUserName
+      );
       
       toast({
         title: "Export Excel réussi",
@@ -336,21 +330,15 @@ const LostFoundPage = () => {
   };
   
   // Handle export to PDF
-  const handlePDFExport = () => {
+  const handlePDFExport = async () => {
     try {
-      const fileName = exportLostItemsToPDF(filteredItems, getHotelName, async (id) => {
-        let label = 'Inconnu';
-        try {
-          if (id.startsWith('lit')) {
-            label = await getLostItemTypeLabel(id);
-          } else if (id.startsWith('loc')) {
-            label = await getLocationLabel(id);
-          }
-          return label;
-        } catch (error) {
-          return 'Inconnu';
-        }
-      }, getUserName);
+      const fileName = await exportLostItemsToPDF(
+        filteredItems, 
+        getHotelName,
+        getLocationLabel,
+        getLostItemTypeLabel,
+        getUserName
+      );
       
       toast({
         title: "Export PDF réussi",

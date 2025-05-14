@@ -95,12 +95,15 @@ const createBasePDF = (title: string, landscape = false): JsPDFWithAutoTable => 
  * @param getParameterLabel Fonction pour obtenir le libellé d'un paramètre
  * @param getUserName Fonction pour obtenir le nom d'un utilisateur
  */
-export const exportIncidentsToPDF = (
+export const exportIncidentsToPDF = async (
   incidents: any[],
-  getHotelName: (id: string) => string,
-  getParameterLabel: (id: string) => string,
-  getUserName: (id: string) => string
-): string => {
+  getHotelName: (id: string) => Promise<string>,
+  getLocationLabel: (id: string) => Promise<string>,
+  getCategoryLabel: (id: string) => Promise<string>,
+  getImpactLabel: (id: string) => Promise<string>,
+  getStatusLabel: (id: string) => Promise<string>,
+  getUserName: (id: string) => Promise<string>
+): Promise<string> => {
   try {
     // Créer un nouveau document PDF
     const doc = createBasePDF('Suivi des Incidents', true);
@@ -118,29 +121,27 @@ export const exportIncidentsToPDF = (
       'Statut'
     ];
     
-    const tableRows = incidents.map(incident => [
-      `${formatDate(new Date(incident.date))} ${incident.time}`,
-      getHotelName(incident.hotelId),
-      getParameterLabel(incident.locationId),
-      getParameterLabel(incident.categoryId),
-      getParameterLabel(incident.impactId),
-      incident.clientName || '-',
-      incident.description,
-      getUserName(incident.receivedById),
-      getParameterLabel(incident.statusId)
-    ]);
-    
-    // Ajouter statistiques
-    const categoryCounts: Record<string, number> = {};
-    const statusCounts: Record<string, number> = {};
-    
-    incidents.forEach(incident => {
-      const category = getParameterLabel(incident.categoryId);
-      const status = getParameterLabel(incident.statusId);
+    // Récupérer toutes les informations requises de manière asynchrone
+    const tableRows = await Promise.all(incidents.map(async incident => {
+      const hotelName = await getHotelName(incident.hotelId);
+      const locationName = await getLocationLabel(incident.locationId);
+      const categoryName = await getCategoryLabel(incident.categoryId);
+      const impactName = await getImpactLabel(incident.impactId);
+      const statusName = await getStatusLabel(incident.statusId);
+      const receivedByName = await getUserName(incident.receivedById);
       
-      categoryCounts[category] = (categoryCounts[category] || 0) + 1;
-      statusCounts[status] = (statusCounts[status] || 0) + 1;
-    });
+      return [
+        `${formatDate(new Date(incident.date))} ${incident.time}`,
+        hotelName,
+        locationName,
+        categoryName,
+        impactName,
+        incident.clientName || '-',
+        incident.description,
+        receivedByName,
+        statusName
+      ];
+    }));
     
     // Ajouter un résumé en haut du document
     doc.setFontSize(12);
@@ -230,12 +231,14 @@ export const exportIncidentsToPDF = (
  * @param getParameterLabel Fonction pour obtenir le libellé d'un paramètre
  * @param getUserName Fonction pour obtenir le nom d'un utilisateur
  */
-export const exportMaintenanceRequestsToPDF = (
+export const exportMaintenanceRequestsToPDF = async (
   maintenanceRequests: any[],
-  getHotelName: (id: string) => string,
-  getParameterLabel: (id: string) => string,
-  getUserName: (id: string) => string
-): string => {
+  getHotelName: (id: string) => Promise<string>,
+  getLocationLabel: (id: string) => Promise<string>,
+  getInterventionTypeLabel: (id: string) => Promise<string>,
+  getStatusLabel: (id: string) => Promise<string>,
+  getUserName: (id: string) => Promise<string>
+): Promise<string> => {
   try {
     // Créer un nouveau document PDF
     const doc = createBasePDF('Suivi Technique / Maintenance', true);
@@ -254,18 +257,28 @@ export const exportMaintenanceRequestsToPDF = (
       'Montant final'
     ];
     
-    const tableRows = maintenanceRequests.map(request => [
-      `${formatDate(new Date(request.date))} ${request.time}`,
-      getHotelName(request.hotelId),
-      getParameterLabel(request.locationId),
-      getParameterLabel(request.interventionTypeId),
-      request.description,
-      getUserName(request.receivedById),
-      request.technicianId ? getUserName(request.technicianId) : '-',
-      getParameterLabel(request.statusId),
-      request.estimatedAmount ? `${request.estimatedAmount} €` : '-',
-      request.finalAmount ? `${request.finalAmount} €` : '-'
-    ]);
+    // Récupérer toutes les informations requises de manière asynchrone
+    const tableRows = await Promise.all(maintenanceRequests.map(async request => {
+      const hotelName = await getHotelName(request.hotelId);
+      const locationName = await getLocationLabel(request.locationId);
+      const interventionTypeName = await getInterventionTypeLabel(request.interventionTypeId);
+      const statusName = await getStatusLabel(request.statusId);
+      const receivedByName = await getUserName(request.receivedById);
+      const technicianName = request.technicianId ? await getUserName(request.technicianId) : '-';
+      
+      return [
+        `${formatDate(new Date(request.date))} ${request.time}`,
+        hotelName,
+        locationName,
+        interventionTypeName,
+        request.description,
+        receivedByName,
+        technicianName,
+        statusName,
+        request.estimatedAmount ? `${request.estimatedAmount} €` : '-',
+        request.finalAmount ? `${request.finalAmount} €` : '-'
+      ];
+    }));
     
     // Ajouter un résumé en haut du document
     doc.setFontSize(12);
@@ -356,12 +369,13 @@ export const exportMaintenanceRequestsToPDF = (
  * @param getParameterLabel Fonction pour obtenir le libellé d'un paramètre
  * @param getUserName Fonction pour obtenir le nom d'un utilisateur
  */
-export const exportLostItemsToPDF = (
+export const exportLostItemsToPDF = async (
   lostItems: any[],
-  getHotelName: (id: string) => string,
-  getParameterLabel: (id: string) => string,
-  getUserName: (id: string) => string
-): string => {
+  getHotelName: (id: string) => Promise<string>,
+  getLocationLabel: (id: string) => Promise<string>,
+  getItemTypeLabel: (id: string) => Promise<string>,
+  getUserName: (id: string) => Promise<string>
+): Promise<string> => {
   try {
     // Créer un nouveau document PDF
     const doc = createBasePDF('Suivi des Objets Trouvés', true);
@@ -380,18 +394,26 @@ export const exportLostItemsToPDF = (
       'Date restitution'
     ];
     
-    const tableRows = lostItems.map(item => [
-      `${formatDate(new Date(item.date))} ${item.time}`,
-      getHotelName(item.hotelId),
-      getParameterLabel(item.locationId),
-      getParameterLabel(item.itemTypeId),
-      item.description,
-      getUserName(item.foundById),
-      item.storageLocation,
-      item.status.charAt(0).toUpperCase() + item.status.slice(1),
-      item.returnedTo || '-',
-      item.returnDate ? formatDate(new Date(item.returnDate)) : '-'
-    ]);
+    // Récupérer toutes les informations requises de manière asynchrone
+    const tableRows = await Promise.all(lostItems.map(async item => {
+      const hotelName = await getHotelName(item.hotelId);
+      const locationName = await getLocationLabel(item.locationId);
+      const itemTypeName = await getItemTypeLabel(item.itemTypeId);
+      const foundByName = await getUserName(item.foundById);
+      
+      return [
+        `${formatDate(new Date(item.date))} ${item.time}`,
+        hotelName,
+        locationName,
+        itemTypeName,
+        item.description,
+        foundByName,
+        item.storageLocation,
+        item.status.charAt(0).toUpperCase() + item.status.slice(1),
+        item.returnedTo || '-',
+        item.returnDate ? formatDate(new Date(item.returnDate)) : '-'
+      ];
+    }));
     
     // Ajouter statistiques de base
     const countByStatus = {
@@ -491,12 +513,12 @@ export const exportLostItemsToPDF = (
  * @param getParameterLabel Fonction pour obtenir le libellé d'un paramètre
  * @param getHotelName Fonction pour obtenir le nom de l'hôtel
  */
-export const exportProceduresToPDF = (
+export const exportProceduresToPDF = async (
   procedures: any[],
-  getModuleName: (id: string) => string,
-  getParameterLabel: (id: string) => string,
-  getHotelName: (id: string) => string
-): string => {
+  getModuleName: (id: string) => Promise<string>,
+  getTypeLabel: (id: string) => Promise<string>,
+  getHotelName: (id: string) => Promise<string>
+): Promise<string> => {
   try {
     // Créer un nouveau document PDF
     const doc = createBasePDF('Procédures', true);
@@ -514,29 +536,39 @@ export const exportProceduresToPDF = (
       'Dernière MàJ'
     ];
     
-    const tableRows = procedures.map(procedure => {
+    // Récupérer les données de manière asynchrone
+    const tableRows = await Promise.all(procedures.map(async procedure => {
+      // Get module name and type label
+      const moduleName = await getModuleName(procedure.moduleId);
+      const typeLabel = await getTypeLabel(procedure.typeId);
+      
+      // Get hotel names for each hotel ID
+      const hotelNames = await Promise.all(
+        procedure.hotelIds.map((hotelId: string) => getHotelName(hotelId))
+      );
+      
       // Formater la liste des hôtels
       let hotelsList;
       if (procedure.hotelIds.length === 0) {
         hotelsList = '-';
       } else if (procedure.hotelIds.length === 1) {
-        hotelsList = getHotelName(procedure.hotelIds[0]);
+        hotelsList = hotelNames[0];
       } else {
-        hotelsList = procedure.hotelIds.map(id => getHotelName(id)).join(', ');
+        hotelsList = hotelNames.join(', ');
       }
       
       return [
         procedure.title,
-        getModuleName(procedure.moduleId),
-        getParameterLabel(procedure.typeId),
+        moduleName,
+        typeLabel,
         hotelsList,
         procedure.description,
-        procedure.userReads.filter(r => r.validated).length.toString(),
+        procedure.userReads.filter((r: any) => r.validated).length.toString(),
         procedure.userReads.length.toString(),
         formatDate(new Date(procedure.createdAt)),
         formatDate(new Date(procedure.updatedAt))
       ];
-    });
+    }));
     
     // Ajouter un résumé en haut du document
     doc.setFontSize(12);

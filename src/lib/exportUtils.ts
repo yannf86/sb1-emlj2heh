@@ -115,25 +115,38 @@ export const exportToExcel = <T extends Record<string, any>>(
  * @param getParameterLabel Fonction pour obtenir le libellé d'un paramètre
  * @param getUserName Fonction pour obtenir le nom d'un utilisateur
  */
-export const exportIncidents = (
+export const exportIncidents = async (
   incidents: any[],
-  getHotelName: (id: string) => string,
-  getParameterLabel: (id: string) => string,
-  getUserName: (id: string) => string
+  getHotelName: (id: string) => Promise<string>,
+  getLocationLabel: (id: string) => Promise<string>,
+  getCategoryLabel: (id: string) => Promise<string>,
+  getImpactLabel: (id: string) => Promise<string>,
+  getStatusLabel: (id: string) => Promise<string>,
+  getUserName: (id: string) => Promise<string>
 ) => {
   // Préparer les données pour l'export
-  const exportData = incidents.map(incident => ({
-    'Date': formatDate(new Date(incident.date)),
-    'Heure': incident.time,
-    'Hôtel': getHotelName(incident.hotelId),
-    'Lieu': getParameterLabel(incident.locationId),
-    'Catégorie': getParameterLabel(incident.categoryId),
-    'Impact': getParameterLabel(incident.impactId),
-    'Client': incident.clientName || '-',
-    'Description': incident.description,
-    'Reçu par': getUserName(incident.receivedById),
-    'Statut': getParameterLabel(incident.statusId),
-    'Date de création': formatDate(incident.createdAt)
+  const exportData = await Promise.all(incidents.map(async incident => {
+    // Asynchronously resolve all labels
+    const hotelName = await getHotelName(incident.hotelId);
+    const locationName = await getLocationLabel(incident.locationId);
+    const categoryName = await getCategoryLabel(incident.categoryId);
+    const impactName = await getImpactLabel(incident.impactId);
+    const statusName = await getStatusLabel(incident.statusId);
+    const receivedByName = await getUserName(incident.receivedById);
+    
+    return {
+      'Date': formatDate(new Date(incident.date)),
+      'Heure': incident.time,
+      'Hôtel': hotelName,
+      'Lieu': locationName,
+      'Catégorie': categoryName,
+      'Impact': impactName,
+      'Client': incident.clientName || '-',
+      'Description': incident.description,
+      'Reçu par': receivedByName,
+      'Statut': statusName,
+      'Date de création': formatDate(incident.createdAt)
+    };
   }));
   
   // Exporter vers Excel
@@ -147,28 +160,40 @@ export const exportIncidents = (
  * @param getParameterLabel Fonction pour obtenir le libellé d'un paramètre
  * @param getUserName Fonction pour obtenir le nom d'un utilisateur
  */
-export const exportMaintenanceRequests = (
+export const exportMaintenanceRequests = async (
   maintenanceRequests: any[],
-  getHotelName: (id: string) => string,
-  getParameterLabel: (id: string) => string,
-  getUserName: (id: string) => string
+  getHotelName: (id: string) => Promise<string>,
+  getLocationLabel: (id: string) => Promise<string>,
+  getInterventionTypeLabel: (id: string) => Promise<string>,
+  getStatusLabel: (id: string) => Promise<string>,
+  getUserName: (id: string) => Promise<string>
 ) => {
   // Préparer les données pour l'export
-  const exportData = maintenanceRequests.map(request => ({
-    'Date': formatDate(new Date(request.date)),
-    'Heure': request.time,
-    'Hôtel': getHotelName(request.hotelId),
-    'Lieu': getParameterLabel(request.locationId),
-    'Type d\'intervention': getParameterLabel(request.interventionTypeId),
-    'Description': request.description,
-    'Reçu par': getUserName(request.receivedById),
-    'Technicien': request.technicianId ? getUserName(request.technicianId) : '-',
-    'Montant estimé': request.estimatedAmount ? `${request.estimatedAmount} €` : '-',
-    'Montant final': request.finalAmount ? `${request.finalAmount} €` : '-',
-    'Statut': getParameterLabel(request.statusId),
-    'Date de début': request.startDate ? formatDate(request.startDate) : '-',
-    'Date de fin': request.endDate ? formatDate(request.endDate) : '-',
-    'Date de création': formatDate(request.createdAt)
+  const exportData = await Promise.all(maintenanceRequests.map(async request => {
+    // Asynchronously resolve all labels
+    const hotelName = await getHotelName(request.hotelId);
+    const locationName = await getLocationLabel(request.locationId);
+    const interventionTypeName = await getInterventionTypeLabel(request.interventionTypeId);
+    const statusName = await getStatusLabel(request.statusId);
+    const receivedByName = await getUserName(request.receivedById);
+    const technicianName = request.technicianId ? await getUserName(request.technicianId) : '-';
+    
+    return {
+      'Date': formatDate(new Date(request.date)),
+      'Heure': request.time,
+      'Hôtel': hotelName,
+      'Lieu': locationName,
+      'Type d\'intervention': interventionTypeName,
+      'Description': request.description,
+      'Reçu par': receivedByName,
+      'Technicien': technicianName,
+      'Montant estimé': request.estimatedAmount ? `${request.estimatedAmount} €` : '-',
+      'Montant final': request.finalAmount ? `${request.finalAmount} €` : '-',
+      'Statut': statusName,
+      'Date de début': request.startDate ? formatDate(request.startDate) : '-',
+      'Date de fin': request.endDate ? formatDate(request.endDate) : '-',
+      'Date de création': formatDate(request.createdAt)
+    };
   }));
   
   // Exporter vers Excel
@@ -182,26 +207,35 @@ export const exportMaintenanceRequests = (
  * @param getParameterLabel Fonction pour obtenir le libellé d'un paramètre
  * @param getUserName Fonction pour obtenir le nom d'un utilisateur
  */
-export const exportLostItems = (
+export const exportLostItems = async (
   lostItems: any[],
-  getHotelName: (id: string) => string,
-  getParameterLabel: (id: string) => string,
-  getUserName: (id: string) => string
+  getHotelName: (id: string) => Promise<string>,
+  getLocationLabel: (id: string) => Promise<string>,
+  getItemTypeLabel: (id: string) => Promise<string>,
+  getUserName: (id: string) => Promise<string>
 ) => {
   // Préparer les données pour l'export
-  const exportData = lostItems.map(item => ({
-    'Date': formatDate(new Date(item.date)),
-    'Heure': item.time,
-    'Hôtel': getHotelName(item.hotelId),
-    'Lieu': getParameterLabel(item.locationId),
-    'Type d\'objet': getParameterLabel(item.itemTypeId),
-    'Description': item.description,
-    'Trouvé par': getUserName(item.foundById),
-    'Lieu de stockage': item.storageLocation,
-    'Statut': item.status.charAt(0).toUpperCase() + item.status.slice(1),
-    'Rendu à': item.returnedTo || '-',
-    'Date de restitution': item.returnDate ? formatDate(item.returnDate) : '-',
-    'Date de création': formatDate(item.createdAt)
+  const exportData = await Promise.all(lostItems.map(async item => {
+    // Asynchronously resolve all labels
+    const hotelName = await getHotelName(item.hotelId);
+    const locationName = await getLocationLabel(item.locationId);
+    const itemTypeName = await getItemTypeLabel(item.itemTypeId);
+    const foundByName = await getUserName(item.foundById);
+    
+    return {
+      'Date': formatDate(new Date(item.date)),
+      'Heure': item.time,
+      'Hôtel': hotelName,
+      'Lieu': locationName,
+      'Type d\'objet': itemTypeName,
+      'Description': item.description,
+      'Trouvé par': foundByName,
+      'Lieu de stockage': item.storageLocation,
+      'Statut': item.status.charAt(0).toUpperCase() + item.status.slice(1),
+      'Rendu à': item.returnedTo || '-',
+      'Date de restitution': item.returnDate ? formatDate(item.returnDate) : '-',
+      'Date de création': formatDate(item.createdAt)
+    };
   }));
   
   // Exporter vers Excel
@@ -215,37 +249,43 @@ export const exportLostItems = (
  * @param getParameterLabel Fonction pour obtenir le libellé d'un paramètre
  * @param getHotelName Fonction pour obtenir le nom de l'hôtel
  */
-export const exportProcedures = (
+export const exportProcedures = async (
   procedures: any[],
-  getModuleName: (id: string) => string,
-  getParameterLabel: (id: string) => string,
-  getHotelName: (id: string) => string
+  getModuleName: (id: string) => Promise<string>,
+  getTypeLabel: (id: string) => Promise<string>,
+  getHotelName: (id: string) => Promise<string>
 ) => {
   // Préparer les données pour l'export
-  const exportData = procedures.map(procedure => {
-    // Formater la liste des hôtels
-    let hotelsList;
+  const exportData = await Promise.all(procedures.map(async procedure => {
+    // Resolve module name and type label
+    const moduleName = await getModuleName(procedure.moduleId);
+    const typeLabel = await getTypeLabel(procedure.typeId);
+    
+    // Resolve all hotel names
+    const hotelNames = await Promise.all(procedure.hotelIds.map((id: string) => getHotelName(id)));
+    let hotelsList = '';
+    
     if (procedure.hotelIds.length === 0) {
       hotelsList = '-';
     } else if (procedure.hotelIds.length === 1) {
-      hotelsList = getHotelName(procedure.hotelIds[0]);
+      hotelsList = hotelNames[0];
     } else {
-      hotelsList = procedure.hotelIds.map(id => getHotelName(id)).join(', ');
+      hotelsList = hotelNames.join(', ');
     }
     
     return {
       'Titre': procedure.title,
       'Description': procedure.description,
-      'Module': getModuleName(procedure.moduleId),
-      'Type': getParameterLabel(procedure.typeId),
+      'Module': moduleName,
+      'Type': typeLabel,
       'Hôtels': hotelsList,
       'URL du fichier': procedure.fileUrl,
       'Lectures totales': procedure.userReads.length,
-      'Lectures validées': procedure.userReads.filter(r => r.validated).length,
+      'Lectures validées': procedure.userReads.filter((r: any) => r.validated).length,
       'Date de création': formatDate(procedure.createdAt),
       'Date de mise à jour': formatDate(procedure.updatedAt)
     };
-  });
+  }));
   
   // Exporter vers Excel
   exportToExcel(exportData, "Procedures", "CREHO_Procedures");
