@@ -1,27 +1,19 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Switch } from '@/components/ui/switch';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { 
   Users, 
   UserPlus, 
   Search, 
-  Lock, 
-  Building, 
-  Layers, 
-  LogIn, 
   Mail, 
   RefreshCw,
   CheckCheck,
   XCircle,
   ShieldCheck,
   Edit,
-  Save,
   Trash2,
   AlertCircle
 } from 'lucide-react';
@@ -32,40 +24,8 @@ import { db } from '../lib/firebase';
 import { getHotels } from '@/lib/db/hotels';
 import { registerUser } from '@/lib/auth';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-
-// Component for checkbox item with stable IDs to maintain focus
-const CheckboxItem = ({ id, name, checked, onChange }: { id: string, name: string, checked: boolean, onChange: () => void }) => (
-  <div key={id} className="flex items-center space-x-2">
-    <input
-      type="checkbox"
-      id={`checkbox-${id}`}
-      checked={checked}
-      onChange={onChange}
-      className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-    />
-    <label htmlFor={`checkbox-${id}`} className="text-sm font-medium">
-      {name}
-    </label>
-  </div>
-);
-
-// Component for radio button with stable IDs
-const RadioButton = ({ id, name, value, checked, onChange }: { id: string, name: string, value: string, checked: boolean, onChange: () => void }) => (
-  <div className="flex items-center space-x-2">
-    <input
-      type="radio"
-      id={id}
-      name={name}
-      value={value}
-      checked={checked}
-      onChange={onChange}
-      className="h-4 w-4 border-gray-300 text-blue-600 focus:ring-blue-500"
-    />
-    <Label htmlFor={id} className="text-sm">
-      {value === 'standard' ? 'Utilisateur Standard' : 'Administrateur'}
-    </Label>
-  </div>
-);
+import { UserFormProvider } from './components/UserFormContext';
+import UserFormContent from './components/UserFormContent';
 
 const UsersPage = () => {
   const [searchQuery, setSearchQuery] = useState('');
@@ -88,7 +48,7 @@ const UsersPage = () => {
     email: '',
     password: '',
     confirmPassword: '',
-    role: 'standard',
+    role: 'standard' as 'standard' | 'admin',
     active: true
   });
 
@@ -175,64 +135,32 @@ const UsersPage = () => {
   });
 
   // Open edit dialog for a user
-  const handleEdit = (user: any) => {
+  const handleEdit = useCallback((user: any) => {
     setSelectedUser(user);
     setEditUserDialogOpen(true);
-  };
+  }, []);
 
   // Open delete dialog for a user
-  const handleDelete = (user: any) => {
+  const handleDelete = useCallback((user: any) => {
     setSelectedUser(user);
     setDeleteUserDialogOpen(true);
-  };
+  }, []);
 
-  // Specific handlers for form inputs to preserve focus
-  const handleNameChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setFormData(prev => ({ ...prev, name: e.target.value }));
-  };
+  // Form change handlers
+  const handleFormChange = useCallback((field: string, value: any) => {
+    setFormData(prev => ({ ...prev, [field]: value }));
+  }, []);
 
-  const handleEmailChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setFormData(prev => ({ ...prev, email: e.target.value }));
-  };
+  const handleHotelsChange = useCallback((hotels: string[]) => {
+    setSelectedHotels(hotels);
+  }, []);
 
-  const handlePasswordChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setFormData(prev => ({ ...prev, password: e.target.value }));
-  };
-
-  const handleConfirmPasswordChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setFormData(prev => ({ ...prev, confirmPassword: e.target.value }));
-  };
-
-  // Handle role change
-  const handleRoleChange = (role: string) => {
-    setFormData(prev => ({ ...prev, role }));
-  };
-
-  // Handle active status change
-  const handleActiveChange = (active: boolean) => {
-    setFormData(prev => ({ ...prev, active }));
-  };
-
-  // Toggle a hotel selection
-  const toggleHotelSelection = (hotelId: string) => {
-    setSelectedHotels(prev => 
-      prev.includes(hotelId) 
-        ? prev.filter(id => id !== hotelId)
-        : [...prev, hotelId]
-    );
-  };
-
-  // Toggle a module selection
-  const toggleModuleSelection = (moduleId: string) => {
-    setSelectedModules(prev =>
-      prev.includes(moduleId)
-        ? prev.filter(id => id !== moduleId)
-        : [...prev, moduleId]
-    );
-  };
+  const handleModulesChange = useCallback((modules: string[]) => {
+    setSelectedModules(modules);
+  }, []);
 
   // Validate form
-  const validateForm = (isNew: boolean = true) => {
+  const validateForm = useCallback((isNew: boolean = true) => {
     if (!formData.name) {
       return { valid: false, message: "Le nom est requis" };
     }
@@ -251,11 +179,11 @@ const UsersPage = () => {
     if (selectedModules.length === 0) {
       return { valid: false, message: "Au moins un module doit être sélectionné" };
     }
-    return { valid: true };
-  };
+    return { valid: true, message: "" };
+  }, [formData.name, formData.email, formData.password, formData.confirmPassword, selectedHotels, selectedModules]);
 
   // Check if user with same email and name already exists
-  const checkDuplicateUser = async (): Promise<boolean> => {
+  const checkDuplicateUser = useCallback(async (): Promise<boolean> => {
     try {
       // Check if a user with the same email and name already exists
       const q = query(
@@ -282,10 +210,10 @@ const UsersPage = () => {
       console.error('Error checking for duplicate user:', error);
       return false; // Assume no duplicate in case of error
     }
-  };
+  }, [formData.email, formData.name, selectedUser]);
 
   // Handle create user
-  const handleCreateUser = async () => {
+  const handleCreateUser = useCallback(async () => {
     const validation = validateForm();
     if (!validation.valid) {
       toast({
@@ -363,10 +291,10 @@ const UsersPage = () => {
     } finally {
       setSaving(false);
     }
-  };
+  }, [validateForm, checkDuplicateUser, formData, selectedHotels, selectedModules, toast]);
 
   // Handle update user
-  const handleUpdateUser = async () => {
+  const handleUpdateUser = useCallback(async () => {
     const validation = validateForm(false);
     if (!validation.valid) {
       toast({
@@ -391,6 +319,10 @@ const UsersPage = () => {
     try {
       setSaving(true);
       setError(null);
+
+      if (!selectedUser?.id) {
+        throw new Error("ID utilisateur manquant");
+      }
 
       // Update user in Firestore
       const userRef = doc(db, 'users', selectedUser.id);
@@ -421,6 +353,7 @@ const UsersPage = () => {
       setSelectedHotels([]);
       setSelectedModules([]);
       setEditUserDialogOpen(false);
+      setSelectedUser(null);
 
       // Reload users
       const usersSnapshot = await getDocs(collection(db, 'users'));
@@ -440,11 +373,11 @@ const UsersPage = () => {
     } finally {
       setSaving(false);
     }
-  };
+  }, [validateForm, checkDuplicateUser, selectedUser, formData, selectedHotels, selectedModules, toast]);
 
   // Handle delete user
-  const handleDeleteUser = async () => {
-    if (!selectedUser) return;
+  const handleDeleteUser = useCallback(async () => {
+    if (!selectedUser?.id) return;
 
     try {
       setSaving(true);
@@ -480,171 +413,42 @@ const UsersPage = () => {
     } finally {
       setSaving(false);
     }
-  };
+  }, [selectedUser, toast]);
 
   // Retry loading data
-  const handleRetry = () => {
-    const loadData = async () => {
-      try {
-        setLoading(true);
-        setError(null);
-        
-        // Load users from Firestore
-        const usersSnapshot = await getDocs(collection(db, 'users'));
-        const usersData = usersSnapshot.docs.map(doc => ({
-          id: doc.id,
-          ...doc.data()
-        }));
-        setUsers(usersData);
-        
-        // Load hotels from Firestore
-        const hotelsData = await getHotels();
-        setHotels(hotelsData);
-        
-        toast({
-          title: "Données chargées",
-          description: "Les données ont été chargées avec succès",
-        });
-      } catch (error) {
-        console.error('Error loading data:', error);
-        setError('Impossible de charger les données. Vérifiez votre connexion internet et réessayez.');
-        toast({
-          title: "Erreur de connexion",
-          description: "Impossible de se connecter à la base de données. Vérifiez votre connexion internet.",
-          variant: "destructive",
-        });
-      } finally {
-        setLoading(false);
-      }
-    };
-    
-    loadData();
-  };
-
-  // Common dialog content for creating/editing users
-  const UserFormContent = ({ isNew = true }: { isNew?: boolean }) => (
-    <div className="grid gap-4 py-4">
-      <div className="grid grid-cols-2 gap-4">
-        <div className="space-y-2">
-          <Label htmlFor="name-input" className="after:content-['*'] after:ml-0.5 after:text-red-500">
-            Nom complet
-          </Label>
-          <Input
-            id="name-input"
-            value={formData.name}
-            onChange={handleNameChange}
-            placeholder="John Doe"
-          />
-        </div>
-        
-        <div className="space-y-2">
-          <Label htmlFor="email-input" className="after:content-['*'] after:ml-0.5 after:text-red-500">
-            Adresse e-mail
-          </Label>
-          <Input
-            id="email-input"
-            type="email"
-            value={formData.email}
-            onChange={handleEmailChange}
-            placeholder="john.doe@example.com"
-          />
-        </div>
-      </div>
+  const handleRetry = useCallback(async () => {
+    try {
+      setLoading(true);
+      setError(null);
       
-      {isNew && (
-        <div className="grid grid-cols-2 gap-4">
-          <div className="space-y-2">
-            <Label htmlFor="password-input" className="after:content-['*'] after:ml-0.5 after:text-red-500">
-              Mot de passe
-            </Label>
-            <Input
-              id="password-input"
-              type="password"
-              value={formData.password}
-              onChange={handlePasswordChange}
-            />
-          </div>
-          
-          <div className="space-y-2">
-            <Label htmlFor="confirm-password-input" className="after:content-['*'] after:ml-0.5 after:text-red-500">
-              Confirmer le mot de passe
-            </Label>
-            <Input
-              id="confirm-password-input"
-              type="password"
-              value={formData.confirmPassword}
-              onChange={handleConfirmPasswordChange}
-            />
-          </div>
-        </div>
-      )}
+      // Load users from Firestore
+      const usersSnapshot = await getDocs(collection(db, 'users'));
+      const usersData = usersSnapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }));
+      setUsers(usersData);
       
-      <div className="space-y-2">
-        <Label className="after:content-['*'] after:ml-0.5 after:text-red-500">Rôle</Label>
-        <div className="flex space-x-4">
-          <RadioButton
-            id="role-standard"
-            name="role"
-            value="standard"
-            checked={formData.role === 'standard'}
-            onChange={() => handleRoleChange('standard')}
-          />
-          <RadioButton
-            id="role-admin"
-            name="role"
-            value="admin"
-            checked={formData.role === 'admin'}
-            onChange={() => handleRoleChange('admin')}
-          />
-        </div>
-      </div>
+      // Load hotels from Firestore
+      const hotelsData = await getHotels();
+      setHotels(hotelsData);
       
-      <div className="space-y-2">
-        <Label className="after:content-['*'] after:ml-0.5 after:text-red-500">Hôtels accessibles</Label>
-        <div className="p-4 border rounded-md max-h-36 overflow-y-auto">
-          {hotels.length === 0 ? (
-            <p className="text-sm text-muted-foreground">Aucun hôtel disponible</p>
-          ) : (
-            hotels.map(hotel => (
-              <CheckboxItem
-                key={hotel.id}
-                id={`hotel-${hotel.id}`}
-                name={hotel.name}
-                checked={selectedHotels.includes(hotel.id)}
-                onChange={() => toggleHotelSelection(hotel.id)}
-              />
-            ))
-          )}
-        </div>
-      </div>
-      
-      <div className="space-y-2">
-        <Label className="after:content-['*'] after:ml-0.5 after:text-red-500">Modules accessibles</Label>
-        <div className="p-4 border rounded-md max-h-36 overflow-y-auto">
-          {modules.map(module => (
-            <CheckboxItem
-              key={module.id}
-              id={`module-${module.id}`}
-              name={module.name}
-              checked={selectedModules.includes(module.id)}
-              onChange={() => toggleModuleSelection(module.id)}
-            />
-          ))}
-        </div>
-      </div>
-      
-      <div className="flex items-center space-x-2">
-        <Switch 
-          id="user-active" 
-          checked={formData.active}
-          onCheckedChange={handleActiveChange}
-        />
-        <Label htmlFor="user-active" className="text-sm font-medium">
-          Utilisateur actif
-        </Label>
-      </div>
-    </div>
-  );
+      toast({
+        title: "Données chargées",
+        description: "Les données ont été chargées avec succès",
+      });
+    } catch (error) {
+      console.error('Error loading data:', error);
+      setError('Impossible de charger les données. Vérifiez votre connexion internet et réessayez.');
+      toast({
+        title: "Erreur de connexion",
+        description: "Impossible de se connecter à la base de données. Vérifiez votre connexion internet.",
+        variant: "destructive",
+      });
+    } finally {
+      setLoading(false);
+    }
+  }, [toast]);
 
   if (loading) {
     return (
@@ -727,6 +531,11 @@ const UsersPage = () => {
                       <div className="flex flex-col items-center">
                         <AlertCircle className="h-8 w-8 text-muted-foreground mb-2" />
                         <p>Impossible de charger les utilisateurs</p>
+                      </div>
+                    ) : searchQuery ? (
+                      <div className="flex flex-col items-center">
+                        <Search className="h-8 w-8 text-muted-foreground mb-2" />
+                        <p>Aucun utilisateur trouvé pour cette recherche</p>
                       </div>
                     ) : (
                       <div className="flex flex-col items-center">
@@ -813,8 +622,20 @@ const UsersPage = () => {
       <Dialog 
         open={newUserDialogOpen} 
         onOpenChange={(open) => {
+          if (!open) {
+            // Reset form when dialog closes
+            setFormData({
+              name: '',
+              email: '',
+              password: '',
+              confirmPassword: '',
+              role: 'standard',
+              active: true
+            });
+            setSelectedHotels([]);
+            setSelectedModules([]);
+          }
           setNewUserDialogOpen(open);
-          // State is reset in the useEffect hook
         }}
       >
         <DialogContent className="sm:max-w-[600px] max-h-[90vh]">
@@ -826,7 +647,18 @@ const UsersPage = () => {
           </DialogHeader>
           
           <div className="overflow-y-auto pr-2" style={{ maxHeight: 'calc(90vh - 200px)' }}>
-            <UserFormContent isNew={true} />
+            <UserFormProvider
+              initialFormData={formData}
+              initialHotels={selectedHotels}
+              initialModules={selectedModules}
+              isNew={true}
+              saving={saving}
+              onFormChange={handleFormChange}
+              onHotelsChange={handleHotelsChange}
+              onModulesChange={handleModulesChange}
+            >
+              <UserFormContent hotels={hotels} />
+            </UserFormProvider>
           </div>
           
           <DialogFooter>
@@ -851,11 +683,11 @@ const UsersPage = () => {
       <Dialog 
         open={editUserDialogOpen} 
         onOpenChange={(open) => {
-          setEditUserDialogOpen(open);
-          // State is reset in the useEffect hook when dialog closes
           if (!open) {
+            // Reset selected user when dialog closes
             setSelectedUser(null);
           }
+          setEditUserDialogOpen(open);
         }}
       >
         <DialogContent className="sm:max-w-[600px] max-h-[90vh]">
@@ -867,7 +699,18 @@ const UsersPage = () => {
           </DialogHeader>
           
           <div className="overflow-y-auto pr-2" style={{ maxHeight: 'calc(90vh - 200px)' }}>
-            <UserFormContent isNew={false} />
+            <UserFormProvider
+              initialFormData={formData}
+              initialHotels={selectedHotels}
+              initialModules={selectedModules}
+              isNew={false}
+              saving={saving}
+              onFormChange={handleFormChange}
+              onHotelsChange={handleHotelsChange}
+              onModulesChange={handleModulesChange}
+            >
+              <UserFormContent hotels={hotels} />
+            </UserFormProvider>
           </div>
           
           <DialogFooter>
@@ -892,10 +735,10 @@ const UsersPage = () => {
       <Dialog 
         open={deleteUserDialogOpen} 
         onOpenChange={(open) => {
-          setDeleteUserDialogOpen(open);
           if (!open) {
             setSelectedUser(null);
           }
+          setDeleteUserDialogOpen(open);
         }}
       >
         <DialogContent className="sm:max-w-[500px]">
