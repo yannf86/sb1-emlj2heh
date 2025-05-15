@@ -47,11 +47,11 @@ const createBasePDF = (title: string, landscape = false): JsPDFWithAutoTable => 
   doc.setFontSize(14);
   doc.text(title, PDF_CONFIG.pageMargins.left, 10);
   
-  // Ajouter la date d'export
+  // Ajouter la date d'export (sans l'heure)
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(9);
   doc.text(
-    `Export du ${new Date().toLocaleDateString('fr-FR')} à ${new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}`,
+    `Export du ${new Date().toLocaleDateString('fr-FR')}`,
     doc.internal.pageSize.width - PDF_CONFIG.pageMargins.right - 50, 
     10
   );
@@ -134,7 +134,7 @@ export const exportIncidentsToPDF = async (
       const concludedByName = incident.concludedById ? await getUserName(incident.concludedById) : '-';
       
       return [
-        `${formatDate(new Date(incident.date))} ${incident.time}`,
+        `${formatDate(new Date(incident.date))}`,
         hotelName,
         locationName,
         categoryName,
@@ -274,7 +274,7 @@ export const exportMaintenanceRequestsToPDF = async (
       const technicianName = request.technicianId ? await getUserName(request.technicianId) : '-';
       
       return [
-        `${formatDate(new Date(request.date))} ${request.time}`,
+        `${formatDate(new Date(request.date))}`,
         hotelName,
         locationName,
         interventionTypeName,
@@ -409,7 +409,7 @@ export const exportLostItemsToPDF = async (
       const foundByName = await getUserName(item.foundById);
       
       return [
-        `${formatDate(new Date(item.date))} ${item.time}`,
+        `${formatDate(new Date(item.date))}`,
         hotelName,
         locationName,
         itemTypeName,
@@ -418,7 +418,7 @@ export const exportLostItemsToPDF = async (
         item.storageLocation,
         item.status.charAt(0).toUpperCase() + item.status.slice(1),
         item.returnedTo || '-',
-        item.returnDate ? formatDate(new Date(item.returnDate)) : '-'
+        item.returnDate ? formatDate(item.returnDate) : '-'
       ];
     }));
     
