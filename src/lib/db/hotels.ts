@@ -1,7 +1,7 @@
 import { collection, getDocs, query, where, doc, getDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import type { Hotel } from '../schema';
-import { getCurrentUser, hasHotelAccess } from '../auth';
+import { getCurrentUser } from '../auth';
 
 // Get all hotels
 export const getHotels = async () => {
@@ -16,10 +16,10 @@ export const getHotels = async () => {
     })) as Hotel[];
     
     // If no user is logged in or user is system admin (role='admin'), return all hotels
-    if (!currentUser) return allHotels;
+    if (!currentUser || currentUser.role === 'admin') return allHotels;
     
     // For both hotel_admin and standard users, filter hotels based on their assigned hotels
-    return allHotels.filter(hotel => hasHotelAccess(hotel.id));
+    return allHotels.filter(hotel => currentUser.hotels.includes(hotel.id));
   } catch (error) {
     console.error('Error getting hotels:', error);
     throw error;
@@ -36,15 +36,10 @@ export const getHotelsByIds = async (hotelIds: string[]) => {
       where('id', 'in', hotelIds)
     );
     const querySnapshot = await getDocs(q);
-    
-    // Filter for hotel access
-    const hotels = querySnapshot.docs.map(doc => ({
+    return querySnapshot.docs.map(doc => ({
       id: doc.id,
       ...doc.data()
     })) as Hotel[];
-    
-    // Check user's access to each hotel
-    return hotels.filter(hotel => hasHotelAccess(hotel.id));
   } catch (error) {
     console.error('Error getting hotels by IDs:', error);
     throw error;
@@ -54,12 +49,6 @@ export const getHotelsByIds = async (hotelIds: string[]) => {
 // Get hotel name by ID
 export const getHotelName = async (hotelId: string): Promise<string> => {
   try {
-    // Check user's access to this hotel
-    const hasAccess = hasHotelAccess(hotelId);
-    if (!hasAccess) {
-      return 'Accès refusé';
-    }
-    
     const docRef = doc(db, 'hotels', hotelId);
     const docSnap = await getDoc(docRef);
     if (docSnap.exists()) {

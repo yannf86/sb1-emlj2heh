@@ -283,7 +283,10 @@ export const hasHotelAccess = (hotelId: string): boolean => {
   const user = getCurrentUser();
   if (!user) return false;
   
-  // All types of admins and standard users only have access to their assigned hotels
+  // Admin has access to all hotels
+  if (user.role === 'admin') return true;
+  
+  // Hotel admins and standard users only have access to their assigned hotels
   return user.hotels.includes(hotelId);
 };
 
