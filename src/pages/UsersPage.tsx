@@ -23,7 +23,7 @@ import { useToast } from '@/hooks/use-toast';
 import { collection, addDoc, updateDoc, doc, getDocs, deleteDoc, query, where } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { getHotels } from '@/lib/db/hotels';
-import { registerUser, sendPasswordReset } from '@/lib/auth';
+import { registerUser, sendPasswordReset, getCurrentUser, hasHotelAccess, canCreateUsersForHotel } from '@/lib/auth';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { UserFormProvider } from './components/UserFormContext';
 import UserFormContent from './components/UserFormContent';
@@ -43,6 +43,7 @@ const UsersPage = () => {
   const [hotels, setHotels] = useState<any[]>([]);
   const [error, setError] = useState<string | null>(null);
   const { toast } = useToast();
+  const currentUser = getCurrentUser();
 
   // Form state
   const [formData, setFormData] = useState({
@@ -50,7 +51,7 @@ const UsersPage = () => {
     email: '',
     password: '',
     confirmPassword: '',
-    role: 'standard' as 'standard' | 'admin',
+    role: 'standard' as 'standard' | 'hotel_admin' | 'admin',
     active: true
   });
 
@@ -61,17 +62,35 @@ const UsersPage = () => {
         setLoading(true);
         setError(null);
         
-        // Load users from Firestore
+        // Load users from Firestore based on current user's permissions
         const usersSnapshot = await getDocs(collection(db, 'users'));
-        const usersData = usersSnapshot.docs.map(doc => ({
+        let usersData = usersSnapshot.docs.map(doc => ({
           id: doc.id,
           ...doc.data()
         }));
+        
+        // If current user is not a system admin, filter users based on hotel access
+        if (currentUser && currentUser.role !== 'admin') {
+          usersData = usersData.filter(user => {
+            // A hotel_admin can see users that share at least one hotel with them
+            const sharedHotels = user.hotels.filter((hotelId: string) => 
+              currentUser.hotels.includes(hotelId)
+            );
+            return sharedHotels.length > 0;
+          });
+        }
+        
         setUsers(usersData);
         
-        // Load hotels from Firestore
+        // Load hotels from Firestore - filter based on user's access
         const hotelsData = await getHotels();
-        setHotels(hotelsData);
+        
+        // Filter hotels based on user's permissions
+        const accessibleHotels = hotelsData.filter(hotel => 
+          hasHotelAccess(hotel.id)
+        );
+        
+        setHotels(accessibleHotels);
       } catch (error) {
         console.error('Error loading data:', error);
         setError('Impossible de charger les données. Vérifiez votre connexion internet et réessayez.');
@@ -90,7 +109,7 @@ const UsersPage = () => {
     };
     
     loadData();
-  }, [toast]);
+  }, [toast, currentUser]);
 
   // Initialize form data when dialog opens
   useEffect(() => {
@@ -103,10 +122,11 @@ const UsersPage = () => {
         role: 'standard',
         active: true
       });
-      setSelectedHotels([]);
+      // Pre-select user's accessible hotels by default
+      setSelectedHotels(currentUser?.hotels || []);
       setSelectedModules([]);
     }
-  }, [newUserDialogOpen]);
+  }, [newUserDialogOpen, currentUser?.hotels]);
 
   // Initialize edit form when dialog opens
   useEffect(() => {
@@ -136,23 +156,112 @@ const UsersPage = () => {
     );
   });
 
+  // Check if current user can create users
+  const canCreateUsers = useCallback(() => {
+    if (!currentUser) return false;
+    
+    // Full admins and hotel admins can create users
+    if (['admin', 'hotel_admin'].includes(currentUser.role)) {
+      return true;
+    }
+    
+    return false;
+  }, [currentUser]);
+
+  // Check if current user can edit a specific user
+  const canEditUser = useCallback((user: any) => {
+    if (!currentUser || !user) return false;
+    
+    // Full admins can edit anyone
+    if (currentUser.role === 'admin') return true;
+    
+    // Hotel admins can edit users for their hotels, except other admins
+    if (currentUser.role === 'hotel_admin') {
+      // Can't edit system admins
+      if (user.role === 'admin') return false;
+      
+      // Can edit users with shared hotels
+      const sharedHotels = user.hotels.filter((hotelId: string) => 
+        currentUser.hotels.includes(hotelId)
+      );
+      return sharedHotels.length > 0;
+    }
+    
+    return false;
+  }, [currentUser]);
+
+  // Check if current user can delete a specific user
+  const canDeleteUser = useCallback((user: any) => {
+    if (!currentUser || !user) return false;
+    
+    // Nobody can delete system admins
+    if (user.role === 'admin') return false;
+    
+    // Full admins can delete anyone except system admins
+    if (currentUser.role === 'admin') return true;
+    
+    // Hotel admins can delete standard users for their hotels
+    if (currentUser.role === 'hotel_admin') {
+      // Can only delete standard users (not other hotel admins)
+      if (user.role !== 'standard') return false;
+      
+      // Can delete users with shared hotels
+      const sharedHotels = user.hotels.filter((hotelId: string) => 
+        currentUser.hotels.includes(hotelId)
+      );
+      return sharedHotels.length > 0;
+    }
+    
+    return false;
+  }, [currentUser]);
+
   // Open edit dialog for a user
   const handleEdit = useCallback((user: any) => {
+    // Check if current user can edit this user
+    if (!canEditUser(user)) {
+      toast({
+        title: "Accès refusé",
+        description: "Vous n'avez pas les permissions nécessaires pour modifier cet utilisateur",
+        variant: "destructive",
+      });
+      return;
+    }
+    
     setSelectedUser(user);
     setEditUserDialogOpen(true);
-  }, []);
+  }, [canEditUser, toast]);
 
   // Open delete dialog for a user
   const handleDelete = useCallback((user: any) => {
+    // Check if current user can delete this user
+    if (!canDeleteUser(user)) {
+      toast({
+        title: "Accès refusé",
+        description: "Vous n'avez pas les permissions nécessaires pour supprimer cet utilisateur",
+        variant: "destructive",
+      });
+      return;
+    }
+    
     setSelectedUser(user);
     setDeleteUserDialogOpen(true);
-  }, []);
+  }, [canDeleteUser, toast]);
 
   // Open reset password dialog for a user
   const handleResetPassword = useCallback((user: any) => {
+    // Check if current user can edit this user (same permissions as edit)
+    if (!canEditUser(user)) {
+      toast({
+        title: "Accès refusé",
+        description: "Vous n'avez pas les permissions nécessaires pour réinitialiser le mot de passe de cet utilisateur",
+        variant: "destructive",
+      });
+      return;
+    }
+    
     setSelectedUser(user);
     setResetPasswordDialogOpen(true);
-  }, []);
+  }, [canEditUser, toast]);
 
   // Form change handlers
   const handleFormChange = useCallback((field: string, value: any) => {
@@ -160,7 +269,9 @@ const UsersPage = () => {
   }, []);
 
   const handleHotelsChange = useCallback((hotels: string[]) => {
-    setSelectedHotels(hotels);
+    // Ensure hotels are actually accessible by the current user
+    const accessibleHotels = hotels.filter(hotelId => hasHotelAccess(hotelId));
+    setSelectedHotels(accessibleHotels);
   }, []);
 
   const handleModulesChange = useCallback((modules: string[]) => {
@@ -187,8 +298,35 @@ const UsersPage = () => {
     if (selectedModules.length === 0) {
       return { valid: false, message: "Au moins un module doit être sélectionné" };
     }
+    
+    // Verify that current user has permission for all selected hotels
+    if (!currentUser) {
+      return { valid: false, message: "Erreur d'authentification" };
+    }
+    
+    // If not system admin, verify hotel permissions
+    if (currentUser.role !== 'admin') {
+      const unauthorizedHotels = selectedHotels.filter(hotelId => 
+        !currentUser.hotels.includes(hotelId)
+      );
+      
+      if (unauthorizedHotels.length > 0) {
+        return { valid: false, message: "Vous avez sélectionné des hôtels auxquels vous n'avez pas accès" };
+      }
+    }
+    
+    // For hotel_admin role, only admins or hotel_admins can create them
+    if (formData.role === 'hotel_admin' && currentUser.role !== 'admin' && currentUser.role !== 'hotel_admin') {
+      return { valid: false, message: "Vous n'avez pas le droit de créer des administrateurs d'hôtel" };
+    }
+    
+    // Only system admins can create system admins
+    if (formData.role === 'admin' && currentUser.role !== 'admin') {
+      return { valid: false, message: "Seul un administrateur système peut créer un autre administrateur système" };
+    }
+    
     return { valid: true, message: "" };
-  }, [formData.name, formData.email, formData.password, formData.confirmPassword, selectedHotels, selectedModules]);
+  }, [formData.name, formData.email, formData.password, formData.confirmPassword, formData.role, selectedHotels, selectedModules, currentUser]);
 
   // Check if user with same email and name already exists
   const checkDuplicateUser = useCallback(async (): Promise<boolean> => {
@@ -261,6 +399,16 @@ const UsersPage = () => {
 
   // Handle create user
   const handleCreateUser = useCallback(async () => {
+    // Vérifier si l'utilisateur peut créer des utilisateurs
+    if (!canCreateUsers()) {
+      toast({
+        title: "Accès refusé",
+        description: "Vous n'avez pas les permissions nécessaires pour créer des utilisateurs",
+        variant: "destructive",
+      });
+      return;
+    }
+    
     const validation = validateForm();
     if (!validation.valid) {
       toast({
@@ -322,10 +470,21 @@ const UsersPage = () => {
 
       // Reload users
       const usersSnapshot = await getDocs(collection(db, 'users'));
-      const usersData = usersSnapshot.docs.map(doc => ({
+      let usersData = usersSnapshot.docs.map(doc => ({
         id: doc.id,
         ...doc.data()
       }));
+      
+      // Filter users based on current user's permissions
+      if (currentUser && currentUser.role !== 'admin') {
+        usersData = usersData.filter(user => {
+          const sharedHotels = user.hotels.filter((hotelId: string) => 
+            currentUser.hotels.includes(hotelId)
+          );
+          return sharedHotels.length > 0;
+        });
+      }
+      
       setUsers(usersData);
     } catch (error: any) {
       console.error('Error creating user:', error);
@@ -338,10 +497,20 @@ const UsersPage = () => {
     } finally {
       setSaving(false);
     }
-  }, [validateForm, checkDuplicateUser, formData, selectedHotels, selectedModules, toast]);
+  }, [validateForm, checkDuplicateUser, formData, selectedHotels, selectedModules, toast, canCreateUsers, currentUser]);
 
   // Handle update user
   const handleUpdateUser = useCallback(async () => {
+    // Check if current user can edit this user
+    if (!canEditUser(selectedUser)) {
+      toast({
+        title: "Accès refusé",
+        description: "Vous n'avez pas les permissions nécessaires pour modifier cet utilisateur",
+        variant: "destructive",
+      });
+      return;
+    }
+    
     const validation = validateForm(false);
     if (!validation.valid) {
       toast({
@@ -404,10 +573,21 @@ const UsersPage = () => {
 
       // Reload users
       const usersSnapshot = await getDocs(collection(db, 'users'));
-      const usersData = usersSnapshot.docs.map(doc => ({
+      let usersData = usersSnapshot.docs.map(doc => ({
         id: doc.id,
         ...doc.data()
       }));
+      
+      // Filter users based on current user's permissions
+      if (currentUser && currentUser.role !== 'admin') {
+        usersData = usersData.filter(user => {
+          const sharedHotels = user.hotels.filter((hotelId: string) => 
+            currentUser.hotels.includes(hotelId)
+          );
+          return sharedHotels.length > 0;
+        });
+      }
+      
       setUsers(usersData);
     } catch (error: any) {
       console.error('Error updating user:', error);
@@ -420,11 +600,21 @@ const UsersPage = () => {
     } finally {
       setSaving(false);
     }
-  }, [validateForm, checkDuplicateUser, selectedUser, formData, selectedHotels, selectedModules, toast]);
+  }, [validateForm, checkDuplicateUser, selectedUser, formData, selectedHotels, selectedModules, toast, currentUser, canEditUser]);
 
   // Handle delete user
   const handleDeleteUser = useCallback(async () => {
     if (!selectedUser?.id) return;
+    
+    // Check if current user can delete this user
+    if (!canDeleteUser(selectedUser)) {
+      toast({
+        title: "Accès refusé",
+        description: "Vous n'avez pas les permissions nécessaires pour supprimer cet utilisateur",
+        variant: "destructive",
+      });
+      return;
+    }
 
     try {
       setSaving(true);
@@ -444,10 +634,21 @@ const UsersPage = () => {
 
       // Reload users
       const usersSnapshot = await getDocs(collection(db, 'users'));
-      const usersData = usersSnapshot.docs.map(doc => ({
+      let usersData = usersSnapshot.docs.map(doc => ({
         id: doc.id,
         ...doc.data()
       }));
+      
+      // Filter users based on current user's permissions
+      if (currentUser && currentUser.role !== 'admin') {
+        usersData = usersData.filter(user => {
+          const sharedHotels = user.hotels.filter((hotelId: string) => 
+            currentUser.hotels.includes(hotelId)
+          );
+          return sharedHotels.length > 0;
+        });
+      }
+      
       setUsers(usersData);
     } catch (error: any) {
       console.error('Error deleting user:', error);
@@ -460,7 +661,7 @@ const UsersPage = () => {
     } finally {
       setSaving(false);
     }
-  }, [selectedUser, toast]);
+  }, [selectedUser, toast, currentUser, canDeleteUser]);
 
   // Retry loading data
   const handleRetry = useCallback(async () => {
@@ -470,15 +671,29 @@ const UsersPage = () => {
       
       // Load users from Firestore
       const usersSnapshot = await getDocs(collection(db, 'users'));
-      const usersData = usersSnapshot.docs.map(doc => ({
+      let usersData = usersSnapshot.docs.map(doc => ({
         id: doc.id,
         ...doc.data()
       }));
+      
+      // Filter users based on current user's permissions
+      if (currentUser && currentUser.role !== 'admin') {
+        usersData = usersData.filter(user => {
+          const sharedHotels = user.hotels.filter((hotelId: string) => 
+            currentUser.hotels.includes(hotelId)
+          );
+          return sharedHotels.length > 0;
+        });
+      }
+      
       setUsers(usersData);
       
-      // Load hotels from Firestore
+      // Load hotels from Firestore - filter based on user's access
       const hotelsData = await getHotels();
-      setHotels(hotelsData);
+      const accessibleHotels = hotelsData.filter(hotel => 
+        hasHotelAccess(hotel.id)
+      );
+      setHotels(accessibleHotels);
       
       toast({
         title: "Données chargées",
@@ -495,7 +710,17 @@ const UsersPage = () => {
     } finally {
       setLoading(false);
     }
-  }, [toast]);
+  }, [toast, currentUser]);
+
+  // Get user role label
+  const getUserRoleLabel = (role: string): string => {
+    switch(role) {
+      case 'admin': return 'Administrateur Système';
+      case 'hotel_admin': return 'Administrateur Hôtel';
+      case 'standard': return 'Utilisateur Standard';
+      default: return role;
+    }
+  };
 
   if (loading) {
     return (
@@ -517,10 +742,12 @@ const UsersPage = () => {
         </div>
         
         <div className="flex flex-col sm:flex-row space-y-2 sm:space-y-0 sm:space-x-2">
-          <Button onClick={() => setNewUserDialogOpen(true)}>
-            <UserPlus className="mr-2 h-4 w-4" />
-            Nouvel Utilisateur
-          </Button>
+          {canCreateUsers() && (
+            <Button onClick={() => setNewUserDialogOpen(true)}>
+              <UserPlus className="mr-2 h-4 w-4" />
+              Nouvel Utilisateur
+            </Button>
+          )}
         </div>
       </div>
       
@@ -601,7 +828,12 @@ const UsersPage = () => {
                       {user.role === 'admin' ? (
                         <div className="flex items-center">
                           <ShieldCheck className="mr-1 h-4 w-4 text-blue-500" />
-                          <span>Administrateur</span>
+                          <span>Administrateur Système</span>
+                        </div>
+                      ) : user.role === 'hotel_admin' ? (
+                        <div className="flex items-center">
+                          <ShieldCheck className="mr-1 h-4 w-4 text-green-500" />
+                          <span>Administrateur Hôtel</span>
                         </div>
                       ) : (
                         <span>Utilisateur Standard</span>
@@ -635,26 +867,31 @@ const UsersPage = () => {
                       )}
                     </TableCell>
                     <TableCell className="text-right space-x-1">
-                      <Button 
-                        variant="ghost" 
-                        size="sm"
-                        onClick={() => handleResetPassword(user)}
-                        disabled={saving}
-                      >
-                        <Send className="h-4 w-4 mr-2" />
-                        Email
-                      </Button>
+                      {canEditUser(user) && (
+                        <Button 
+                          variant="ghost" 
+                          size="sm"
+                          onClick={() => handleResetPassword(user)}
+                          disabled={saving}
+                        >
+                          <Send className="h-4 w-4 mr-2" />
+                          Email
+                        </Button>
+                      )}
                       
-                      <Button 
-                        variant="ghost" 
-                        size="sm"
-                        onClick={() => handleEdit(user)}
-                        disabled={saving}
-                      >
-                        <Edit className="h-4 w-4 mr-2" />
-                        Modifier
-                      </Button>
-                      {user.role !== 'admin' && (
+                      {canEditUser(user) && (
+                        <Button 
+                          variant="ghost" 
+                          size="sm"
+                          onClick={() => handleEdit(user)}
+                          disabled={saving}
+                        >
+                          <Edit className="h-4 w-4 mr-2" />
+                          Modifier
+                        </Button>
+                      )}
+                      
+                      {canDeleteUser(user) && (
                         <Button 
                           variant="ghost" 
                           size="sm"
@@ -820,7 +1057,7 @@ const UsersPage = () => {
                 </p>
                 <p className="flex items-center">
                   <ShieldCheck className="h-4 w-4 mr-2" />
-                  {selectedUser.role === 'admin' ? 'Administrateur' : 'Utilisateur Standard'}
+                  {getUserRoleLabel(selectedUser.role)}
                 </p>
               </div>
               

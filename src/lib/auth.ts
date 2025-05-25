@@ -14,7 +14,7 @@ export type AuthUser = {
   id: string;
   name: string;
   email: string;
-  role: 'admin' | 'standard';
+  role: 'admin' | 'hotel_admin' | 'standard';
   hotels: string[];
   modules: string[];
   active: boolean;
@@ -272,7 +272,7 @@ export const hasModuleAccess = (moduleCode: string): boolean => {
   if (!user) return false;
   
   // Admin has access to all modules
-  if (user.role === 'admin') return true;
+  if (user.role === 'admin' || user.role === 'hotel_admin') return true;
   
   // Check if the module is in the user's allowed modules
   return user.modules.some(m => m === moduleCode);
@@ -283,11 +283,34 @@ export const hasHotelAccess = (hotelId: string): boolean => {
   const user = getCurrentUser();
   if (!user) return false;
   
-  // Admin has access to all hotels
-  if (user.role === 'admin') return true;
-  
-  // Check if the hotel is in the user's allowed hotels
+  // All types of admins and standard users only have access to their assigned hotels
   return user.hotels.includes(hotelId);
+};
+
+// Check if user can create users for a specific hotel
+export const canCreateUsersForHotel = (hotelId: string): boolean => {
+  const user = getCurrentUser();
+  if (!user) return false;
+  
+  // Admin and hotel_admin can create users, but only for hotels they have access to
+  if ((user.role === 'admin' || user.role === 'hotel_admin') && user.hotels.includes(hotelId)) {
+    return true;
+  }
+  
+  return false;
+};
+
+// Check if user can modify hotel parameters
+export const canModifyHotelParameters = (hotelId: string): boolean => {
+  const user = getCurrentUser();
+  if (!user) return false;
+  
+  // Admin and hotel_admin can modify hotel parameters, but only for hotels they have access to
+  if ((user.role === 'admin' || user.role === 'hotel_admin') && user.hotels.includes(hotelId)) {
+    return true;
+  }
+  
+  return false;
 };
 
 // Set the last activity time

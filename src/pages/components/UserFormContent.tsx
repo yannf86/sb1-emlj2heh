@@ -4,6 +4,7 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { modules } from '@/lib/data';
 import { useUserForm } from './UserFormContext';
+import { getCurrentUser } from '@/lib/auth';
 
 // Component for radio button with stable IDs
 const RadioButton = React.memo(({ 
@@ -11,13 +12,15 @@ const RadioButton = React.memo(({
   name, 
   value, 
   checked, 
-  onChange 
+  onChange,
+  disabled = false
 }: { 
   id: string, 
   name: string, 
   value: string, 
   checked: boolean, 
-  onChange: () => void 
+  onChange: () => void,
+  disabled?: boolean
 }) => (
   <div className="flex items-center space-x-2">
     <input
@@ -27,10 +30,13 @@ const RadioButton = React.memo(({
       value={value}
       checked={checked}
       onChange={onChange}
+      disabled={disabled}
       className="h-4 w-4 border-gray-300 text-blue-600 focus:ring-blue-500"
     />
     <Label htmlFor={id} className="text-sm">
-      {value === 'standard' ? 'Utilisateur Standard' : 'Administrateur'}
+      {value === 'standard' ? 'Utilisateur Standard' : 
+       value === 'hotel_admin' ? 'Administrateur Hôtel' :
+       'Administrateur Système'}
     </Label>
   </div>
 ));
@@ -52,6 +58,12 @@ const UserFormContent: React.FC<UserFormContentProps> = React.memo(({ hotels }) 
     isNew,
     saving
   } = useUserForm();
+  
+  const currentUser = getCurrentUser();
+  
+  // Determine if user can create hotel_admin or admin roles
+  const canCreateHotelAdmin = currentUser?.role === 'admin' || currentUser?.role === 'hotel_admin';
+  const canCreateSystemAdmin = currentUser?.role === 'admin';
 
   // Refs for inputs to maintain focus
   const nameInputRef = useRef<HTMLInputElement>(null);
@@ -113,6 +125,9 @@ const UserFormContent: React.FC<UserFormContentProps> = React.memo(({ hotels }) 
               onChange={(e) => handleFormChange('password', e.target.value)}
               disabled={saving}
             />
+            <p className="text-xs text-muted-foreground">
+              Ce mot de passe servira uniquement pour la première connexion. L'utilisateur recevra un email pour le modifier.
+            </p>
           </div>
           
           <div className="space-y-2">
@@ -133,7 +148,7 @@ const UserFormContent: React.FC<UserFormContentProps> = React.memo(({ hotels }) 
       
       <div className="space-y-2">
         <Label className="after:content-['*'] after:ml-0.5 after:text-red-500">Rôle</Label>
-        <div className="flex space-x-4">
+        <div className="flex flex-col space-y-2">
           <RadioButton
             id="role-standard"
             name="role"
@@ -142,13 +157,28 @@ const UserFormContent: React.FC<UserFormContentProps> = React.memo(({ hotels }) 
             onChange={() => handleFormChange('role', 'standard')}
           />
           <RadioButton
+            id="role-hotel-admin"
+            name="role"
+            value="hotel_admin"
+            checked={formData.role === 'hotel_admin'}
+            onChange={() => handleFormChange('role', 'hotel_admin')}
+            disabled={!canCreateHotelAdmin}
+          />
+          <RadioButton
             id="role-admin"
             name="role"
             value="admin"
             checked={formData.role === 'admin'}
             onChange={() => handleFormChange('role', 'admin')}
+            disabled={!canCreateSystemAdmin}
           />
         </div>
+        
+        {!canCreateHotelAdmin && formData.role !== 'standard' && (
+          <p className="text-xs text-amber-600">
+            Vous n'avez pas les droits pour créer des comptes administrateurs
+          </p>
+        )}
       </div>
       
       <div className="space-y-2">
