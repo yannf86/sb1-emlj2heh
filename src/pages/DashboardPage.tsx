@@ -51,7 +51,7 @@ import { getIncidents } from '@/lib/db/incidents';
 import { getMaintenanceRequests } from '@/lib/db/maintenance';
 import { getHotels } from '@/lib/db/hotels';
 import { useToast } from '@/hooks/use-toast';
-import { getCurrentUser } from '@/lib/auth';
+import { getCurrentUser, hasHotelAccess } from '@/lib/auth';
 import { getLostItems } from '@/lib/db/lost-items';
 
 // Define chart colors
@@ -92,47 +92,48 @@ const DashboardPage = () => {
           return;
         }
         
-        // Load hotels
+        // Load hotels - this function now filters hotels based on user permissions
         const hotelsData = await getHotels();
+        setHotels(hotelsData);
+        setAvailableHotels(hotelsData);
         
-        // Filter hotels based on user permissions
-        if (currentUser?.role === 'admin') {
-          setHotels(hotelsData);
-          setAvailableHotels(hotelsData);
-        } else if (currentUser) {
-          const filteredHotels = hotelsData.filter(hotel => 
-            currentUser.hotels.includes(hotel.id)
-          );
-          setHotels(filteredHotels);
-          setAvailableHotels(filteredHotels);
-          
-          // If user has only one hotel, automatically select it
-          if (filteredHotels.length === 1 && selectedHotel === 'all') {
-            setSelectedHotel(filteredHotels[0].id);
-          }
-        } else {
-          setHotels([]);
-          setAvailableHotels([]);
+        // If user has only one hotel, automatically select it
+        if (hotelsData.length === 1 && selectedHotel === 'all') {
+          setSelectedHotel(hotelsData[0].id);
         }
         
-        console.log("Loading incidents for hotel:", selectedHotel === 'all' ? 'ALL HOTELS' : selectedHotel);
-        // Load incidents - getIncidents() already handles permissions
-        const incidentsData = await getIncidents(selectedHotel === 'all' ? undefined : selectedHotel);
-        console.log("Loaded incidents:", incidentsData);
-        setIncidents(incidentsData);
-
-        // Load maintenance requests - getMaintenanceRequests() already handles permissions
-        const maintenanceData = await getMaintenanceRequests(selectedHotel === 'all' ? undefined : selectedHotel);
-        setMaintenanceRequests(maintenanceData);
+        // Determine which hotel ID to filter by
+        const filterHotelId = selectedHotel === 'all' ? undefined : selectedHotel;
         
-        // Load lost items
-        const lostItemsData = await getLostItems(selectedHotel === 'all' ? undefined : selectedHotel);
-        setLostItems(lostItemsData);
+        // Only load data for accessible hotels
+        if (selectedHotel === 'all' || hasHotelAccess(selectedHotel)) {
+          // Load incidents
+          const incidentsData = await getIncidents(filterHotelId);
+          setIncidents(incidentsData);
 
-        // TODO: Add API calls for quality visits once implemented
-        // For now, using empty arrays
-        setQualityVisits([]);
+          // Load maintenance requests
+          const maintenanceData = await getMaintenanceRequests(filterHotelId);
+          setMaintenanceRequests(maintenanceData);
+          
+          // Load lost items
+          const lostItemsData = await getLostItems(filterHotelId);
+          setLostItems(lostItemsData);
 
+          // TODO: Add API calls for quality visits once implemented
+          // For now, using empty arrays
+          setQualityVisits([]);
+        } else {
+          // Reset data if user has no access to selected hotel
+          setIncidents([]);
+          setMaintenanceRequests([]);
+          setLostItems([]);
+          setQualityVisits([]);
+          toast({
+            title: "Accès refusé",
+            description: "Vous n'avez pas accès à cet hôtel",
+            variant: "destructive",
+          });
+        }
       } catch (error) {
         console.error('Error loading dashboard data:', error);
         toast({
@@ -168,17 +169,11 @@ const DashboardPage = () => {
   
   // Get statistics
   const getStats = () => {
-    // Debugging logs pour voir les valeurs uniques de statusId
-    const uniqueStatuses = [...new Set(incidents.map(inc => inc.statusId))];
-    console.log("Valeurs uniques de statusId:", uniqueStatuses);
-    
     // Count open incidents with exact status "En cours"
     const openIncidents = filteredIncidents.filter(inc => {
       // Le statut peut être "En cours" ou l'ID spécifique "CZa3iy84r8pVqjVOQHNL"
       return inc.statusId === "En cours" || inc.statusId === "CZa3iy84r8pVqjVOQHNL";
     }).length;
-    
-    console.log("Nombre d'incidents ouverts:", openIncidents);
     
     // Count resolved incidents
     const resolvedIncidents = filteredIncidents.filter(inc => {
@@ -227,24 +222,19 @@ const DashboardPage = () => {
   
   const stats = getStats();
 
-  // Create data for charts
-  const incidentsByCategory = [
-    { name: 'Propreté', value: filteredIncidents.filter(inc => inc.categoryId === 'cat1').length },
-    { name: 'Technique', value: filteredIncidents.filter(inc => inc.categoryId === 'cat2').length },
-    { name: 'Service', value: filteredIncidents.filter(inc => inc.categoryId === 'cat3').length },
-    { name: 'Bruit', value: filteredIncidents.filter(inc => inc.categoryId === 'cat4').length },
-    { name: 'Nourriture', value: filteredIncidents.filter(inc => inc.categoryId === 'cat5').length },
-  ];
+  // Create data for charts - only for accessible hotels
+  const incidentsByCategory = parameters
+    .filter(p => p.type === 'incident_category')
+    .map(category => ({
+      name: category.label,
+      value: filteredIncidents.filter(inc => inc.categoryId === category.id).length
+    }));
   
-  const maintenanceByType = [
-    { name: 'Plomberie', value: filteredMaintenance.filter(req => req.interventionTypeId === 'int1').length },
-    { name: 'Électricité', value: filteredMaintenance.filter(req => req.interventionTypeId === 'int2').length },
-    { name: 'Clim/Chauffage', value: filteredMaintenance.filter(req => req.interventionTypeId === 'int3').length },
-    { name: 'Mobilier', value: filteredMaintenance.filter(req => req.interventionTypeId === 'int4').length },
-    { name: 'Peinture', value: filteredMaintenance.filter(req => req.interventionTypeId === 'int5').length },
-  ];
+  // Filter hotels to only show those the user has access to
+  const accessibleHotels = hotels.filter(hotel => hasHotelAccess(hotel.id));
   
-  const qualityByHotel = hotels.map(hotel => {
+  // Create quality scores only for accessible hotels
+  const qualityByHotel = accessibleHotels.map(hotel => {
     const hotelVisits = qualityVisits.filter(visit => visit.hotelId === hotel.id);
     return {
       name: hotel.name.substring(0, 15) + (hotel.name.length > 15 ? '...' : ''),
@@ -319,8 +309,8 @@ const DashboardPage = () => {
     { month: 'Jun', rate: 90 },
   ];
   
-  // 3. Revenue by Hotel (mock data)
-  const revenueByHotelData = hotels.map((hotel, index) => ({
+  // 3. Revenue by Hotel - only for accessible hotels (mock data)
+  const revenueByHotelData = accessibleHotels.map((hotel, index) => ({
     name: hotel.name.substring(0, 12) + (hotel.name.length > 12 ? '...' : ''),
     revenue: 15000 + Math.floor(Math.random() * 25000),
     target: 25000 + Math.floor(Math.random() * 10000),
@@ -402,7 +392,7 @@ const DashboardPage = () => {
               <SelectValue placeholder={loading ? "Chargement..." : "Sélectionner un hôtel"} />
             </SelectTrigger>
             <SelectContent>
-              {currentUser?.role === 'admin' && (
+              {availableHotels.length > 1 && (
                 <SelectItem value="all">Tous les hôtels</SelectItem>
               )}
               {availableHotels.map((hotel) => (
@@ -550,7 +540,7 @@ const DashboardPage = () => {
             <div className="h-80">
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart
-                  data={hotels.map(hotel => {
+                  data={accessibleHotels.map(hotel => {
                     const hotelIncidents = incidents.filter(inc => 
                       inc.hotelId === hotel.id && 
                       (selectedHotel === 'all' || inc.hotelId === selectedHotel)

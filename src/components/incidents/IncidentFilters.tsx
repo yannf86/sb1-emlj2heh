@@ -55,20 +55,9 @@ const IncidentFilters: React.FC<IncidentFiltersProps> = ({
       try {
         setLoading(true);
         
-        // Load hotels
+        // Load hotels - this function now filters by user permissions
         const hotelsData = await getHotels();
-        
-        // Filter hotels based on user permissions
-        if (currentUser?.role === 'admin') {
-          setHotels(hotelsData);
-        } else if (currentUser) {
-          const filteredHotels = hotelsData.filter(hotel => 
-            currentUser.hotels.includes(hotel.id)
-          );
-          setHotels(filteredHotels);
-        } else {
-          setHotels([]);
-        }
+        setHotels(hotelsData);
         
         // Load status parameters from parameters_status collection
         const statusData = await getStatusParameters();
@@ -115,7 +104,9 @@ const IncidentFilters: React.FC<IncidentFiltersProps> = ({
             <SelectValue placeholder={loading ? "Chargement..." : "Tous les hôtels"} />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="all">Tous les hôtels</SelectItem>
+            {hotels.length > 1 && (
+              <SelectItem value="all">Tous les hôtels</SelectItem>
+            )}
             {hotels.map(hotel => (
               <SelectItem key={hotel.id} value={hotel.id}>{hotel.name}</SelectItem>
             ))}

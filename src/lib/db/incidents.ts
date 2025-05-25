@@ -18,43 +18,35 @@ export const getIncidents = async (hotelId?: string) => {
     
     let q;
     
-    // Admin users can see all incidents
-    if (currentUser.role === 'admin') {
-      if (hotelId) {
-        // If hotelId is provided, filter by it
-        q = query(collection(db, 'incidents'), where('hotelId', '==', hotelId));
-      } else {
-        // Otherwise, get all incidents
-        q = collection(db, 'incidents');
+    // Build query based on user role and filter parameters
+    if (hotelId) {
+      // If hotelId is provided, filter by it
+      // Check if user has access to this hotel
+      if (!currentUser.hotels.includes(hotelId)) {
+        console.warn(`User ${currentUser.id} does not have access to hotel ${hotelId}`);
+        return []; // Return empty array for unauthorized hotel access
       }
+      q = query(collection(db, 'incidents'), where('hotelId', '==', hotelId));
+    } else if (currentUser.hotels.length === 1) {
+      // If user has only one hotel, filter by it
+      q = query(collection(db, 'incidents'), where('hotelId', '==', currentUser.hotels[0]));
+    } else if (currentUser.hotels.length > 1) {
+      // If user has multiple hotels, we need to make separate queries for each hotel
+      // and combine the results, since Firestore doesn't support OR queries on the same field
+      const results = [];
+      for (const hotel of currentUser.hotels) {
+        const hotelQuery = query(collection(db, 'incidents'), where('hotelId', '==', hotel));
+        const querySnapshot = await getDocs(hotelQuery);
+        results.push(...querySnapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data()
+        })));
+      }
+      return results as Incident[];
     } else {
-      // Standard users can only see incidents from their assigned hotels
-      if (hotelId) {
-        // If hotelId is provided, check if user has access to it
-        if (!currentUser.hotels.includes(hotelId)) {
-          console.error('User does not have access to this hotel');
-          return [];
-        }
-        q = query(collection(db, 'incidents'), where('hotelId', '==', hotelId));
-      } else if (currentUser.hotels.length === 1) {
-        // If user has only one hotel, filter by it
-        q = query(collection(db, 'incidents'), where('hotelId', '==', currentUser.hotels[0]));
-      } else if (currentUser.hotels.length > 1) {
-        // If user has multiple hotels, we'll need to make separate queries and combine results
-        const results = [];
-        for (const hotel of currentUser.hotels) {
-          const hotelQuery = query(collection(db, 'incidents'), where('hotelId', '==', hotel));
-          const querySnapshot = await getDocs(hotelQuery);
-          results.push(...querySnapshot.docs.map(doc => ({
-            id: doc.id,
-            ...doc.data()
-          })));
-        }
-        return results as Incident[];
-      } else {
-        // User has no hotels assigned
-        return [];
-      }
+      // User has no hotels assigned
+      console.warn(`User ${currentUser.id} has no hotels assigned`);
+      return [];
     }
     
     const querySnapshot = await getDocs(q);
@@ -87,7 +79,7 @@ export const getIncident = async (id: string) => {
     const currentUser = getCurrentUser();
     if (!currentUser) return null;
     
-    if (currentUser.role !== 'admin' && !currentUser.hotels.includes(incidentData.hotelId)) {
+    if (!currentUser.hotels.includes(incidentData.hotelId)) {
       console.error('User does not have access to this incident');
       return null;
     }
@@ -107,6 +99,14 @@ export const createIncident = async (data: any) => {
     
     // Get current user
     const currentUser = getCurrentUser();
+    if (!currentUser) {
+      throw new Error('User not authenticated');
+    }
+    
+    // Verify user has access to the hotel
+    if (!currentUser.hotels.includes(incidentData.hotelId)) {
+      throw new Error('You do not have permission to create incidents for this hotel');
+    }
     
     // Create the incident payload
     const incidentPayload: any = {
@@ -236,7 +236,7 @@ export const updateIncident = async (id: string, data: Partial<Incident>) => {
     if (!currentUser) throw new Error('Not authenticated');
     
     const incidentData = docSnap.data();
-    if (currentUser.role !== 'admin' && !currentUser.hotels.includes(incidentData.hotelId)) {
+    if (!currentUser.hotels.includes(incidentData.hotelId)) {
       throw new Error('You do not have permission to update this incident');
     }
     
@@ -371,7 +371,7 @@ export const deleteIncident = async (id: string) => {
     const oldData = docSnap.data();
     
     // Verify user has access to this incident
-    if (currentUser.role !== 'admin' && !currentUser.hotels.includes(oldData.hotelId)) {
+    if (!currentUser.hotels.includes(oldData.hotelId)) {
       throw new Error('You do not have permission to delete this incident');
     }
     

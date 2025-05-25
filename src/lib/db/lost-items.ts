@@ -17,43 +17,34 @@ export const getLostItems = async (hotelId?: string) => {
     
     let q;
     
-    // Admin users can see all lost items
-    if (currentUser.role === 'admin') {
-      if (hotelId) {
-        // If hotelId is provided, filter by it
-        q = query(collection(db, 'lost_items'), where('hotelId', '==', hotelId));
-      } else {
-        // Otherwise, get all lost items
-        q = collection(db, 'lost_items');
+    // Build query based on user role and filter parameters
+    if (hotelId) {
+      // If hotelId is provided, verify user has access to this hotel
+      if (!currentUser.hotels.includes(hotelId)) {
+        console.warn(`User ${currentUser.id} does not have access to hotel ${hotelId}`);
+        return []; // Return empty array for unauthorized hotel access
       }
+      q = query(collection(db, 'lost_items'), where('hotelId', '==', hotelId));
+    } else if (currentUser.hotels.length === 1) {
+      // If user has only one hotel, filter by it
+      q = query(collection(db, 'lost_items'), where('hotelId', '==', currentUser.hotels[0]));
+    } else if (currentUser.hotels.length > 0) {
+      // If user has multiple hotels, make separate queries for each hotel
+      // and combine the results (since Firestore doesn't support OR queries on the same field)
+      const results = [];
+      for (const hotel of currentUser.hotels) {
+        const hotelQuery = query(collection(db, 'lost_items'), where('hotelId', '==', hotel));
+        const querySnapshot = await getDocs(hotelQuery);
+        results.push(...querySnapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data()
+        })));
+      }
+      return results;
     } else {
-      // Standard users can only see lost items from their assigned hotels
-      if (hotelId) {
-        // If hotelId is provided, check if user has access to it
-        if (!currentUser.hotels.includes(hotelId)) {
-          console.error('User does not have access to this hotel');
-          return [];
-        }
-        q = query(collection(db, 'lost_items'), where('hotelId', '==', hotelId));
-      } else if (currentUser.hotels.length === 1) {
-        // If user has only one hotel, filter by it
-        q = query(collection(db, 'lost_items'), where('hotelId', '==', currentUser.hotels[0]));
-      } else if (currentUser.hotels.length > 0) {
-        // If user has multiple hotels, we'll need to make separate queries and combine results
-        const results = [];
-        for (const hotel of currentUser.hotels) {
-          const hotelQuery = query(collection(db, 'lost_items'), where('hotelId', '==', hotel));
-          const querySnapshot = await getDocs(hotelQuery);
-          results.push(...querySnapshot.docs.map(doc => ({
-            id: doc.id,
-            ...doc.data()
-          })));
-        }
-        return results;
-      } else {
-        // User has no hotels assigned
-        return [];
-      }
+      // User has no hotels assigned
+      console.warn(`User ${currentUser.id} has no hotels assigned`);
+      return [];
     }
     
     const querySnapshot = await getDocs(q);
@@ -86,7 +77,7 @@ export const getLostItem = async (id: string) => {
     const currentUser = getCurrentUser();
     if (!currentUser) return null;
     
-    if (currentUser.role !== 'admin' && !currentUser.hotels.includes(itemData.hotelId)) {
+    if (!currentUser.hotels.includes(itemData.hotelId)) {
       console.error('User does not have access to this lost item');
       return null;
     }
@@ -111,7 +102,7 @@ export const createLostItem = async (data: any) => {
     }
     
     // Verify user has access to the hotel
-    if (currentUser.role !== 'admin' && !currentUser.hotels.includes(lostItemData.hotelId)) {
+    if (!currentUser.hotels.includes(lostItemData.hotelId)) {
       throw new Error('You do not have permission to create lost items for this hotel');
     }
     
@@ -219,7 +210,7 @@ export const updateLostItem = async (id: string, data: any) => {
     }
     
     // Verify user has access to this lost item
-    if (currentUser.role !== 'admin' && !currentUser.hotels.includes(oldData.hotelId)) {
+    if (!currentUser.hotels.includes(oldData.hotelId)) {
       throw new Error('You do not have permission to update this lost item');
     }
     
@@ -331,7 +322,7 @@ export const deleteLostItem = async (id: string) => {
     const oldData = docSnap.data();
     
     // Verify user has access to this lost item
-    if (currentUser.role !== 'admin' && !currentUser.hotels.includes(oldData.hotelId)) {
+    if (!currentUser.hotels.includes(oldData.hotelId)) {
       throw new Error('You do not have permission to delete this lost item');
     }
     

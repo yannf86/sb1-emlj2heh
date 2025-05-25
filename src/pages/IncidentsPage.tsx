@@ -12,7 +12,7 @@ import { exportIncidents } from '@/lib/exportUtils';
 import { exportIncidentsToPDF } from '@/lib/pdfUtils';
 import { useToast } from '@/hooks/use-toast';
 import { getIncidents, createIncident, updateIncident } from '@/lib/db/incidents';
-import { getCurrentUser } from '@/lib/auth';
+import { getCurrentUser, hasHotelAccess } from '@/lib/auth';
 import { getHotels, getHotelName } from '@/lib/db/hotels';
 import { getLocationLabel } from '@/lib/db/parameters-locations';
 import { getIncidentCategoryLabel } from '@/lib/db/parameters-incident-categories';
@@ -51,6 +51,7 @@ const IncidentsPage = () => {
   const loadIncidents = async () => {
     try {
       setLoading(true);
+      // getIncidents already applies hotel access filtering based on current user
       const data = await getIncidents();
       setIncidents(data);
     } catch (error) {
@@ -68,17 +69,13 @@ const IncidentsPage = () => {
   // Function to load hotels the current user has access to
   const loadAvailableHotels = async () => {
     try {
-      // For admin users, get all hotels
-      // For standard users, filter hotels by user's assigned hotels
-      const allHotels = await getHotels();
+      // getHotels now applies hotel access filtering based on current user
+      const hotelsData = await getHotels();
+      setAvailableHotels(hotelsData);
       
-      if (currentUser?.role === 'admin') {
-        setAvailableHotels(allHotels);
-      } else if (currentUser) {
-        const userHotels = allHotels.filter(hotel => 
-          currentUser.hotels.includes(hotel.id)
-        );
-        setAvailableHotels(userHotels);
+      // If user has only one hotel, automatically select it
+      if (hotelsData.length === 1 && filterHotel === 'all') {
+        setFilterHotel(hotelsData[0].id);
       }
     } catch (error) {
       console.error('Error loading hotels:', error);
@@ -138,6 +135,16 @@ const IncidentsPage = () => {
   // Handle form submission
   const handleSubmitIncident = async (formData: any) => {
     try {
+      // Verify that user has access to the selected hotel
+      if (!hasHotelAccess(formData.hotelId)) {
+        toast({
+          title: "Accès refusé",
+          description: "Vous n'avez pas accès à cet hôtel",
+          variant: "destructive",
+        });
+        return;
+      }
+      
       // Create incident in Firebase
       await createIncident(formData);
       
@@ -162,7 +169,7 @@ const IncidentsPage = () => {
   
   // Reset all filters
   const resetFilters = () => {
-    setFilterHotel('all');
+    setFilterHotel(availableHotels.length === 1 ? availableHotels[0].id : 'all');
     setFilterStatus('all');
     setFilterCategory('all');
     setFilterImpact('all');
@@ -231,6 +238,16 @@ const IncidentsPage = () => {
   const handleViewIncident = (incidentId: string) => {
     const incident = incidents.find(inc => inc.id === incidentId);
     if (incident) {
+      // Vérifier l'accès à l'hôtel de l'incident
+      if (!hasHotelAccess(incident.hotelId)) {
+        toast({
+          title: "Accès refusé",
+          description: "Vous n'avez pas accès à cet hôtel",
+          variant: "destructive",
+        });
+        return;
+      }
+      
       setSelectedIncident(incident);
       setViewIncidentDialogOpen(true);
     }
@@ -240,6 +257,16 @@ const IncidentsPage = () => {
   const handleEditIncident = (incidentId: string) => {
     const incident = incidents.find(inc => inc.id === incidentId);
     if (incident) {
+      // Vérifier l'accès à l'hôtel de l'incident
+      if (!hasHotelAccess(incident.hotelId)) {
+        toast({
+          title: "Accès refusé",
+          description: "Vous n'avez pas accès à cet hôtel",
+          variant: "destructive",
+        });
+        return;
+      }
+      
       setSelectedIncident(incident);
       setEditIncidentDialogOpen(true);
     }
@@ -255,6 +282,16 @@ const IncidentsPage = () => {
   // Handle save from edit form directly (not via view dialog)
   const handleSaveEdit = async (updatedIncident: any) => {
     try {
+      // Vérifier l'accès à l'hôtel de l'incident
+      if (!hasHotelAccess(updatedIncident.hotelId)) {
+        toast({
+          title: "Accès refusé",
+          description: "Vous n'avez pas accès à cet hôtel",
+          variant: "destructive",
+        });
+        return;
+      }
+      
       // Create a copy of the incident to avoid modifying the original
       const incidentToUpdate = { ...updatedIncident };
       

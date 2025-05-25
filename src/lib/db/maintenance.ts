@@ -19,43 +19,34 @@ export const getMaintenanceRequests = async (hotelId?: string) => {
     
     let q;
     
-    // Admin users can see all maintenance requests
-    if (currentUser.role === 'admin') {
-      if (hotelId) {
-        // If hotelId is provided, filter by it
-        q = query(collection(db, 'maintenance'), where('hotelId', '==', hotelId));
-      } else {
-        // Otherwise, get all maintenance requests
-        q = collection(db, 'maintenance');
+    // Build query based on user role, hotel permissions, and filter parameters
+    if (hotelId) {
+      // If hotelId is provided, verify user has access to this hotel
+      if (!currentUser.hotels.includes(hotelId)) {
+        console.warn(`User ${currentUser.id} does not have access to hotel ${hotelId}`);
+        return []; // Return empty array for unauthorized hotel access
       }
+      q = query(collection(db, 'maintenance'), where('hotelId', '==', hotelId));
+    } else if (currentUser.hotels.length === 1) {
+      // If user has only one hotel, filter by it
+      q = query(collection(db, 'maintenance'), where('hotelId', '==', currentUser.hotels[0]));
+    } else if (currentUser.hotels.length > 0) {
+      // If user has multiple hotels, make separate queries for each hotel
+      // and combine the results (since Firestore doesn't support OR queries on the same field)
+      const results = [];
+      for (const hotel of currentUser.hotels) {
+        const hotelQuery = query(collection(db, 'maintenance'), where('hotelId', '==', hotel));
+        const querySnapshot = await getDocs(hotelQuery);
+        results.push(...querySnapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data()
+        })));
+      }
+      return results as Maintenance[];
     } else {
-      // Standard users can only see requests from their assigned hotels
-      if (hotelId) {
-        // If hotelId is provided, check if user has access to it
-        if (!currentUser.hotels.includes(hotelId)) {
-          console.error('User does not have access to this hotel');
-          return [];
-        }
-        q = query(collection(db, 'maintenance'), where('hotelId', '==', hotelId));
-      } else if (currentUser.hotels.length === 1) {
-        // If user has only one hotel, filter by it
-        q = query(collection(db, 'maintenance'), where('hotelId', '==', currentUser.hotels[0]));
-      } else if (currentUser.hotels.length > 0) {
-        // If user has multiple hotels, we'll need to make separate queries and combine results
-        const results = [];
-        for (const hotel of currentUser.hotels) {
-          const hotelQuery = query(collection(db, 'maintenance'), where('hotelId', '==', hotel));
-          const querySnapshot = await getDocs(hotelQuery);
-          results.push(...querySnapshot.docs.map(doc => ({
-            id: doc.id,
-            ...doc.data()
-          })));
-        }
-        return results as Maintenance[];
-      } else {
-        // User has no hotels assigned
-        return [];
-      }
+      // User has no hotels assigned
+      console.warn(`User ${currentUser.id} has no hotels assigned`);
+      return [];
     }
     
     const querySnapshot = await getDocs(q);
@@ -95,7 +86,7 @@ export const getMaintenanceRequest = async (id: string) => {
     const currentUser = getCurrentUser();
     if (!currentUser) return null;
     
-    if (currentUser.role !== 'admin' && !currentUser.hotels.includes(maintenanceData.hotelId)) {
+    if (!currentUser.hotels.includes(maintenanceData.hotelId)) {
       console.error('User does not have access to this maintenance request');
       return null;
     }
@@ -120,7 +111,7 @@ export const createMaintenanceRequest = async (data: Omit<Maintenance, 'id' | 'c
     }
     
     // Verify user has access to the hotel
-    if (currentUser.role !== 'admin' && !currentUser.hotels.includes(maintenanceData.hotelId)) {
+    if (!currentUser.hotels.includes(maintenanceData.hotelId)) {
       throw new Error('You do not have permission to create maintenance requests for this hotel');
     }
     
@@ -294,7 +285,7 @@ export const updateMaintenanceRequest = async (id: string, data: Partial<Mainten
     }
     
     // Verify user has access to this maintenance request
-    if (currentUser.role !== 'admin' && !currentUser.hotels.includes(oldData.hotelId)) {
+    if (!currentUser.hotels.includes(oldData.hotelId)) {
       throw new Error('You do not have permission to update this maintenance request');
     }
     
@@ -513,7 +504,7 @@ export const deleteMaintenanceRequest = async (id: string) => {
     const oldData = docSnap.data();
     
     // Verify user has access to this maintenance request
-    if (currentUser.role !== 'admin' && !currentUser.hotels.includes(oldData.hotelId)) {
+    if (!currentUser.hotels.includes(oldData.hotelId)) {
       throw new Error('You do not have permission to delete this maintenance request');
     }
     
