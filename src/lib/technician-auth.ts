@@ -4,6 +4,10 @@ import { db } from './firebase';
 // Store the current technician
 let currentTechnician: any | null = null;
 
+// Session timeout for technicien (5 minutes in ms)
+export const SESSION_TIMEOUT = 5 * 60 * 1000;
+let inactivityTimer: NodeJS.Timeout | null = null;
+
 interface TechnicianAuthResult {
   success: boolean;
   technician?: any;
@@ -38,17 +42,20 @@ export const loginTechnician = async (email: string, password: string): Promise<
       ...technicianData
     };
     
-    // Store in localStorage with 24h expiration
+    // Store in sessionStorage with 5min expiration
     const expires = new Date();
-    expires.setHours(expires.getHours() + 24);
+    expires.setMinutes(expires.getMinutes() + 5);
     
     const authData = {
       technician,
       expires: expires.toISOString()
     };
     
-    localStorage.setItem('technicianAuth', JSON.stringify(authData));
+    sessionStorage.setItem('technicianAuth', JSON.stringify(authData));
     currentTechnician = technician;
+    
+    // Start inactivity timer
+    startInactivityTimer();
     
     return { 
       success: true,
@@ -65,8 +72,14 @@ export const loginTechnician = async (email: string, password: string): Promise<
 
 // Logout function
 export const logoutTechnician = () => {
-  localStorage.removeItem('technicianAuth');
+  sessionStorage.removeItem('technicianAuth');
   currentTechnician = null;
+  
+  // Clear inactivity timer
+  if (inactivityTimer) {
+    clearTimeout(inactivityTimer);
+    inactivityTimer = null;
+  }
 };
 
 // Get the current logged in technician
@@ -75,8 +88,8 @@ export const getCurrentTechnician = () => {
     return currentTechnician;
   }
   
-  // Check localStorage
-  const techAuth = localStorage.getItem('technicianAuth');
+  // Check sessionStorage
+  const techAuth = sessionStorage.getItem('technicianAuth');
   if (techAuth) {
     try {
       const auth = JSON.parse(techAuth);
@@ -88,10 +101,10 @@ export const getCurrentTechnician = () => {
         return currentTechnician;
       } else {
         // Clear expired session
-        localStorage.removeItem('technicianAuth');
+        sessionStorage.removeItem('technicianAuth');
       }
     } catch (e) {
-      localStorage.removeItem('technicianAuth');
+      sessionStorage.removeItem('technicianAuth');
     }
   }
   
@@ -103,9 +116,51 @@ export const isTechnicianLoggedIn = () => {
   return getCurrentTechnician() !== null;
 };
 
+// Set the last activity time
+export const setLastActivityTime = () => {
+  sessionStorage.setItem('techLastActivity', Date.now().toString());
+};
+
+// Start the inactivity timer
+export const startInactivityTimer = () => {
+  // Clear any existing timer
+  if (inactivityTimer) {
+    clearTimeout(inactivityTimer);
+  }
+  
+  // Set new timer
+  inactivityTimer = setTimeout(() => {
+    console.log("Technician inactive for 5 minutes, logging out");
+    logoutTechnician();
+    
+    // Reload the page to redirect to login
+    window.location.href = '/technician-login';
+  }, SESSION_TIMEOUT);
+  
+  // Set initial activity time
+  setLastActivityTime();
+};
+
+// Reset the inactivity timer on user activity
+export const resetTechnicianInactivityTimer = () => {
+  setLastActivityTime();
+  startInactivityTimer();
+};
+
+// Check if technician session has expired due to inactivity
+export const checkTechnicianSessionExpiry = (): boolean => {
+  const lastActivity = sessionStorage.getItem('techLastActivity');
+  if (!lastActivity) return false;
+  
+  const lastActivityTime = parseInt(lastActivity, 10);
+  const currentTime = Date.now();
+  
+  return (currentTime - lastActivityTime) > SESSION_TIMEOUT;
+};
+
 // Refresh technician session (extend expiration)
 export const refreshTechnicianSession = () => {
-  const techAuth = localStorage.getItem('technicianAuth');
+  const techAuth = sessionStorage.getItem('technicianAuth');
   if (techAuth) {
     try {
       const auth = JSON.parse(techAuth);
@@ -113,16 +168,19 @@ export const refreshTechnicianSession = () => {
       
       // Check if session is still valid
       if (auth.expires && new Date(auth.expires) > now) {
-        // Extend by 24 hours from now
+        // Extend by 5 minutes from now
         const expires = new Date();
-        expires.setHours(expires.getHours() + 24);
+        expires.setMinutes(expires.getMinutes() + 5);
         
         const authData = {
           technician: auth.technician,
           expires: expires.toISOString()
         };
         
-        localStorage.setItem('technicianAuth', JSON.stringify(authData));
+        sessionStorage.setItem('technicianAuth', JSON.stringify(authData));
+        
+        // Reset inactivity timer
+        resetTechnicianInactivityTimer();
       }
     } catch (e) {
       // Ignore errors

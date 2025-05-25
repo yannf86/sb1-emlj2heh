@@ -28,7 +28,7 @@ import TechnicianQuoteRequests from './pages/technician/TechnicianQuoteRequests'
 import TechnicianSettings from './pages/technician/TechnicianSettings';
 
 // Auth
-import { isAuthenticated, hasModuleAccess, initAuth } from './lib/auth';
+import { isAuthenticated, hasModuleAccess, initAuth, resetInactivityTimer } from './lib/auth';
 import TechnicianProtectedRoute from './components/technician/TechnicianProtectedRoute';
 
 // Toast
@@ -107,6 +107,30 @@ function App() {
     return () => {
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
+
+  // Activity monitoring to reset inactivity timer
+  useEffect(() => {
+    const events = ['mousedown', 'mousemove', 'keydown', 'scroll', 'touchstart', 'click'];
+    
+    // Handler to reset the inactivity timer
+    const handleUserActivity = () => {
+      if (isAuthenticated()) {
+        resetInactivityTimer();
+      }
+    };
+    
+    // Add event listeners
+    events.forEach(event => {
+      window.addEventListener(event, handleUserActivity);
+    });
+    
+    // Clean up
+    return () => {
+      events.forEach(event => {
+        window.removeEventListener(event, handleUserActivity);
+      });
     };
   }, []);
 

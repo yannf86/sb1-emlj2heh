@@ -23,7 +23,7 @@ import {
   Truck,
   Wrench
 } from 'lucide-react';
-import { getCurrentUser, logout } from '@/lib/auth';
+import { getCurrentUser, logout, resetInactivityTimer } from '@/lib/auth';
 import { modules, hotels } from '@/lib/data';
 
 // Gamification
@@ -54,6 +54,25 @@ const DashboardLayout = () => {
   const location = useLocation();
   const navigate = useNavigate();
   const currentUser = getCurrentUser();
+  
+  // Reset inactivity timer on any user interaction with the dashboard
+  useEffect(() => {
+    resetInactivityTimer();
+    
+    // Add event listeners to reset timer on user activity
+    const events = ['mousedown', 'mousemove', 'keydown', 'scroll', 'touchstart', 'click'];
+    const handleActivity = () => resetInactivityTimer();
+    
+    events.forEach(event => {
+      window.addEventListener(event, handleActivity);
+    });
+    
+    return () => {
+      events.forEach(event => {
+        window.removeEventListener(event, handleActivity);
+      });
+    };
+  }, []);
   
   // Toggle dark mode
   useEffect(() => {

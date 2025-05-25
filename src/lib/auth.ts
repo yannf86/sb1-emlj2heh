@@ -23,6 +23,10 @@ export type AuthUser = {
 // Store the current user
 let currentUser: AuthUser | null = null;
 
+// Timeout for session expiry (5 minutes in ms)
+export const SESSION_TIMEOUT = 5 * 60 * 1000; 
+let inactivityTimer: NodeJS.Timeout | null = null;
+
 // Test user credentials - all removed
 const TEST_USERS = {};
 
@@ -93,8 +97,14 @@ export const login = async (email: string, password: string, username: string): 
       };
     }
     
-    // Store the user in localStorage for persistence
-    localStorage.setItem('currentUser', JSON.stringify(currentUser));
+    // Store the user in sessionStorage instead of localStorage (will be cleared when browser closes)
+    sessionStorage.setItem('currentUser', JSON.stringify(currentUser));
+    
+    // Set last activity time
+    setLastActivityTime();
+    
+    // Start inactivity timer
+    startInactivityTimer();
     
     return { success: true, user: currentUser };
   } catch (error: any) {
@@ -217,7 +227,15 @@ export const logout = async () => {
   try {
     await firebaseSignOut(auth);
     currentUser = null;
-    localStorage.removeItem('currentUser');
+    
+    // Clear user data from sessionStorage
+    sessionStorage.removeItem('currentUser');
+    
+    // Clear inactivity timer
+    if (inactivityTimer) {
+      clearTimeout(inactivityTimer);
+      inactivityTimer = null;
+    }
   } catch (error) {
     console.error("Logout error:", error);
   }
@@ -229,14 +247,14 @@ export const getCurrentUser = (): AuthUser | null => {
     return currentUser;
   }
   
-  // Check if user is stored in localStorage
-  const storedUser = localStorage.getItem('currentUser');
+  // Check if user is stored in sessionStorage
+  const storedUser = sessionStorage.getItem('currentUser');
   if (storedUser) {
     try {
       currentUser = JSON.parse(storedUser);
       return currentUser;
     } catch (e) {
-      localStorage.removeItem('currentUser');
+      sessionStorage.removeItem('currentUser');
     }
   }
   
@@ -272,10 +290,61 @@ export const hasHotelAccess = (hotelId: string): boolean => {
   return user.hotels.includes(hotelId);
 };
 
-// Initialize auth from localStorage and set up auth state listener
+// Set the last activity time
+export const setLastActivityTime = () => {
+  sessionStorage.setItem('lastActivity', Date.now().toString());
+};
+
+// Start the inactivity timer
+export const startInactivityTimer = () => {
+  // Clear any existing timer
+  if (inactivityTimer) {
+    clearTimeout(inactivityTimer);
+  }
+  
+  // Set new timer
+  inactivityTimer = setTimeout(() => {
+    console.log("User inactive for 5 minutes, logging out");
+    logout();
+    
+    // Reload the page to redirect to login
+    window.location.href = '/login';
+  }, SESSION_TIMEOUT);
+};
+
+// Reset the inactivity timer on user activity
+export const resetInactivityTimer = () => {
+  setLastActivityTime();
+  startInactivityTimer();
+};
+
+// Check if session has expired due to inactivity
+export const checkSessionExpiry = (): boolean => {
+  const lastActivity = sessionStorage.getItem('lastActivity');
+  if (!lastActivity) return false;
+  
+  const lastActivityTime = parseInt(lastActivity, 10);
+  const currentTime = Date.now();
+  
+  return (currentTime - lastActivityTime) > SESSION_TIMEOUT;
+};
+
+// Initialize auth from sessionStorage and set up auth state listener
 export const initAuth = () => {
-  // First check localStorage
+  // First check sessionStorage
   getCurrentUser();
+  
+  // Check if session has expired
+  if (isAuthenticated() && checkSessionExpiry()) {
+    console.log("Session expired, logging out");
+    logout();
+    return;
+  }
+  
+  // Start inactivity timer if user is authenticated
+  if (isAuthenticated()) {
+    startInactivityTimer();
+  }
   
   // Then set up auth state listener
   onAuthStateChanged(auth, async (firebaseUser: FirebaseUser | null) => {
@@ -300,14 +369,24 @@ export const initAuth = () => {
               modules: docData.modules,
               active: docData.active
             };
-            localStorage.setItem('currentUser', JSON.stringify(currentUser));
+            sessionStorage.setItem('currentUser', JSON.stringify(currentUser));
           }
         }
       }
+      
+      // Reset inactivity timer
+      resetInactivityTimer();
     } else {
       // User is signed out
       currentUser = null;
-      localStorage.removeItem('currentUser');
+      sessionStorage.removeItem('currentUser');
+      sessionStorage.removeItem('lastActivity');
+      
+      // Clear inactivity timer
+      if (inactivityTimer) {
+        clearTimeout(inactivityTimer);
+        inactivityTimer = null;
+      }
     }
   });
 };
