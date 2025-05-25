@@ -181,28 +181,12 @@ export const registerUser = async (
     
     await setDoc(doc(db, 'users', firebaseUserId), userDoc);
     
-    // Try to send welcome email with password reset link
+    // Envoyer email de réinitialisation de mot de passe après création réussie
     try {
-      const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/welcome-email`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
-        },
-        body: JSON.stringify({
-          email: email,
-          name: userData.name
-        })
-      });
-      
-      const result = await response.json();
-      if (!result.success) {
-        console.warn('Failed to send welcome email:', result.error);
-        // Continue anyway as this is non-critical
-      }
+      await sendPasswordResetEmail(auth, email);
     } catch (emailError) {
-      console.warn('Error sending welcome email:', emailError);
-      // Continue anyway as this is non-critical
+      console.error("Error sending password reset email:", emailError);
+      // On continue même en cas d'erreur car l'utilisateur a bien été créé
     }
     
     return { 
