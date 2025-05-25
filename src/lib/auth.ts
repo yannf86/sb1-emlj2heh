@@ -3,6 +3,7 @@ import {
   signOut as firebaseSignOut,
   onAuthStateChanged,
   createUserWithEmailAndPassword,
+  sendPasswordResetEmail,
   User as FirebaseUser
 } from 'firebase/auth';
 import { doc, getDoc, setDoc, collection, query, where, getDocs } from 'firebase/firestore';
@@ -107,6 +108,25 @@ export const login = async (email: string, password: string, username: string): 
   }
 };
 
+// Send a password reset email to the user
+export const sendPasswordReset = async (email: string): Promise<{ success: boolean; message?: string }> => {
+  try {
+    await sendPasswordResetEmail(auth, email);
+    return { 
+      success: true, 
+      message: "Un email de réinitialisation de mot de passe a été envoyé" 
+    };
+  } catch (error: any) {
+    console.error("Password reset error:", error);
+    return { 
+      success: false, 
+      message: error.code === 'auth/user-not-found' 
+        ? "Aucun utilisateur trouvé avec cette adresse email"
+        : "Une erreur est survenue" 
+    };
+  }
+};
+
 // Register a new user
 export const registerUser = async (
   email: string, 
@@ -160,6 +180,30 @@ export const registerUser = async (
     };
     
     await setDoc(doc(db, 'users', firebaseUserId), userDoc);
+    
+    // Try to send welcome email with password reset link
+    try {
+      const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/welcome-email`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
+        },
+        body: JSON.stringify({
+          email: email,
+          name: userData.name
+        })
+      });
+      
+      const result = await response.json();
+      if (!result.success) {
+        console.warn('Failed to send welcome email:', result.error);
+        // Continue anyway as this is non-critical
+      }
+    } catch (emailError) {
+      console.warn('Error sending welcome email:', emailError);
+      // Continue anyway as this is non-critical
+    }
     
     return { 
       success: true, 

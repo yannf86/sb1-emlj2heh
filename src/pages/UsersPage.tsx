@@ -15,14 +15,15 @@ import {
   ShieldCheck,
   Edit,
   Trash2,
-  AlertCircle
+  AlertCircle,
+  Send
 } from 'lucide-react';
 import { modules } from '@/lib/data';
 import { useToast } from '@/hooks/use-toast';
 import { collection, addDoc, updateDoc, doc, getDocs, deleteDoc, query, where } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { getHotels } from '@/lib/db/hotels';
-import { registerUser } from '@/lib/auth';
+import { registerUser, sendPasswordReset } from '@/lib/auth';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { UserFormProvider } from './components/UserFormContext';
 import UserFormContent from './components/UserFormContent';
@@ -32,6 +33,7 @@ const UsersPage = () => {
   const [newUserDialogOpen, setNewUserDialogOpen] = useState(false);
   const [editUserDialogOpen, setEditUserDialogOpen] = useState(false);
   const [deleteUserDialogOpen, setDeleteUserDialogOpen] = useState(false);
+  const [resetPasswordDialogOpen, setResetPasswordDialogOpen] = useState(false);
   const [selectedUser, setSelectedUser] = useState<any>(null);
   const [selectedHotels, setSelectedHotels] = useState<string[]>([]);
   const [selectedModules, setSelectedModules] = useState<string[]>([]);
@@ -146,6 +148,12 @@ const UsersPage = () => {
     setDeleteUserDialogOpen(true);
   }, []);
 
+  // Open reset password dialog for a user
+  const handleResetPassword = useCallback((user: any) => {
+    setSelectedUser(user);
+    setResetPasswordDialogOpen(true);
+  }, []);
+
   // Form change handlers
   const handleFormChange = useCallback((field: string, value: any) => {
     setFormData(prev => ({ ...prev, [field]: value }));
@@ -212,6 +220,45 @@ const UsersPage = () => {
     }
   }, [formData.email, formData.name, selectedUser]);
 
+  // Send password reset email
+  const handleSendPasswordReset = useCallback(async () => {
+    if (!selectedUser?.email) {
+      toast({
+        title: "Erreur",
+        description: "Adresse email non disponible",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    try {
+      setSaving(true);
+      setError(null);
+      
+      const result = await sendPasswordReset(selectedUser.email);
+      
+      if (result.success) {
+        toast({
+          title: "Email envoyé",
+          description: "Un email de réinitialisation de mot de passe a été envoyé à l'utilisateur",
+        });
+        setResetPasswordDialogOpen(false);
+      } else {
+        throw new Error(result.message || "Erreur lors de l'envoi de l'email");
+      }
+    } catch (error: any) {
+      console.error('Error sending password reset:', error);
+      setError(`Erreur lors de l'envoi de l'email: ${error.message}`);
+      toast({
+        title: "Erreur",
+        description: error.message || "Une erreur est survenue lors de l'envoi de l'email",
+        variant: "destructive",
+      });
+    } finally {
+      setSaving(false);
+    }
+  }, [selectedUser, toast]);
+
   // Handle create user
   const handleCreateUser = useCallback(async () => {
     const validation = validateForm();
@@ -257,7 +304,7 @@ const UsersPage = () => {
 
       toast({
         title: "Utilisateur créé",
-        description: "L'utilisateur a été créé avec succès",
+        description: "L'utilisateur a été créé avec succès et un email lui a été envoyé pour configurer son mot de passe",
       });
 
       // Reset form and close dialog
@@ -591,6 +638,16 @@ const UsersPage = () => {
                       <Button 
                         variant="ghost" 
                         size="sm"
+                        onClick={() => handleResetPassword(user)}
+                        disabled={saving}
+                      >
+                        <Send className="h-4 w-4 mr-2" />
+                        Email
+                      </Button>
+                      
+                      <Button 
+                        variant="ghost" 
+                        size="sm"
                         onClick={() => handleEdit(user)}
                         disabled={saving}
                       >
@@ -642,7 +699,7 @@ const UsersPage = () => {
           <DialogHeader>
             <DialogTitle>Ajouter un nouvel utilisateur</DialogTitle>
             <DialogDescription>
-              Créez un nouvel utilisateur et définissez ses permissions.
+              Créez un nouvel utilisateur et définissez ses permissions. Un email sera automatiquement envoyé à l'utilisateur pour qu'il puisse définir son mot de passe.
             </DialogDescription>
           </DialogHeader>
           
@@ -791,6 +848,69 @@ const UsersPage = () => {
               disabled={saving}
             >
               {saving ? 'Suppression...' : 'Supprimer l\'utilisateur'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      
+      {/* Reset Password Dialog */}
+      <Dialog 
+        open={resetPasswordDialogOpen} 
+        onOpenChange={(open) => {
+          if (!open) {
+            setSelectedUser(null);
+          }
+          setResetPasswordDialogOpen(open);
+        }}
+      >
+        <DialogContent className="sm:max-w-[500px]">
+          <DialogHeader>
+            <DialogTitle>Réinitialiser le mot de passe</DialogTitle>
+            <DialogDescription>
+              Envoyer un email de réinitialisation de mot de passe à cet utilisateur.
+            </DialogDescription>
+          </DialogHeader>
+          
+          {selectedUser && (
+            <div className="py-4">
+              <div className="flex items-center mb-4">
+                <Mail className="h-5 w-5 mr-2 text-blue-500" />
+                <h3 className="text-lg font-medium">{selectedUser.name}</h3>
+              </div>
+              
+              <div className="space-y-2 text-sm">
+                <p className="flex items-center font-medium">
+                  Un email sera envoyé à:
+                </p>
+                <p className="flex items-center ml-2 text-muted-foreground">
+                  {selectedUser.email}
+                </p>
+              </div>
+              
+              <Alert className="mt-4">
+                <Mail className="h-4 w-4" />
+                <AlertTitle>Information</AlertTitle>
+                <AlertDescription>
+                  L'utilisateur recevra un email avec un lien pour définir un nouveau mot de passe. Ce lien sera valable pendant 24 heures.
+                </AlertDescription>
+              </Alert>
+            </div>
+          )}
+          
+          <DialogFooter>
+            <Button 
+              variant="outline" 
+              onClick={() => setResetPasswordDialogOpen(false)}
+              disabled={saving}
+            >
+              Annuler
+            </Button>
+            <Button 
+              variant="default"
+              onClick={handleSendPasswordReset}
+              disabled={saving}
+            >
+              {saving ? 'Envoi en cours...' : 'Envoyer l\'email'}
             </Button>
           </DialogFooter>
         </DialogContent>
