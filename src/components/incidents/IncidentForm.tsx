@@ -1,44 +1,58 @@
-const [formData, setFormData] = useState<any>(() => {
-    if (isEditing && incident) {
-      return {
-        ...incident,
-        photoPreview: incident.photoUrl || ''
-      };
-    } else {
-      return {
-        date: new Date().toISOString().split('T')[0],
-        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        hotelId: currentUser?.role === 'standard' && currentUser?.hotels?.length === 1 ? currentUser.hotels[0] : '',
-        locationId: '',
-        roomType: '',
-        clientName: '',
-        clientEmail: '',
-        clientPhone: '',
-        arrivalDate: '',
-        departureDate: '',
-        reservationAmount: '',
-        origin: '',
-        categoryId: '',
-        impactId: '',
-        description: '',
-        statusId: '',
-        receivedById: currentUser?.id || '',
-        concludedById: '',
-        resolutionDescription: ''
-      };
+const loadData = async () => {
+    try {
+      setLoading(true);
+      
+      // Load hotels
+      const hotelsData = await getHotels();
+      setHotels(hotelsData);
+      
+      // Load categories
+      const categoriesData = await getIncidentCategoryParameters();
+      setCategories(categoriesData);
+      
+      // Load impacts
+      const impactsData = await getImpactParameters();
+      setImpacts(impactsData);
+      
+      // Load statuses
+      const statusesData = await getStatusParameters();
+      setStatuses(statusesData);
+      
+      // Load booking origins
+      const bookingOriginsData = await getBookingOriginParameters();
+      setBookingOrigins(bookingOriginsData);
+      
+      // Load room types
+      const roomTypesData = await getRoomTypeParameters();
+      setRoomTypes(roomTypesData);
+      
+      // Load all users initially
+      const allUsers = await getUsers();
+      setUsers(allUsers);
+      
+      // Filter users based on selected hotel
+      if (incident?.hotelId) {
+        const hotelUsers = await getUsersByHotel(incident.hotelId);
+        setFilteredUsers(hotelUsers);
+      } else {
+        setFilteredUsers(allUsers);
+      }
+      
+      // Load locations for the current hotel
+      if (incident?.hotelId) {
+        const locationsData = await getHotelLocations(incident.hotelId);
+        setLocations(locationsData);
+      }
+    } catch (error) {
+      console.error('Error loading data:', error);
+      toast({
+        title: "Erreur",
+        description: "Impossible de charger les données",
+        variant: "destructive",
+      });
+    } finally {
+      setLoading(false);
     }
-  });
-  
-  const [hotels, setHotels] = useState<any[]>([]);
-  const [locations, setLocations] = useState<any[]>([]);
-  const [categories, setCategories] = useState<any[]>([]);
-  const [impacts, setImpacts] = useState<any[]>([]);
-  const [statuses, setStatuses] = useState<any[]>([]);
-  const [bookingOrigins, setBookingOrigins] = useState<any[]>([]);
-  const [users, setUsers] = useState<any[]>([]);
-  const [filteredUsers, setFilteredUsers] = useState<any[]>([]);
-  const [roomTypes, setRoomTypes] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [loadingLocations, setLoadingLocations] = useState(false);
-  const [loadingUsers, setLoadingUsers] = useState(false);
-  const [photoUploading, setPhotoUploading] = useState(false);
+  };
+
+export default loadData
