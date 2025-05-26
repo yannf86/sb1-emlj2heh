@@ -1,4 +1,4 @@
-import { Map, Building, AlertTriangle, Gauge, ListChecks, ClipboardCheck, Tag, Globe } from 'lucide-react';
+import { Map, Building, AlertTriangle, Gauge, ListChecks, ClipboardCheck, Tag, Globe, Bed } from 'lucide-react';
 
 export const paramTypeLabels: Record<string, string> = {
   location: 'Lieux',
@@ -19,7 +19,7 @@ export const paramTypeLabels: Record<string, string> = {
 
 export const paramTypeIcons = {
   location: Map,
-  room_type: Building,
+  room_type: Bed,
   incident_category: AlertTriangle,
   impact: Gauge,
   resolution_type: ListChecks,
