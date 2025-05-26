@@ -4,11 +4,8 @@ import { db } from '../firebase';
 // Predefined parameter types
 const PARAMETER_TYPES = [
   { id: 'location', name: 'Lieux' },
-  { id: 'room_type', name: 'Types de Chambre' },
   { id: 'incident_category', name: 'Catégories d\'Incident' },
   { id: 'impact', name: 'Niveaux d\'Impact' },
-  { id: 'resolution_type', name: 'Types de Résolution' },
-  { id: 'client_satisfaction', name: 'Satisfaction Client' },
   { id: 'status', name: 'Statuts' },
   { id: 'intervention_type', name: 'Types d\'Intervention' },
   { id: 'visit_type', name: 'Types de Visite' },

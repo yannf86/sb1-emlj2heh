@@ -3,14 +3,13 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Plus, Building, MapPin, Globe, Trash2, Edit, Bed } from 'lucide-react';
+import { Plus, Building, MapPin, Globe, Trash2, Edit } from 'lucide-react';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { collection, addDoc, getDocs, doc, updateDoc, deleteDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useToast } from '@/hooks/use-toast';
 import HotelLocationsDialog from '../HotelLocationsDialog';
-import HotelRoomTypesDialog from '../HotelRoomTypesDialog';
 
 interface Hotel {
   id: string;
@@ -28,7 +27,6 @@ const HotelsTab = () => {
   const [editHotelDialog, setEditHotelDialog] = useState(false);
   const [deleteHotelDialog, setDeleteHotelDialog] = useState(false);
   const [locationsDialog, setLocationsDialog] = useState(false);
-  const [roomTypesDialog, setRoomTypesDialog] = useState(false);
   const [saving, setSaving] = useState(false);
   const [selectedHotel, setSelectedHotel] = useState<Hotel | null>(null);
   const { toast } = useToast();
@@ -95,12 +93,6 @@ const HotelsTab = () => {
   const handleLocationsClick = (hotel: Hotel) => {
     setSelectedHotel(hotel);
     setLocationsDialog(true);
-  };
-  
-  // Open room types dialog
-  const handleRoomTypesClick = (hotel: Hotel) => {
-    setSelectedHotel(hotel);
-    setRoomTypesDialog(true);
   };
 
   // Handle delete hotel
@@ -325,17 +317,6 @@ const HotelsTab = () => {
                       <MapPin className="h-4 w-4 mr-2" />
                       Lieux
                     </Button>
-                    
-                    <Button 
-                      variant="ghost" 
-                      size="sm"
-                      onClick={() => handleRoomTypesClick(hotel)}
-                      disabled={saving}
-                    >
-                      <Bed className="h-4 w-4 mr-2" />
-                      Types de Chambre
-                    </Button>
-                    
                     <Button 
                       variant="ghost" 
                       size="sm"
@@ -369,21 +350,6 @@ const HotelsTab = () => {
           isOpen={locationsDialog}
           onClose={() => {
             setLocationsDialog(false);
-            setSelectedHotel(null);
-          }}
-          hotel={{
-            id: selectedHotel.id,
-            name: selectedHotel.name
-          }}
-        />
-      )}
-
-      {/* Hotel Room Types Dialog */}
-      {selectedHotel && (
-        <HotelRoomTypesDialog
-          isOpen={roomTypesDialog}
-          onClose={() => {
-            setRoomTypesDialog(false);
             setSelectedHotel(null);
           }}
           hotel={{
