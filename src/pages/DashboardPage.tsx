@@ -36,13 +36,13 @@ import {
   ClipboardCheck, 
   Search, 
   User, 
-  CalendarClock, 
-  Euro,
+  Clock, 
   TrendingUp,
   Star,
   BarChart as BarChartIcon,
   LineChart as LineChartIcon,
-  Loader2
+  Loader2,
+  InfoIcon
 } from 'lucide-react';
 import { parameters } from '@/lib/data';
 import { useGamification } from '@/components/gamification/GamificationContext';
@@ -53,6 +53,7 @@ import { getHotels } from '@/lib/db/hotels';
 import { useToast } from '@/hooks/use-toast';
 import { getCurrentUser, hasHotelAccess } from '@/lib/auth';
 import { getLostItems } from '@/lib/db/lost-items';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 
 // Define chart colors
 const COLORS = ['#D4A017', '#B08214', '#8C6410', '#68470C', '#442E07'];
@@ -288,9 +289,8 @@ const DashboardPage = () => {
   
   const trendData = getTrendData();
   
-  // Additional charts data
-  
-  // 1. Client Satisfaction Data (mock data - in a real app, this would come from the database)
+  // NOTE: Ces données sont simulées car elles ne sont pas encore connectées à la base de données
+  // 1. Client Satisfaction Data (données simulées) 
   const clientSatisfactionData = [
     { name: 'Très satisfait', value: 45 },
     { name: 'Satisfait', value: 30 },
@@ -299,33 +299,7 @@ const DashboardPage = () => {
     { name: 'Très insatisfait', value: 3 },
   ];
   
-  // 2. Room Occupancy Rate by Month (mock data)
-  const roomOccupancyData = [
-    { month: 'Jan', rate: 68 },
-    { month: 'Fév', rate: 72 },
-    { month: 'Mar', rate: 80 },
-    { month: 'Avr', rate: 85 },
-    { month: 'Mai', rate: 78 },
-    { month: 'Jun', rate: 90 },
-  ];
-  
-  // 3. Revenue by Hotel - only for accessible hotels (mock data)
-  const revenueByHotelData = accessibleHotels.map((hotel, index) => ({
-    name: hotel.name.substring(0, 12) + (hotel.name.length > 12 ? '...' : ''),
-    revenue: 15000 + Math.floor(Math.random() * 25000),
-    target: 25000 + Math.floor(Math.random() * 10000),
-  }));
-  
-  // 4. Staff Performance Metrics (mock data)
-  const staffPerformanceData = [
-    { category: 'Accueil', value: 85 },
-    { category: 'Réactivité', value: 92 },
-    { category: 'Résolution', value: 79 },
-    { category: 'Communication', value: 88 },
-    { category: 'Suivi', value: 82 },
-  ];
-  
-  // 5. Top Intervention Categories (mock data)
+  // 5. Top Intervention Categories (données simulées)
   const interventionCategoriesData = [
     { name: 'Salle de bain', count: 42 },
     { name: 'Climatisation', count: 38 },
@@ -608,11 +582,14 @@ const DashboardPage = () => {
           </CardContent>
         </Card>
         
-        {/* Client Satisfaction */}
+        {/* Client Satisfaction - Données simulées */}
         <Card className="col-span-1">
           <CardHeader>
             <div className="flex justify-between items-center">
-              <CardTitle>Satisfaction Client</CardTitle>
+              <CardTitle className="flex items-center">
+                <span>Satisfaction Client</span>
+                <div className="ml-2 bg-amber-100 text-amber-800 text-xs px-2 py-0.5 rounded">Données simulées</div>
+              </CardTitle>
               <Star className="h-4 w-4 text-charcoal-500 dark:text-cream-400" />
             </div>
             <CardDescription>Répartition des niveaux de satisfaction</CardDescription>
@@ -644,107 +621,14 @@ const DashboardPage = () => {
           </CardContent>
         </Card>
         
-        {/* Room Occupancy Rate */}
+        {/* Top Intervention Categories - Données simulées */}
         <Card className="col-span-1">
           <CardHeader>
             <div className="flex justify-between items-center">
-              <CardTitle>Taux d'Occupation</CardTitle>
-              <Hotel className="h-4 w-4 text-charcoal-500 dark:text-cream-400" />
-            </div>
-            <CardDescription>Évolution du taux d'occupation sur 6 mois</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="h-80">
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart
-                  data={roomOccupancyData}
-                  margin={{ top: 20, right: 30, left: 20, bottom: 5 }}
-                >
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="month" />
-                  <YAxis domain={[0, 100]} />
-                  <Tooltip formatter={(value) => [`${value}%`, 'Taux d\'occupation']} />
-                  <Legend />
-                  <Line 
-                    type="monotone" 
-                    dataKey="rate" 
-                    name="Taux d'occupation" 
-                    stroke="#3b82f6" 
-                    strokeWidth={2}
-                    dot={{ r: 5 }}
-                    activeDot={{ r: 8 }}
-                  />
-                </LineChart>
-              </ResponsiveContainer>
-            </div>
-          </CardContent>
-        </Card>
-        
-        {/* Staff Performance Radar Chart */}
-        <Card className="col-span-1">
-          <CardHeader>
-            <div className="flex justify-between items-center">
-              <CardTitle>Performance Équipe</CardTitle>
-              <User className="h-4 w-4 text-charcoal-500 dark:text-cream-400" />
-            </div>
-            <CardDescription>Évaluation des performances par catégorie</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="h-80">
-              <ResponsiveContainer width="100%" height="100%">
-                <RadarChart cx="50%" cy="50%" outerRadius="70%" data={staffPerformanceData}>
-                  <PolarGrid />
-                  <PolarAngleAxis dataKey="category" />
-                  <PolarRadiusAxis domain={[0, 100]} />
-                  <Radar 
-                    name="Performance (%)" 
-                    dataKey="value" 
-                    stroke="#D4A017" 
-                    fill="#D4A017" 
-                    fillOpacity={0.6} 
-                  />
-                  <Tooltip formatter={(value) => [`${value}%`, 'Score']} />
-                  <Legend />
-                </RadarChart>
-              </ResponsiveContainer>
-            </div>
-          </CardContent>
-        </Card>
-        
-        {/* Revenue by Hotel */}
-        <Card className="col-span-1">
-          <CardHeader>
-            <div className="flex justify-between items-center">
-              <CardTitle>Revenus par Hôtel</CardTitle>
-              <Euro className="h-4 w-4 text-charcoal-500 dark:text-cream-400" />
-            </div>
-            <CardDescription>Comparaison revenus actuels vs objectifs</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="h-80">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart
-                  data={revenueByHotelData}
-                  margin={{ top: 20, right: 30, left: 20, bottom: 5 }}
-                >
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="name" />
-                  <YAxis />
-                  <Tooltip formatter={(value) => [`${value.toLocaleString()} €`, '']} />
-                  <Legend />
-                  <Bar dataKey="revenue" name="Revenus actuels" fill="#10b981" />
-                  <Bar dataKey="target" name="Objectifs" fill="#9ca3af" />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-          </CardContent>
-        </Card>
-        
-        {/* Top Intervention Categories */}
-        <Card className="col-span-1">
-          <CardHeader>
-            <div className="flex justify-between items-center">
-              <CardTitle>Top Catégories d'Intervention</CardTitle>
+              <CardTitle className="flex items-center">
+                <span>Top Catégories d'Intervention</span>
+                <div className="ml-2 bg-amber-100 text-amber-800 text-xs px-2 py-0.5 rounded">Données simulées</div>
+              </CardTitle>
               <Tool className="h-4 w-4 text-charcoal-500 dark:text-cream-400" />
             </div>
             <CardDescription>Les interventions les plus fréquentes</CardDescription>
@@ -769,39 +653,22 @@ const DashboardPage = () => {
           </CardContent>
         </Card>
         
-        {/* Task Resolution Time */}
+        {/* Message concernant les données manquantes */}
         <Card className="col-span-1 md:col-span-2">
           <CardHeader>
-            <div className="flex justify-between items-center">
-              <CardTitle>Délai de Résolution par Type</CardTitle>
-              <CalendarClock className="h-4 w-4 text-charcoal-500 dark:text-cream-400" />
-            </div>
-            <CardDescription>Temps moyen de résolution par catégorie (en heures)</CardDescription>
+            <CardTitle className="flex items-center">
+              <InfoIcon className="mr-2 h-5 w-5 text-blue-500" />
+              Information
+            </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="h-80">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart
-                  data={[
-                    { category: "Problèmes techniques", urgence: 8, normal: 24, faible: 48 },
-                    { category: "Réclamations clients", urgence: 2, normal: 8, faible: 24 },
-                    { category: "Demandes spéciales", urgence: 1, normal: 4, faible: 12 },
-                    { category: "Maintenance", urgence: 4, normal: 16, faible: 36 },
-                    { category: "Administration", urgence: 24, normal: 48, faible: 72 }
-                  ]}
-                  margin={{ top: 20, right: 30, left: 20, bottom: 5 }}
-                >
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="category" />
-                  <YAxis />
-                  <Tooltip />
-                  <Legend />
-                  <Bar dataKey="urgence" name="Priorité Haute" fill="#ef4444" />
-                  <Bar dataKey="normal" name="Priorité Normale" fill="#f59e0b" />
-                  <Bar dataKey="faible" name="Priorité Basse" fill="#3b82f6" />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
+            <Alert>
+              <AlertDescription>
+                <p className="font-medium">Certaines données affichées sont simulées à des fins de démonstration.</p>
+                <p className="mt-1">Les données des cartes "Satisfaction Client" et "Top Catégories d'Intervention" ne sont pas encore connectées à la base de données.</p>
+                <p className="mt-1">Les cartes "Taux d'Occupation" et "Revenus par Hôtel" ont été retirées en attendant leur intégration avec les données réelles.</p>
+              </AlertDescription>
+            </Alert>
           </CardContent>
         </Card>
       </div>
