@@ -89,48 +89,6 @@ const IncidentForm: React.FC<IncidentFormProps> = ({
   const [loadingRoomTypes, setLoadingRoomTypes] = useState(false);
   const [photoUploading, setPhotoUploading] = useState(false);
   
-  const { toast } = useToast();
-  const currentUser = getCurrentUser();
-
-  // Initialiser le formulaire avec les données de l'incident si en mode édition
-  useEffect(() => {
-    if (isEditing && incident) {
-      setFormData({
-        ...incident,
-        photoPreview: incident.photoUrl || ''
-      });
-    } else {
-      // Pour un nouvel incident, on essaie de trouver le statut "ouvert" par défaut
-      const initializeDefaultStatus = async () => {
-        try {
-          const openStatusId = await findStatusIdByCode('open');
-          if (openStatusId) {
-            setFormData(prev => ({
-              ...prev,
-              statusId: openStatusId,
-              // Make sure receivedById is set to current user
-              receivedById: currentUser?.id || ''
-            }));
-          } else {
-            // If no status found, still set the current user
-            setFormData(prev => ({
-              ...prev,
-              receivedById: currentUser?.id || ''
-            }));
-          }
-        } catch (error) {
-          console.error('Error finding default status:', error);
-          // Even on error, ensure current user is set
-          setFormData(prev => ({
-            ...prev,
-            receivedById: currentUser?.id || ''
-          }));
-        }
-      };
-      initializeDefaultStatus();
-    }
-  }, [isEditing, incident, currentUser]);
-
   // Load all data on mount
   useEffect(() => {
     const loadData = async () => {
@@ -166,7 +124,7 @@ const IncidentForm: React.FC<IncidentFormProps> = ({
         setUsers(allUsers);
         
         // Filter users based on selected hotel
-        if (incident?.hotelId) {
+        if (isEditing && incident?.hotelId) {
           const hotelUsers = await getUsersByHotel(incident.hotelId);
           setFilteredUsers(hotelUsers);
         } else {
@@ -174,9 +132,27 @@ const IncidentForm: React.FC<IncidentFormProps> = ({
         }
         
         // Load locations for the current hotel
-        if (incident?.hotelId) {
+        if (isEditing && incident?.hotelId) {
           const locationsData = await getHotelLocations(incident.hotelId);
           setLocations(locationsData);
+        }
+        
+        // For new incidents, set default status to "open"
+        if (!isEditing) {
+          const initializeDefaultStatus = async () => {
+            try {
+              const openStatusId = await findStatusIdByCode('open');
+              if (openStatusId) {
+                setFormData(prev => ({
+                  ...prev,
+                  statusId: openStatusId,
+                }));
+              }
+            } catch (error) {
+              console.error('Error finding default status:', error);
+            }
+          };
+          initializeDefaultStatus();
         }
       } catch (error) {
         console.error('Error loading data:', error);
@@ -191,7 +167,7 @@ const IncidentForm: React.FC<IncidentFormProps> = ({
     };
 
     loadData();
-  }, [incident?.hotelId, toast]);
+  }, [isEditing, incident, toast]);
 
   // Load locations when hotel changes
   useEffect(() => {
@@ -589,8 +565,8 @@ const IncidentForm: React.FC<IncidentFormProps> = ({
                   <SelectValue placeholder="Sélectionnez un hôtel" />
                 </SelectTrigger>
                 <SelectContent>
-                  {loading ? (
-                    <SelectItem value="loading" disabled>Chargement...</SelectItem>
+                  {filteredHotels.length === 0 ? (
+                    <SelectItem value="none" disabled>Aucun hôtel disponible</SelectItem>
                   ) : (
                     filteredHotels.map(hotel => (
                       <SelectItem key={hotel.id} value={hotel.id}>{hotel.name}</SelectItem>
@@ -613,19 +589,13 @@ const IncidentForm: React.FC<IncidentFormProps> = ({
                 disabled={!formData.hotelId || loadingLocations}
               >
                 <SelectTrigger id="locationId">
-                  <SelectValue placeholder={
-                    !formData.hotelId 
-                      ? "Sélectionnez d'abord un hôtel" 
-                      : loadingLocations 
-                        ? "Chargement..." 
-                        : "Sélectionnez un lieu"
-                  } />
+                  <SelectValue placeholder={!formData.hotelId ? "Sélectionnez d'abord un hôtel" : loadingLocations ? "Chargement..." : "Sélectionnez un lieu"} />
                 </SelectTrigger>
                 <SelectContent>
                   {loadingLocations ? (
                     <SelectItem value="loading" disabled>Chargement...</SelectItem>
                   ) : locations.length === 0 ? (
-                    <SelectItem value="none" disabled>Aucun lieu disponible</SelectItem>
+                    <SelectItem value="none" disabled>Aucun lieu disponible pour cet hôtel</SelectItem>
                   ) : (
                     locations
                       .filter(location => location.id && location.id !== '')
