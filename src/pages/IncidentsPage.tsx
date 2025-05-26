@@ -5,7 +5,8 @@ import {
   AlertTriangle, 
   Download, 
   Plus, 
-  FileText
+  FileText,
+  Loader2
 } from 'lucide-react';
 import { formatDate } from '@/lib/utils';
 import { exportIncidents } from '@/lib/exportUtils';
@@ -19,6 +20,7 @@ import { getIncidentCategoryLabel } from '@/lib/db/parameters-incident-categorie
 import { getImpactLabel } from '@/lib/db/parameters-impact';
 import { getStatusLabel } from '@/lib/db/parameters-status';
 import { getUserName } from '@/lib/db/users';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 
 // Import components
 import IncidentDialog from '@/components/incidents/IncidentDialog';
@@ -38,6 +40,7 @@ const IncidentsPage = () => {
   const [incidents, setIncidents] = useState<any[]>([]);
   const [availableHotels, setAvailableHotels] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const { toast } = useToast();
   const currentUser = getCurrentUser();
   
@@ -47,20 +50,27 @@ const IncidentsPage = () => {
     loadAvailableHotels();
   }, []);
 
-  // Function to load incidents
+  // Function to load incidents with error handling
   const loadIncidents = async () => {
     try {
       setLoading(true);
+      setError(null);
+      
       // getIncidents already applies hotel access filtering based on current user
       const data = await getIncidents();
-      setIncidents(data);
-    } catch (error) {
+      console.log("Incidents loaded:", data?.length || 0);
+      setIncidents(data || []);
+    } catch (error: any) {
       console.error('Error loading incidents:', error);
+      setError(error?.message || "Impossible de charger les incidents");
       toast({
         title: "Erreur",
-        description: "Impossible de charger les incidents",
+        description: "Impossible de charger les incidents. " + (error?.message || ""),
         variant: "destructive",
       });
+      
+      // Ensure incidents is at least an empty array to prevent rendering issues
+      setIncidents([]);
     } finally {
       setLoading(false);
     }
@@ -84,6 +94,9 @@ const IncidentsPage = () => {
         description: "Impossible de charger les hôtels",
         variant: "destructive",
       });
+      
+      // Ensure availableHotels is at least an empty array
+      setAvailableHotels([]);
     }
   };
   
@@ -98,7 +111,10 @@ const IncidentsPage = () => {
   const [editIncidentDialogOpen, setEditIncidentDialogOpen] = useState(false);
 
   // Filter incidents based on selected filters
-  const filteredIncidents = incidents.filter(incident => {
+  const filteredIncidents = incidents ? incidents.filter(incident => {
+    // Skip if incident is undefined or null
+    if (!incident) return false;
+    
     // Filter by hotel
     if (filterHotel !== 'all' && incident.hotelId !== filterHotel) return false;
     
@@ -114,7 +130,8 @@ const IncidentsPage = () => {
     // Search query
     if (searchQuery) {
       const query = searchQuery.toLowerCase();
-      const matchesDescription = incident.description.toLowerCase().includes(query);
+      // Make sure description exists before trying to search in it
+      const matchesDescription = incident.description?.toLowerCase?.()?.includes?.(query) || false;
       
       // For hotel, category, client name, we'll need to check actual values rather than IDs
       let matchesHotel = false;
@@ -130,9 +147,9 @@ const IncidentsPage = () => {
     }
     
     return true;
-  }).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  }) : [];
   
-  // Handle form submission
+  // Handle form submission with error handling
   const handleSubmitIncident = async (formData: any) => {
     try {
       // Verify that user has access to the selected hotel
@@ -157,11 +174,11 @@ const IncidentsPage = () => {
       await loadIncidents();
       
       setNewIncidentDialogOpen(false);
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error creating incident:', error);
       toast({
         title: "Erreur",
-        description: "Une erreur est survenue lors de la création de l'incident",
+        description: error?.message || "Une erreur est survenue lors de la création de l'incident",
         variant: "destructive",
       });
     }
@@ -324,11 +341,11 @@ const IncidentsPage = () => {
       // Close edit dialog
       setEditIncidentDialogOpen(false);
       setSelectedIncident(null);
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error updating incident:', error);
       toast({
         title: "Erreur",
-        description: "Une erreur est survenue lors de la mise à jour de l'incident",
+        description: error?.message || "Une erreur est survenue lors de la mise à jour de l'incident",
         variant: "destructive",
       });
     }
@@ -340,7 +357,15 @@ const IncidentsPage = () => {
   };
   
   if (loading) {
-    return <div>Chargement des incidents...</div>;
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="text-center">
+          <Loader2 className="h-8 w-8 animate-spin mx-auto mb-4 text-brand-500" />
+          <h2 className="text-xl font-semibold mb-2">Chargement des incidents...</h2>
+          <p className="text-muted-foreground">Veuillez patienter pendant le chargement des données.</p>
+        </div>
+      </div>
+    );
   }
   
   return (
@@ -369,6 +394,13 @@ const IncidentsPage = () => {
         </div>
       </div>
       
+      {error && (
+        <Alert variant="destructive">
+          <AlertTriangle className="h-4 w-4" />
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
+      
       <IncidentFilters 
         searchQuery={searchQuery}
         onSearchChange={setSearchQuery}
@@ -387,11 +419,26 @@ const IncidentsPage = () => {
       
       <Card>
         <CardContent className="p-0">
-          <IncidentList 
-            incidents={filteredIncidents}
-            onViewIncident={handleViewIncident}
-            onEditIncident={handleEditIncident}
-          />
+          {incidents && incidents.length >= 0 ? (
+            <IncidentList 
+              incidents={filteredIncidents || []}
+              onViewIncident={handleViewIncident}
+              onEditIncident={handleEditIncident}
+            />
+          ) : (
+            <div className="p-6 text-center">
+              <AlertTriangle className="h-10 w-10 text-amber-500 mx-auto mb-4" />
+              <p className="text-lg font-medium">Erreur lors du chargement des incidents</p>
+              <p className="text-muted-foreground">Veuillez rafraîchir la page ou réessayer plus tard.</p>
+              <Button 
+                variant="outline" 
+                onClick={loadIncidents} 
+                className="mt-4"
+              >
+                Réessayer
+              </Button>
+            </div>
+          )}
         </CardContent>
       </Card>
       
@@ -404,13 +451,15 @@ const IncidentsPage = () => {
       />
       
       {/* View Incident Dialog */}
-      <IncidentDialog 
-        incident={selectedIncident}
-        isOpen={viewIncidentDialogOpen}
-        onClose={() => setViewIncidentDialogOpen(false)}
-        onDelete={handleIncidentDelete}
-        onUpdate={handleIncidentUpdate}
-      />
+      {selectedIncident && (
+        <IncidentDialog 
+          incident={selectedIncident}
+          isOpen={viewIncidentDialogOpen}
+          onClose={() => setViewIncidentDialogOpen(false)}
+          onDelete={handleIncidentDelete}
+          onUpdate={handleIncidentUpdate}
+        />
+      )}
 
       {/* Edit Incident Dialog */}
       {selectedIncident && (
