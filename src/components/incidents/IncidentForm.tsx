@@ -12,15 +12,15 @@ import { getIncidentCategoryParameters } from '@/lib/db/parameters-incident-cate
 import { getImpactParameters } from '@/lib/db/parameters-impact';
 import { getStatusParameters } from '@/lib/db/parameters-status';
 import { getBookingOriginParameters } from '@/lib/db/parameters-booking-origin';
-import { getRoomTypeParameters } from '@/lib/db/parameters-room-type';
-import { getHotelRoomTypes } from '@/lib/db/hotel-room-types';
 import { getCurrentUser } from '@/lib/auth';
 import { getUsers, getUsersByHotel } from '@/lib/db/users';
 import { useDate } from '@/hooks/use-date';
 import { useToast } from '@/hooks/use-toast';
 import { findStatusIdByCode } from '@/lib/db/parameters-status';
 import { Loader2, Image, X } from 'lucide-react';
-import { deleteFromSupabase } from '@/lib/supabase';
+import { deleteFromSupabase, isDataUrl, dataUrlToFile } from '@/lib/supabase';
+import { getRoomTypeParameters } from '@/lib/db/parameters-room-type';
+import { getHotelRoomTypes } from '@/lib/db/hotel-room-types';
 import PhotoDisplay from '@/components/maintenance/PhotoDisplay';
 
 interface IncidentFormProps {
@@ -88,7 +88,7 @@ const IncidentForm: React.FC<IncidentFormProps> = ({
   const [loadingUsers, setLoadingUsers] = useState(false);
   const [loadingRoomTypes, setLoadingRoomTypes] = useState(false);
   const [photoUploading, setPhotoUploading] = useState(false);
-  
+
   // Load all data on mount
   useEffect(() => {
     const loadData = async () => {
@@ -115,7 +115,7 @@ const IncidentForm: React.FC<IncidentFormProps> = ({
         const bookingOriginsData = await getBookingOriginParameters();
         setBookingOrigins(bookingOriginsData);
         
-        // Load all room types
+        // Load room types
         const roomTypesData = await getRoomTypeParameters();
         setRoomTypes(roomTypesData);
         
@@ -139,20 +139,17 @@ const IncidentForm: React.FC<IncidentFormProps> = ({
         
         // For new incidents, set default status to "open"
         if (!isEditing) {
-          const initializeDefaultStatus = async () => {
-            try {
-              const openStatusId = await findStatusIdByCode('open');
-              if (openStatusId) {
-                setFormData(prev => ({
-                  ...prev,
-                  statusId: openStatusId,
-                }));
-              }
-            } catch (error) {
-              console.error('Error finding default status:', error);
+          try {
+            const openStatusId = await findStatusIdByCode('open');
+            if (openStatusId) {
+              setFormData(prev => ({
+                ...prev,
+                statusId: openStatusId,
+              }));
             }
-          };
-          initializeDefaultStatus();
+          } catch (error) {
+            console.error('Error finding default status:', error);
+          }
         }
       } catch (error) {
         console.error('Error loading data:', error);
@@ -165,7 +162,7 @@ const IncidentForm: React.FC<IncidentFormProps> = ({
         setLoading(false);
       }
     };
-
+    
     loadData();
   }, [isEditing, incident, toast]);
 
@@ -174,6 +171,10 @@ const IncidentForm: React.FC<IncidentFormProps> = ({
     const loadLocations = async () => {
       if (!formData.hotelId) {
         setLocations([]);
+        setFormData(prev => ({
+          ...prev,
+          locationId: ''
+        }));
         return;
       }
 
@@ -307,11 +308,12 @@ const IncidentForm: React.FC<IncidentFormProps> = ({
   // Handle select changes
   const handleSelectChange = (name: string, value: string | null) => {
     if (name === 'hotelId') {
-      // When hotel changes, reset locationId
+      // When hotel changes, reset locationId and roomType
       setFormData(prev => ({
         ...prev,
         [name]: value,
-        locationId: ''
+        locationId: '',
+        roomType: ''
       }));
     } else {
       setFormData(prev => ({
@@ -469,7 +471,7 @@ const IncidentForm: React.FC<IncidentFormProps> = ({
       concludedAt: formData.concludedById ? new Date().toISOString() : null,
       concludedById: formData.concludedById || null
     };
-
+    
     onSave(updatedData);
   };
 
@@ -500,16 +502,6 @@ const IncidentForm: React.FC<IncidentFormProps> = ({
     }
   }, [departureDate.date]);
 
-  // Reset locationId when hotel changes
-  useEffect(() => {
-    if (!isEditing) {
-      setFormData(prev => ({
-        ...prev,
-        locationId: ''
-      }));
-    }
-  }, [formData.hotelId, isEditing]);
-
   if (loading) {
     return (
       <Dialog open={isOpen} onOpenChange={onClose}>
@@ -518,7 +510,7 @@ const IncidentForm: React.FC<IncidentFormProps> = ({
             <DialogTitle>Chargement...</DialogTitle>
           </DialogHeader>
           <div className="py-6 text-center">
-            <Loader2 className="h-8 w-8 animate-spin mb-2 text-brand-500" />
+            <Loader2 className="h-8 w-8 animate-spin mx-auto mb-2 text-brand-500" />
             <p>Chargement des données en cours...</p>
           </div>
         </DialogContent>
@@ -769,12 +761,12 @@ const IncidentForm: React.FC<IncidentFormProps> = ({
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label htmlFor="receivedById" className="after:content-['*'] after:ml-0.5 after:text-red-500">Reçu par</Label>
-              <Select 
-                value={formData.receivedById || "none"} 
+              <Select
+                value={formData.receivedById || "none"}
                 onValueChange={(value) => handleFormChange({ 
                   target: { name: 'receivedById', value: value === "none" ? "" : value } 
                 } as React.ChangeEvent<HTMLSelectElement>)}
-                disabled={loadingUsers}
+                disabled={loadingUsers || !formData.hotelId}
               >
                 <SelectTrigger id="receivedById">
                   <SelectValue placeholder={
