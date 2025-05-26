@@ -59,7 +59,6 @@ const IncidentDialog: React.FC<IncidentDialogProps> = ({
   const [userNames, setUserNames] = useState<{[key: string]: string}>({});
   const { toast } = useToast();
   const currentUser = getCurrentUser();
-  const isAdmin = currentUser?.role === 'admin';
 
   // Get status parameters
   const statusParams = parameters.filter(p => p.type === 'status');
@@ -221,8 +220,7 @@ const IncidentDialog: React.FC<IncidentDialogProps> = ({
 
   // Handle delete incident
   const handleDelete = async () => {
-    if (!isAdmin) return;
-    
+    // Removed role check to allow all users with access to delete
     const confirmed = window.confirm('Êtes-vous sûr de vouloir supprimer cet incident ? Cette action est irréversible.');
     if (!confirmed) return;
     
@@ -691,18 +689,17 @@ const IncidentDialog: React.FC<IncidentDialogProps> = ({
         </div>
         
         <DialogFooter className="space-x-2 pt-4 border-t">
-          {isAdmin && (
-            <Button 
-              variant="destructive" 
-              onClick={handleDelete} 
-              disabled={isDeleting}
-              className="flex items-center"
-            >
-              <Trash2 className="h-4 w-4 mr-2" />
-              Supprimer
-              {isDeleting && '...'}
-            </Button>
-          )}
+          {/* Supprimé la vérification de l'admin pour que tous les utilisateurs avec accès puissent supprimer */}
+          <Button 
+            variant="destructive" 
+            onClick={handleDelete} 
+            disabled={isDeleting}
+            className="flex items-center"
+          >
+            <Trash2 className="h-4 w-4 mr-2" />
+            Supprimer
+            {isDeleting && '...'}
+          </Button>
           
           <Button 
             variant="outline" 
