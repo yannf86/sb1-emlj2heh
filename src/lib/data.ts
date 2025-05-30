@@ -311,11 +311,11 @@ export const supplierSubcategories = [
   { id: 'sub45', categoryId: 'cat9', name: 'Revêtements', description: 'Papier peint, peinture, moquette', order: 5 },
   
   // Sécurité (cat10)
-  { id: 'sub46', category: 'cat10', name: 'Systèmes de surveillance', description: 'Caméras, moniteurs, enregistreurs', order: 1 },
-  { id: 'sub47', category: 'cat10', name: 'Contrôle d\'accès', description: 'Serrures, badges, biométrie', order: 2 },
-  { id: 'sub48', category: 'cat10', name: 'Sécurité incendie', description: 'Détecteurs, extincteurs, signalisation', order: 3 },
-  { id: 'sub49', category: 'cat10', name: 'Coffres-forts', description: 'Coffres chambres et réception', order: 4 },
-  { id: 'sub50', category: 'cat10', name: 'Équipement de sécurité', description: 'EPI, premiers secours, signalétique', order: 5 }
+  { id: 'sub46', categoryId: 'cat10', name: 'Systèmes de surveillance', description: 'Caméras, moniteurs, enregistreurs', order: 1 },
+  { id: 'sub47', categoryId: 'cat10', name: 'Contrôle d\'accès', description: 'Serrures, badges, biométrie', order: 2 },
+  { id: 'sub48', categoryId: 'cat10', name: 'Sécurité incendie', description: 'Détecteurs, extincteurs, signalisation', order: 3 },
+  { id: 'sub49', categoryId: 'cat10', name: 'Coffres-forts', description: 'Coffres chambres et réception', order: 4 },
+  { id: 'sub50', categoryId: 'cat10', name: 'Équipement de sécurité', description: 'EPI, premiers secours, signalétique', order: 5 }
 ];
 
 // Helper functions

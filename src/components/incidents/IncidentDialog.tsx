@@ -9,6 +9,8 @@ import { getImpactLabel } from '@/lib/db/parameters-impact';
 import { getStatusLabel } from '@/lib/db/parameters-status';
 import { getUserName } from '@/lib/db/users';
 import { getBookingOriginLabel } from '@/lib/db/parameters-booking-origin';
+import { getResolutionTypeLabel } from '@/lib/db/parameters-resolution-type';
+import { getClientSatisfactionLabel } from '@/lib/db/parameters-client-satisfaction';
 import { getCurrentUser } from '@/lib/auth';
 import { deleteIncident, updateIncident } from '@/lib/db/incidents';
 import { useToast } from '@/hooks/use-toast';
@@ -29,7 +31,11 @@ import {
   Trash2,
   History,
   Edit,
-  Image
+  Image,
+  CheckCheck,
+  XCircle,
+  ThumbsUp,
+  Award
 } from 'lucide-react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { parameters } from '@/lib/data';
@@ -108,6 +114,26 @@ const IncidentDialog: React.FC<IncidentDialogProps> = ({
           } catch (error) {
             console.error(`Error loading impact:`, error);
             labels.impactLabel = 'Inconnu';
+          }
+        }
+
+        // Load resolution type label
+        if (incident.resolutionTypeId) {
+          try {
+            labels.resolutionTypeLabel = await getResolutionTypeLabel(incident.resolutionTypeId);
+          } catch (error) {
+            console.error(`Error loading resolution type:`, error);
+            labels.resolutionTypeLabel = 'Inconnu';
+          }
+        }
+
+        // Load client satisfaction label
+        if (incident.clientSatisfactionId) {
+          try {
+            labels.clientSatisfactionLabel = await getClientSatisfactionLabel(incident.clientSatisfactionId);
+          } catch (error) {
+            console.error(`Error loading client satisfaction:`, error);
+            labels.clientSatisfactionLabel = 'Inconnu';
           }
         }
 
@@ -376,6 +402,15 @@ const IncidentDialog: React.FC<IncidentDialogProps> = ({
                 case 'resolutionDescription':
                   fieldLabel = 'Description de résolution';
                   break;
+                case 'resolutionTypeId':
+                  fieldLabel = 'Type de résolution';
+                  break;
+                case 'clientSatisfactionId':
+                  fieldLabel = 'Satisfaction client';
+                  break;
+                case 'compensationAmount':
+                  fieldLabel = 'Montant geste commercial';
+                  break;
               }
               
               return (
@@ -383,11 +418,15 @@ const IncidentDialog: React.FC<IncidentDialogProps> = ({
                   <span className="font-medium mr-1">{fieldLabel}:</span>
                   <span className="text-red-500 line-through mr-1">
                     {typeof change.old === 'object' ? JSON.stringify(change.old) : 
-                     change.old === null || change.old === undefined ? '(vide)' : change.old.toString()}
+                     change.old === null || change.old === undefined ? '(vide)' : 
+                     field === 'clientSatisfactionId' ? (change.old ? 'Oui' : 'Non') :
+                     change.old.toString()}
                   </span>
                   <span className="text-green-500">
                     {typeof change.new === 'object' ? JSON.stringify(change.new) : 
-                     change.new === null || change.new === undefined ? '(vide)' : change.new.toString()}
+                     change.new === null || change.new === undefined ? '(vide)' : 
+                     field === 'clientSatisfactionId' ? (change.new ? 'Oui' : 'Non') :
+                     change.new.toString()}
                   </span>
                 </div>
               );
@@ -550,6 +589,42 @@ const IncidentDialog: React.FC<IncidentDialogProps> = ({
                 </div>
               </div>
             )}
+          </div>
+
+          {/* Informations de résolution */}
+          <div className="space-y-4 pt-2 border-t">
+            <div className="flex items-center">
+              <CheckCircle2 className="h-5 w-5 mr-2 text-slate-500" />
+              <h3 className="text-lg font-medium">Informations de résolution</h3>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              {incident.resolutionTypeId && (
+                <div className="space-y-1">
+                  <p className="text-sm font-medium text-muted-foreground">Type de résolution</p>
+                  <p className="font-medium">{resolvedLabels.resolutionTypeLabel || 'Chargement...'}</p>
+                </div>
+              )}
+
+              {incident.compensationAmount && (
+                <div className="space-y-1">
+                  <p className="text-sm font-medium text-muted-foreground">Montant geste commercial</p>
+                  <p className="font-medium">{incident.compensationAmount} €</p>
+                </div>
+              )}
+            </div>
+
+            <div className="flex items-center space-x-2">
+              <p className="text-sm font-medium text-muted-foreground mr-2">Satisfaction client:</p>
+              {incident.clientSatisfactionId ? (
+                <div className="flex items-center">
+                  <Award className="h-4 w-4 mr-1 text-amber-500" />
+                  <span className="font-medium">{resolvedLabels.clientSatisfactionLabel || 'Chargement...'}</span>
+                </div>
+              ) : (
+                <span className="text-muted-foreground">Non spécifié</span>
+              )}
+            </div>
           </div>
           
           {/* Client information */}

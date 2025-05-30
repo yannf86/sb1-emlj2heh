@@ -21,6 +21,10 @@ export interface Incident {
   receivedById: string;
   concludedById?: string;
   resolutionDescription?: string;
+  // Nouveaux champs pour la résolution
+  resolutionTypeId?: string;  // Type de résolution
+  clientSatisfactionId?: string; // Satisfaction client (ID du paramètre)
+  compensationAmount?: string; // Montant du geste commercial
   createdAt: string;
   updatedAt: string;
 }
@@ -45,6 +49,10 @@ export interface IncidentFormData {
   statusId: string;
   receivedById: string;
   concludedById: string;
+  // Nouveaux champs pour la résolution
+  resolutionTypeId: string;
+  clientSatisfactionId: string;
+  compensationAmount: string;
 }
 
 export interface IncidentFilters {

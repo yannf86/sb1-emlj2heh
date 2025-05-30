@@ -7,6 +7,7 @@ import ParameterTypeList from '../ParameterTypeList';
 import ParameterTable from '../ParameterTable';
 import ParameterDialog from '../ParameterDialog';
 import LocationHotelsDialog from '../LocationHotelsDialog';
+import CategoryHotelsDialog from '../CategoryHotelsDialog';
 import { paramTypeLabels } from '@/lib/settings.constants';
 import { collection, addDoc, updateDoc, deleteDoc, doc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
@@ -19,6 +20,8 @@ const ParametersTab = () => {
   const [addDialogOpen, setAddDialogOpen] = useState(false);
   const [hotelsDialogOpen, setHotelsDialogOpen] = useState(false);
   const [selectedLocation, setSelectedLocation] = useState<any>(null);
+  const [categoryHotelsDialogOpen, setCategoryHotelsDialogOpen] = useState(false);
+  const [selectedCategory, setSelectedCategory] = useState<any>(null);
   const [parameterTypes, setParameterTypes] = useState<any[]>([]);
   const [parameters, setParameters] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -259,22 +262,45 @@ const ParametersTab = () => {
     setSelectedLocation(location);
     setHotelsDialogOpen(true);
   };
+  
+  // Handle manage hotels for incident category
+  const handleManageCategoryHotels = (category: any) => {
+    setSelectedCategory(category);
+    setCategoryHotelsDialogOpen(true);
+  };
 
   // Render additional actions for locations
   const renderLocationActions = (param: any) => {
-    if (selectedParamType !== 'location') return null;
-
-    return (
-      <Button 
-        variant="ghost" 
-        size="sm"
-        onClick={() => handleManageHotels(param)}
-        disabled={saving}
-      >
-        <Building className="h-4 w-4 mr-2" />
-        Hôtels
-      </Button>
-    );
+    if (selectedParamType === 'location') {
+      return (
+        <Button 
+          variant="ghost" 
+          size="sm"
+          onClick={() => handleManageHotels(param)}
+          disabled={saving}
+        >
+          <Building className="h-4 w-4 mr-2" />
+          Hôtels
+        </Button>
+      );
+    }
+    
+    // Add the Hôtels button for incident categories
+    if (selectedParamType === 'incident_category') {
+      return (
+        <Button 
+          variant="ghost" 
+          size="sm"
+          onClick={() => handleManageCategoryHotels(param)}
+          disabled={saving}
+        >
+          <Building className="h-4 w-4 mr-2" />
+          Hôtels
+        </Button>
+      );
+    }
+    
+    return null;
   };
 
   if (loading) {
@@ -369,6 +395,21 @@ const ParametersTab = () => {
           location={{
             id: selectedLocation.id,
             label: selectedLocation.label
+          }}
+        />
+      )}
+      
+      {/* Incident Category Hotels Dialog */}
+      {selectedCategory && (
+        <CategoryHotelsDialog
+          isOpen={categoryHotelsDialogOpen}
+          onClose={() => {
+            setCategoryHotelsDialogOpen(false);
+            setSelectedCategory(null);
+          }}
+          category={{
+            id: selectedCategory.id,
+            label: selectedCategory.label
           }}
         />
       )}

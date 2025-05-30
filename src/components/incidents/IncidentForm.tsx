@@ -4,14 +4,16 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Switch } from '@/components/ui/switch';
 import { DateTimePicker } from '@/components/ui/date-time-picker';
 import { getHotels } from '@/lib/db/hotels';
 import { getHotelLocations } from '@/lib/db/parameters-locations';
+import { getHotelIncidentCategories } from '@/lib/db/hotel-incident-categories';
 import { getIncidentCategoryParameters } from '@/lib/db/parameters-incident-categories';
 import { getImpactParameters } from '@/lib/db/parameters-impact';
 import { getStatusParameters } from '@/lib/db/parameters-status';
 import { getBookingOriginParameters } from '@/lib/db/parameters-booking-origin';
+import { getResolutionTypeParameters } from '@/lib/db/parameters-resolution-type';
+import { getClientSatisfactionParameters } from '@/lib/db/parameters-client-satisfaction';
 import { getCurrentUser } from '@/lib/auth';
 import { getUsers, getUsersByHotel } from '@/lib/db/users';
 import { useDate } from '@/hooks/use-date';
@@ -36,26 +38,43 @@ const IncidentForm: React.FC<IncidentFormProps> = ({
   onSave,
   isEditing = false
 }) => {
-  const [formData, setFormData] = useState<any>({
-    date: new Date().toISOString().split('T')[0],
-    time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-    hotelId: '',
-    locationId: '',
-    roomType: '',
-    clientName: '',
-    clientEmail: '',
-    clientPhone: '',
-    arrivalDate: '',
-    departureDate: '',
-    reservationAmount: '',
-    origin: '',
-    categoryId: '',
-    impactId: '',
-    description: '',
-    statusId: '',
-    receivedById: '',
-    concludedById: '',
-    resolutionDescription: ''
+  const currentUser = getCurrentUser();
+  const { toast } = useToast();
+
+  // Initialisation du formulaire selon le mode (création ou édition)
+  const [formData, setFormData] = useState<any>(() => {
+    if (isEditing && incident) {
+      return {
+        ...incident,
+        photoPreview: incident.photoUrl || ''
+      };
+    } else {
+      return {
+        date: new Date().toISOString().split('T')[0],
+        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        hotelId: currentUser?.role === 'standard' && currentUser?.hotels?.length === 1 ? currentUser.hotels[0] : '',
+        locationId: '',
+        roomType: '',
+        clientName: '',
+        clientEmail: '',
+        clientPhone: '',
+        arrivalDate: '',
+        departureDate: '',
+        reservationAmount: '',
+        origin: '',
+        categoryId: '',
+        impactId: '',
+        description: '',
+        statusId: '',
+        receivedById: currentUser?.id || '',
+        concludedById: '',
+        resolutionDescription: '',
+        // Nouveaux champs pour la résolution
+        resolutionTypeId: '',
+        clientSatisfactionId: '',
+        compensationAmount: ''
+      };
+    }
   });
   
   const [hotels, setHotels] = useState<any[]>([]);
@@ -63,16 +82,17 @@ const IncidentForm: React.FC<IncidentFormProps> = ({
   const [categories, setCategories] = useState<any[]>([]);
   const [impacts, setImpacts] = useState<any[]>([]);
   const [statuses, setStatuses] = useState<any[]>([]);
+  const [resolutionTypes, setResolutionTypes] = useState<any[]>([]);
+  const [clientSatisfactions, setClientSatisfactions] = useState<any[]>([]);
   const [bookingOrigins, setBookingOrigins] = useState<any[]>([]);
   const [users, setUsers] = useState<any[]>([]);
   const [filteredUsers, setFilteredUsers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingLocations, setLoadingLocations] = useState(false);
+  const [loadingCategories, setLoadingCategories] = useState(false);
+  const [loadingItemTypes, setLoadingItemTypes] = useState(false);
   const [loadingUsers, setLoadingUsers] = useState(false);
   const [photoUploading, setPhotoUploading] = useState(false);
-  
-  const { toast } = useToast();
-  const currentUser = getCurrentUser();
 
   // Initialiser le formulaire avec les données de l'incident si en mode édition
   useEffect(() => {
@@ -134,6 +154,14 @@ const IncidentForm: React.FC<IncidentFormProps> = ({
         // Load statuses
         const statusesData = await getStatusParameters();
         setStatuses(statusesData);
+
+        // Load resolution types
+        const resolutionTypesData = await getResolutionTypeParameters();
+        setResolutionTypes(resolutionTypesData);
+
+        // Load client satisfaction options
+        const clientSatisfactionsData = await getClientSatisfactionParameters();
+        setClientSatisfactions(clientSatisfactionsData);
         
         // Load booking origins
         const bookingOriginsData = await getBookingOriginParameters();
@@ -153,8 +181,8 @@ const IncidentForm: React.FC<IncidentFormProps> = ({
         
         // Load locations for the current hotel
         if (incident?.hotelId) {
-          const locationsData = await getHotelLocations(incident.hotelId);
-          setLocations(locationsData);
+          await loadLocationsForHotel(incident.hotelId);
+          await loadCategoriesForHotel(incident.hotelId);
         }
       } catch (error) {
         console.error('Error loading data:', error);
@@ -167,36 +195,88 @@ const IncidentForm: React.FC<IncidentFormProps> = ({
         setLoading(false);
       }
     };
-
+    
     loadData();
   }, [incident?.hotelId, toast]);
 
   // Load locations when hotel changes
-  useEffect(() => {
-    const loadLocations = async () => {
-      if (!formData.hotelId) {
-        setLocations([]);
+  const loadLocationsForHotel = async (hotelId: string) => {
+    if (!hotelId) {
+      setLocations([]);
+      return;
+    }
+
+    try {
+      setLoadingLocations(true);
+      const locationsData = await getHotelLocations(hotelId);
+      setLocations(locationsData);
+    } catch (error) {
+      console.error('Error loading locations:', error);
+      toast({
+        title: "Erreur",
+        description: "Impossible de charger les lieux pour cet hôtel",
+        variant: "destructive",
+      });
+    } finally {
+      setLoadingLocations(false);
+    }
+  };
+  
+  // Load categories when hotel changes
+  const loadCategoriesForHotel = async (hotelId: string) => {
+    if (!hotelId) {
+      // If no hotel selected, show all categories
+      const allCategories = await getIncidentCategoryParameters();
+      setCategories(allCategories);
+      return;
+    }
+
+    try {
+      setLoadingCategories(true);
+      // Get hotel-specific categories
+      const hotelCategories = await getHotelIncidentCategories(hotelId);
+      
+      if (hotelCategories.length === 0) {
+        // If no categories are defined for this hotel, show all categories
+        const allCategories = await getIncidentCategoryParameters();
+        setCategories(allCategories);
         return;
       }
-
-      try {
-        setLoadingLocations(true);
-        const locationsData = await getHotelLocations(formData.hotelId);
-        setLocations(locationsData);
-      } catch (error) {
-        console.error('Error loading locations:', error);
-        toast({
-          title: "Erreur",
-          description: "Impossible de charger les lieux",
-          variant: "destructive",
-        });
-      } finally {
-        setLoadingLocations(false);
+      
+      // Get the full category objects for the IDs
+      const categoryIds = hotelCategories.map(hc => hc.category_id);
+      const allCategories = await getIncidentCategoryParameters();
+      const filteredCategories = allCategories.filter(cat => 
+        categoryIds.includes(cat.id)
+      );
+      
+      setCategories(filteredCategories);
+      
+      // If the currently selected category is not in the filtered list, reset it
+      if (formData.categoryId && !categoryIds.includes(formData.categoryId)) {
+        setFormData(prev => ({
+          ...prev,
+          categoryId: ''
+        }));
       }
-    };
-
-    loadLocations();
-  }, [formData.hotelId, toast]);
+    } catch (error) {
+      console.error('Error loading categories for hotel:', error);
+      toast({
+        title: "Erreur",
+        description: "Impossible de charger les catégories pour cet hôtel",
+        variant: "destructive",
+      });
+    } finally {
+      setLoadingCategories(false);
+    }
+  };
+  
+  useEffect(() => {
+    if (formData.hotelId) {
+      loadLocationsForHotel(formData.hotelId);
+      loadCategoriesForHotel(formData.hotelId);
+    }
+  }, [formData.hotelId]);
   
   // Load users filtered by hotel when hotel selection changes
   useEffect(() => {
@@ -235,7 +315,7 @@ const IncidentForm: React.FC<IncidentFormProps> = ({
     defaultTime: formData.time,
     required: true
   });
-
+  
   // Use the date hook for arrival/departure dates
   const arrivalDate = useDate({
     defaultDate: formData.arrivalDate,
@@ -260,18 +340,27 @@ const IncidentForm: React.FC<IncidentFormProps> = ({
   // Handle select changes
   const handleSelectChange = (name: string, value: string | null) => {
     if (name === 'hotelId') {
-      // When hotel changes, reset locationId
+      // When hotel changes, reset locationId and categoryId
       setFormData(prev => ({
         ...prev,
         [name]: value,
-        locationId: ''
+        locationId: '',
+        categoryId: ''
       }));
     } else {
       setFormData(prev => ({
         ...prev,
-        [name]: value === "none" ? null : value
+        [name]: value
       }));
     }
+  };
+
+  // Handle switch changes
+  const handleSwitchChange = (name: string, checked: boolean) => {
+    setFormData(prev => ({
+      ...prev,
+      [name]: checked
+    }));
   };
 
   // Handle file upload
@@ -336,51 +425,75 @@ const IncidentForm: React.FC<IncidentFormProps> = ({
 
   // Handle delete photo
   const handleDeletePhoto = async () => {
-    try {
-      // If editing and there's an existing photo URL, delete from Supabase
-      if (isEditing && incident?.photoUrl) {
-        console.log('🗑️ Deleting photo from Supabase:', incident.photoUrl);
-        const success = await deleteFromSupabase(incident.photoUrl);
-        if (success) {
-          console.log('✅ Photo deleted successfully from Supabase');
-          toast({
-            title: "Photo supprimée",
-            description: "La photo a été supprimée avec succès"
-          });
-        } else {
-          console.error('❌ Failed to delete photo from Supabase');
-          toast({
-            title: "Avertissement",
-            description: "La photo a été retirée du formulaire mais peut-être pas du stockage",
-            variant: "destructive"
-          });
-        }
+    // If editing and there's an existing photo URL, delete from Supabase
+    if (isEditing && incident?.photoUrl) {
+      console.log('🗑️ Deleting photo from Supabase:', incident.photoUrl);
+      const success = await deleteFromSupabase(incident.photoUrl);
+      if (success) {
+        console.log('✅ Photo deleted successfully from Supabase');
+        toast({
+          title: "Photo supprimée",
+          description: "La photo a été supprimée avec succès"
+        });
+      } else {
+        console.error('❌ Failed to delete photo from Supabase');
+        toast({
+          title: "Avertissement",
+          description: "La photo a été retirée du formulaire mais peut-être pas du stockage",
+          variant: "destructive"
+        });
       }
-
-      // Update form data
-      setFormData(prev => ({
-        ...prev,
-        photo: null,
-        photoPreview: ''
-      }));
-    } catch (error) {
-      console.error('Error deleting photo:', error);
-      toast({
-        title: "Erreur",
-        description: "Une erreur est survenue lors de la suppression de la photo",
-        variant: "destructive"
-      });
     }
+
+    // Update form data
+    setFormData(prev => ({
+      ...prev,
+      photo: null,
+      photoPreview: ''
+    }));
+  };
+
+  // Filter hotels based on user role
+  const filteredHotels = currentUser?.role === 'admin' 
+    ? hotels 
+    : hotels.filter(hotel => currentUser?.hotels?.includes(hotel.id));
+
+  // Validate form before submission
+  const validateForm = () => {
+    if (!formData.hotelId) {
+      return { valid: false, message: "Veuillez sélectionner un hôtel" };
+    }
+    if (!formData.locationId) {
+      return { valid: false, message: "Veuillez sélectionner un lieu" };
+    }
+    if (!formData.categoryId) {
+      return { valid: false, message: "Veuillez sélectionner une catégorie" };
+    }
+    if (!formData.impactId) {
+      return { valid: false, message: "Veuillez sélectionner un niveau d'impact" };
+    }
+    if (!formData.description || formData.description.trim().length < 5) {
+      return { valid: false, message: "Veuillez fournir une description d'au moins 5 caractères" };
+    }
+    if (!formData.statusId) {
+      return { valid: false, message: "Veuillez sélectionner un statut" };
+    }
+    if (!formData.receivedById) {
+      return { valid: false, message: "Veuillez sélectionner la personne qui a reçu l'incident" };
+    }
+    
+    return { valid: true, message: "" };
   };
 
   // Handle form submission
   const handleSubmit = async () => {
-    // Validate required fields
-    if (!formData.hotelId || !formData.locationId || !formData.categoryId || !formData.impactId || !formData.description || !formData.statusId || !formData.receivedById) {
+    // Validate the form
+    const validation = validateForm();
+    if (!validation.valid) {
       toast({
-        title: "Champs manquants",
-        description: "Veuillez remplir tous les champs obligatoires",
-        variant: "destructive",
+        title: "Validation échouée",
+        description: validation.message,
+        variant: "destructive"
       });
       return;
     }
@@ -427,12 +540,13 @@ const IncidentForm: React.FC<IncidentFormProps> = ({
     }
   }, [departureDate.date]);
 
-  // Reset locationId when hotel changes
+  // Reset locationId and categoryId when hotel changes
   useEffect(() => {
     if (!isEditing) {
       setFormData(prev => ({
         ...prev,
-        locationId: ''
+        locationId: '',
+        categoryId: ''
       }));
     }
   }, [formData.hotelId, isEditing]);
@@ -440,12 +554,12 @@ const IncidentForm: React.FC<IncidentFormProps> = ({
   if (loading) {
     return (
       <Dialog open={isOpen} onOpenChange={onClose}>
-        <DialogContent>
+        <DialogContent className="sm:max-w-[500px]">
           <DialogHeader>
             <DialogTitle>Chargement...</DialogTitle>
           </DialogHeader>
           <div className="py-6 text-center">
-            <Loader2 className="h-8 w-8 animate-spin mb-2 text-brand-500" />
+            <Loader2 className="h-8 w-8 animate-spin mx-auto mb-2 text-brand-500" />
             <p>Chargement des données en cours...</p>
           </div>
         </DialogContent>
@@ -453,17 +567,14 @@ const IncidentForm: React.FC<IncidentFormProps> = ({
     );
   }
 
-  // Filter hotels based on user permissions
-  const filteredHotels = currentUser?.role === 'admin' 
-    ? hotels 
-    : hotels.filter(hotel => currentUser?.hotels?.includes(hotel.id));
-
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
       <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>
-            {isEditing ? 'Modifier l\'incident' : 'Nouvel Incident'}
+            {isEditing 
+              ? 'Modifier l\'incident' 
+              : 'Nouvel Incident'}
           </DialogTitle>
           <DialogDescription>
             {isEditing 
@@ -490,20 +601,15 @@ const IncidentForm: React.FC<IncidentFormProps> = ({
               </Label>
               <Select 
                 value={formData.hotelId} 
-                onValueChange={(value) => {
-                  setFormData(prev => ({
-                    ...prev,
-                    hotelId: value,
-                    locationId: '' // Reset location when hotel changes
-                  }));
-                }}
+                onValueChange={(value) => handleSelectChange('hotelId', value)}
+                disabled={currentUser?.role === 'standard' && currentUser?.hotels?.length === 1}
               >
                 <SelectTrigger id="hotelId">
                   <SelectValue placeholder="Sélectionnez un hôtel" />
                 </SelectTrigger>
                 <SelectContent>
                   {loading ? (
-                    <SelectItem value="loading" disabled>Chargement...</SelectItem>
+                    <SelectItem value="loading\" disabled>Chargement...</SelectItem>
                   ) : (
                     filteredHotels.map(hotel => (
                       <SelectItem key={hotel.id} value={hotel.id}>{hotel.name}</SelectItem>
@@ -526,19 +632,13 @@ const IncidentForm: React.FC<IncidentFormProps> = ({
                 disabled={!formData.hotelId || loadingLocations}
               >
                 <SelectTrigger id="locationId">
-                  <SelectValue placeholder={
-                    !formData.hotelId 
-                      ? "Sélectionnez d'abord un hôtel" 
-                      : loadingLocations 
-                        ? "Chargement..." 
-                        : "Sélectionnez un lieu"
-                  } />
+                  <SelectValue placeholder={!formData.hotelId ? "Sélectionnez d'abord un hôtel" : loadingLocations ? "Chargement..." : "Sélectionnez un lieu"} />
                 </SelectTrigger>
                 <SelectContent>
                   {loadingLocations ? (
-                    <SelectItem value="loading" disabled>Chargement...</SelectItem>
+                    <SelectItem value="loading\" disabled>Chargement...</SelectItem>
                   ) : locations.length === 0 ? (
-                    <SelectItem value="none" disabled>Aucun lieu disponible</SelectItem>
+                    <SelectItem value="none" disabled>Aucun lieu disponible pour cet hôtel</SelectItem>
                   ) : (
                     locations
                       .filter(location => location.id && location.id !== '')
@@ -562,12 +662,15 @@ const IncidentForm: React.FC<IncidentFormProps> = ({
                 onValueChange={(value) => handleFormChange({ 
                   target: { name: 'categoryId', value } 
                 } as React.ChangeEvent<HTMLSelectElement>)}
+                disabled={loadingCategories || !formData.hotelId}
               >
                 <SelectTrigger id="categoryId">
-                  <SelectValue placeholder="Sélectionnez une catégorie" />
+                  <SelectValue placeholder={!formData.hotelId ? "Sélectionnez d'abord un hôtel" : loadingCategories ? "Chargement..." : "Sélectionnez une catégorie"} />
                 </SelectTrigger>
                 <SelectContent>
-                  {categories.length === 0 ? (
+                  {loadingCategories ? (
+                    <SelectItem value="loading\" disabled>Chargement des catégories...</SelectItem>
+                  ) : categories.length === 0 ? (
                     <SelectItem value="none" disabled>Aucune catégorie disponible</SelectItem>
                   ) : (
                     categories
@@ -596,7 +699,7 @@ const IncidentForm: React.FC<IncidentFormProps> = ({
                 </SelectTrigger>
                 <SelectContent>
                   {impacts.length === 0 ? (
-                    <SelectItem value="none" disabled>Aucun niveau d'impact disponible</SelectItem>
+                    <SelectItem value="none\" disabled>Aucun niveau d'impact disponible</SelectItem>
                   ) : (
                     impacts
                       .filter(impact => impact.id && impact.id !== '')
@@ -672,6 +775,61 @@ const IncidentForm: React.FC<IncidentFormProps> = ({
               onChange={handleFormChange}
             />
           </div>
+
+          {/* Nouveaux champs pour la résolution */}
+          <div className="space-y-4 border-t pt-4">
+            <h3 className="font-medium">Information de résolution</h3>
+            
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="resolutionTypeId">Type de résolution</Label>
+                <Select 
+                  value={formData.resolutionTypeId || "none"} 
+                  onValueChange={(value) => handleSelectChange('resolutionTypeId', value === "none" ? null : value)}
+                >
+                  <SelectTrigger id="resolutionTypeId">
+                    <SelectValue placeholder="Sélectionnez un type" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">Non spécifié</SelectItem>
+                    {resolutionTypes.map(type => (
+                      <SelectItem key={type.id} value={type.id}>{type.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              
+              <div className="space-y-2">
+                <Label htmlFor="compensationAmount">Montant geste commercial (€)</Label>
+                <Input
+                  id="compensationAmount"
+                  name="compensationAmount"
+                  type="number"
+                  placeholder="0.00"
+                  value={formData.compensationAmount || ''}
+                  onChange={handleFormChange}
+                />
+              </div>
+            </div>
+            
+            <div className="space-y-2">
+              <Label htmlFor="clientSatisfactionId">Satisfaction client</Label>
+              <Select 
+                value={formData.clientSatisfactionId || "none"} 
+                onValueChange={(value) => handleSelectChange('clientSatisfactionId', value === "none" ? null : value)}
+              >
+                <SelectTrigger id="clientSatisfactionId">
+                  <SelectValue placeholder="Sélectionnez un niveau" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">Non spécifié</SelectItem>
+                  {clientSatisfactions.map(satisfaction => (
+                    <SelectItem key={satisfaction.id} value={satisfaction.id}>{satisfaction.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
           
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
@@ -681,7 +839,7 @@ const IncidentForm: React.FC<IncidentFormProps> = ({
                 onValueChange={(value) => handleFormChange({ 
                   target: { name: 'receivedById', value: value === "none" ? "" : value } 
                 } as React.ChangeEvent<HTMLSelectElement>)}
-                disabled={loadingUsers}
+                disabled={loadingUsers || !formData.hotelId}
               >
                 <SelectTrigger id="receivedById">
                   <SelectValue placeholder={
@@ -694,7 +852,7 @@ const IncidentForm: React.FC<IncidentFormProps> = ({
                 </SelectTrigger>
                 <SelectContent>
                   {loadingUsers ? (
-                    <SelectItem value="loading" disabled>Chargement des utilisateurs...</SelectItem>
+                    <SelectItem value="loading\" disabled>Chargement des utilisateurs...</SelectItem>
                   ) : filteredUsers.length === 0 ? (
                     <SelectItem value="none" disabled>Aucun utilisateur disponible</SelectItem>
                   ) : (
@@ -759,7 +917,7 @@ const IncidentForm: React.FC<IncidentFormProps> = ({
                 </SelectTrigger>
                 <SelectContent>
                   {statuses.length === 0 ? (
-                    <SelectItem value="none" disabled>Aucun statut disponible</SelectItem>
+                    <SelectItem value="none\" disabled>Aucun statut disponible</SelectItem>
                   ) : (
                     statuses
                       .filter(status => status.id && status.id !== '') // Filter out empty IDs
@@ -810,24 +968,27 @@ const IncidentForm: React.FC<IncidentFormProps> = ({
             </div>
             
             <div className="grid grid-cols-2 gap-4">
-              <DateTimePicker
-                label="Date d'arrivée"
-                date={arrivalDate.date}
-                time=""
-                onDateChange={arrivalDate.setDate}
-                onTimeChange={() => {}}
-                error={arrivalDate.error}
-              />
+              <div className="space-y-2">
+                <Label htmlFor="arrivalDate">Date d'arrivée</Label>
+                <Input
+                  id="arrivalDate"
+                  name="arrivalDate"
+                  type="date"
+                  value={formData.arrivalDate || ''}
+                  onChange={handleFormChange}
+                />
+              </div>
               
-              <DateTimePicker
-                label="Date de départ"
-                date={departureDate.date}
-                time=""
-                onDateChange={departureDate.setDate}
-                onTimeChange={() => {}}
-                error={departureDate.error}
-                disabled={!formData.arrivalDate}
-              />
+              <div className="space-y-2">
+                <Label htmlFor="departureDate">Date de départ</Label>
+                <Input
+                  id="departureDate"
+                  name="departureDate"
+                  type="date"
+                  value={formData.departureDate || ''}
+                  onChange={handleFormChange}
+                />
+              </div>
             </div>
             
             <div className="grid grid-cols-2 gap-4">
@@ -847,9 +1008,7 @@ const IncidentForm: React.FC<IncidentFormProps> = ({
                 <Label htmlFor="origin">Origine réservation</Label>
                 <Select 
                   value={formData.origin || "none"} 
-                  onValueChange={(value) => handleFormChange({ 
-                    target: { name: 'origin', value: value === "none" ? "" : value } 
-                  } as React.ChangeEvent<HTMLSelectElement>)}
+                  onValueChange={(value) => handleSelectChange('origin', value === "none" ? null : value)}
                 >
                   <SelectTrigger id="origin">
                     <SelectValue placeholder="Sélectionnez une origine" />
@@ -867,10 +1026,17 @@ const IncidentForm: React.FC<IncidentFormProps> = ({
         </div>
         
         <DialogFooter>
-          <Button variant="outline" onClick={onClose} disabled={photoUploading}>
+          <Button 
+            variant="outline" 
+            onClick={onClose} 
+            disabled={photoUploading}
+          >
             Annuler
           </Button>
-          <Button onClick={handleSubmit} disabled={photoUploading}>
+          <Button 
+            onClick={handleSubmit}
+            disabled={photoUploading}
+          >
             {photoUploading ? (
               <>
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />

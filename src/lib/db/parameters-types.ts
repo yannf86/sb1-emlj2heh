@@ -13,7 +13,9 @@ const PARAMETER_TYPES = [
   { id: 'quality_item', name: 'Points de Contrôle Qualité' },
   { id: 'lost_item_type', name: 'Types d\'Objets Trouvés' },
   { id: 'procedure_type', name: 'Types de Procédure' },
-  { id: 'booking_origin', name: 'Origines de Réservation' }
+  { id: 'booking_origin', name: 'Origines de Réservation' },
+  { id: 'resolution_type', name: 'Types de Résolution' },
+  { id: 'client_satisfaction', name: 'Satisfaction Client' }
 ];
 
 // Get all parameter types

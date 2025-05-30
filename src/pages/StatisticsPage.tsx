@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   BarChart, 
   Bar, 
@@ -31,16 +31,22 @@ import {
   Layers,
   BarChart3,
   BarChart4,
-  LineChart as LineChartIcon
+  LineChart as LineChartIcon,
+  Loader2,
+  AlertCircle
 } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import { 
   incidents, 
   maintenanceRequests, 
   qualityVisits, 
   lostItems, 
-  hotels, 
   parameters
 } from '@/lib/data';
+import { getHotels } from '@/lib/db/hotels';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { useToast } from '@/hooks/use-toast';
+import { getCurrentUser, hasHotelAccess } from '@/lib/auth';
 
 // Define chart colors
 const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884D8'];
@@ -49,6 +55,54 @@ const StatisticsPage = () => {
   const [selectedDashboard, setSelectedDashboard] = useState('global');
   const [filterHotel, setFilterHotel] = useState('all');
   const [filterPeriod, setFilterPeriod] = useState('30');
+  const [hotels, setHotels] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  
+  const navigate = useNavigate();
+  const { toast } = useToast();
+  const currentUser = getCurrentUser();
+  
+  // Load hotels from Firebase
+  useEffect(() => {
+    const loadHotels = async () => {
+      try {
+        setLoading(true);
+        setError(null);
+        
+        // Get hotels from Firebase
+        const hotelsData = await getHotels();
+        
+        // Filter hotels based on user access
+        let filteredHotels = hotelsData;
+        if (currentUser && currentUser.role !== 'admin') {
+          filteredHotels = hotelsData.filter(hotel => 
+            hasHotelAccess(hotel.id)
+          );
+        }
+        
+        setHotels(filteredHotels);
+        
+        // If user has only one hotel, select it by default
+        if (filteredHotels.length === 1) {
+          setFilterHotel(filteredHotels[0].id);
+        }
+        
+      } catch (err) {
+        console.error('Error loading hotels:', err);
+        setError('Impossible de charger les hôtels. Veuillez réessayer.');
+        toast({
+          title: "Erreur",
+          description: "Impossible de charger la liste des hôtels",
+          variant: "destructive",
+        });
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadHotels();
+  }, [currentUser, toast]);
   
   // Predefined dashboards
   const dashboards = [
@@ -223,6 +277,17 @@ const StatisticsPage = () => {
     };
   });
   
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="text-center">
+          <Loader2 className="h-8 w-8 animate-spin mx-auto mb-4 text-brand-500" />
+          <p className="text-lg font-medium">Chargement des données...</p>
+        </div>
+      </div>
+    );
+  }
+  
   return (
     <div className="space-y-6">
       <div className="flex flex-col space-y-2 md:flex-row md:justify-between md:items-center">
@@ -242,6 +307,13 @@ const StatisticsPage = () => {
           </Button>
         </div>
       </div>
+      
+      {error && (
+        <Alert variant="destructive">
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
       
       <div className="flex flex-col space-y-2 sm:flex-row sm:space-y-0 sm:space-x-2 sm:items-center">
         <Select value={selectedDashboard} onValueChange={setSelectedDashboard}>

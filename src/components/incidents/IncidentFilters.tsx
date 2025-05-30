@@ -3,10 +3,12 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Search, SlidersHorizontal, RefreshCw } from 'lucide-react';
+import { parameters } from '@/lib/data';
 import { getHotels } from '@/lib/db/hotels';
-import { getStatusParameters } from '@/lib/db/parameters-status';
+import { getHotelIncidentCategories } from '@/lib/db/hotel-incident-categories';
 import { getIncidentCategoryParameters } from '@/lib/db/parameters-incident-categories';
 import { getImpactParameters } from '@/lib/db/parameters-impact';
+import { getStatusParameters } from '@/lib/db/parameters-status';
 import { useToast } from '@/hooks/use-toast';
 import { getCurrentUser } from '@/lib/auth';
 
@@ -63,13 +65,13 @@ const IncidentFilters: React.FC<IncidentFiltersProps> = ({
         const statusData = await getStatusParameters();
         setStatusParams(statusData);
         
-        // Load category parameters from parameters_incident_category collection
-        const categoryData = await getIncidentCategoryParameters();
-        setCategoryParams(categoryData);
-        
         // Load impact parameters from parameters_impact collection
         const impactData = await getImpactParameters();
         setImpactParams(impactData);
+        
+        // Initially load all categories
+        const categoryData = await getIncidentCategoryParameters();
+        setCategoryParams(categoryData);
       } catch (error) {
         console.error('Error loading filters data:', error);
         toast({
@@ -84,6 +86,57 @@ const IncidentFilters: React.FC<IncidentFiltersProps> = ({
     
     loadData();
   }, [toast, currentUser]);
+  
+  // When hotel selection changes, update available categories
+  useEffect(() => {
+    const loadHotelCategories = async () => {
+      if (filterHotel === 'all') {
+        // If "all hotels" is selected, load all categories
+        try {
+          const allCategories = await getIncidentCategoryParameters();
+          setCategoryParams(allCategories);
+        } catch (error) {
+          console.error('Error loading all categories:', error);
+        }
+        return;
+      }
+      
+      try {
+        // Get hotel-specific categories
+        const hotelCategories = await getHotelIncidentCategories(filterHotel);
+        
+        if (hotelCategories.length === 0) {
+          // If no categories are defined for this hotel, show all categories
+          const allCategories = await getIncidentCategoryParameters();
+          setCategoryParams(allCategories);
+          return;
+        }
+        
+        // Get the full category objects for the IDs
+        const categoryIds = hotelCategories.map(hc => hc.category_id);
+        const allCategories = await getIncidentCategoryParameters();
+        const filteredCategories = allCategories.filter(cat => 
+          categoryIds.includes(cat.id)
+        );
+        
+        setCategoryParams(filteredCategories);
+        
+        // If the currently selected category is not in the filtered list, reset it
+        if (filterCategory !== 'all' && !categoryIds.includes(filterCategory)) {
+          onCategoryChange('all');
+        }
+      } catch (error) {
+        console.error('Error loading hotel categories:', error);
+        toast({
+          title: "Erreur",
+          description: "Impossible de charger les catégories pour cet hôtel",
+          variant: "destructive",
+        });
+      }
+    };
+    
+    loadHotelCategories();
+  }, [filterHotel, filterCategory, onCategoryChange, toast]);
 
   return (
     <div className="flex flex-col space-y-2">
@@ -104,9 +157,7 @@ const IncidentFilters: React.FC<IncidentFiltersProps> = ({
             <SelectValue placeholder={loading ? "Chargement..." : "Tous les hôtels"} />
           </SelectTrigger>
           <SelectContent>
-            {hotels.length > 1 && (
-              <SelectItem value="all">Tous les hôtels</SelectItem>
-            )}
+            <SelectItem value="all">Tous les hôtels</SelectItem>
             {hotels.map(hotel => (
               <SelectItem key={hotel.id} value={hotel.id}>{hotel.name}</SelectItem>
             ))}
