@@ -9,7 +9,7 @@ import ParameterDialog from '../ParameterDialog';
 import LocationHotelsDialog from '../LocationHotelsDialog';
 import CategoryHotelsDialog from '../CategoryHotelsDialog';
 import { paramTypeLabels } from '@/lib/settings.constants';
-import { collection, addDoc, updateDoc, deleteDoc, doc } from 'firebase/firestore';
+import { collection, addDoc, updateDoc, deleteDoc, doc, setDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { getParameterTypes, getParametersByCollection } from '@/lib/db/parameters-types';
 
@@ -223,13 +223,14 @@ const ParametersTab = () => {
     try {
       setSaving(true);
       
-      // Update parameter in the specific collection
+      // Update parameter in the specific collection using setDoc with merge: true
+      // This will create the document if it doesn't exist or update it if it does
       const collectionName = `parameters_${selectedParamType}`;
       const paramRef = doc(db, collectionName, param.id);
-      await updateDoc(paramRef, {
+      await setDoc(paramRef, {
         active,
         updatedAt: new Date().toISOString()
-      });
+      }, { merge: true });
       
       // Update local state
       setParameters(prev => prev.map(p => 
