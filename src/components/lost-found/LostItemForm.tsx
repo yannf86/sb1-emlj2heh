@@ -484,7 +484,7 @@ const LostItemForm: React.FC<LostItemFormProps> = ({
                 </SelectTrigger>
                 <SelectContent>
                   {filteredHotels.length === 0 ? (
-                    <SelectItem value="none" disabled>Aucun hôtel disponible</SelectItem>
+                    <SelectItem value="none\" disabled>Aucun hôtel disponible</SelectItem>
                   ) : (
                     filteredHotels.map(hotel => (
                       <SelectItem key={hotel.id} value={hotel.id}>{hotel.name}</SelectItem>
@@ -508,7 +508,7 @@ const LostItemForm: React.FC<LostItemFormProps> = ({
                 </SelectTrigger>
                 <SelectContent>
                   {loadingLocations ? (
-                    <SelectItem value="loading" disabled>Chargement...</SelectItem>
+                    <SelectItem value="loading\" disabled>Chargement...</SelectItem>
                   ) : locations.length === 0 ? (
                     <SelectItem value="none" disabled>Aucun lieu disponible pour cet hôtel</SelectItem>
                   ) : (
@@ -536,9 +536,9 @@ const LostItemForm: React.FC<LostItemFormProps> = ({
                 </SelectTrigger>
                 <SelectContent>
                   {loadingItemTypes ? (
-                    <SelectItem value="loading" disabled>Chargement des types d'objets...</SelectItem>
+                    <SelectItem value="loading\" disabled>Chargement des types d'objets...</SelectItem>
                   ) : itemTypes.length === 0 ? (
-                    <SelectItem value="none" disabled>Aucun type d'objet disponible</SelectItem>
+                    <SelectItem value="none\" disabled>Aucun type d'objet disponible</SelectItem>
                   ) : (
                     itemTypes.map(type => (
                       <SelectItem key={type.id} value={type.id}>{type.label}</SelectItem>
@@ -568,7 +568,7 @@ const LostItemForm: React.FC<LostItemFormProps> = ({
                 </SelectTrigger>
                 <SelectContent>
                   {loadingUsers ? (
-                    <SelectItem value="loading" disabled>Chargement des utilisateurs...</SelectItem>
+                    <SelectItem value="loading\" disabled>Chargement des utilisateurs...</SelectItem>
                   ) : filteredUsers.length === 0 ? (
                     <SelectItem value="none" disabled>Aucun utilisateur disponible</SelectItem>
                   ) : (
@@ -692,7 +692,7 @@ const LostItemForm: React.FC<LostItemFormProps> = ({
                 />
               ) : (
                 <div className="flex items-center justify-center w-full">
-                  <label className="flex flex-col items-center justify-center w-full h-36 border-2 border-dashed rounded-lg cursor-pointer bg-gray-50 hover:bg-gray-100 dark:hover:bg-bray-800 dark:bg-gray-700 hover:bg-gray-100 dark:border-gray-600 dark:hover:border-gray-500 dark:hover:bg-gray-600">
+                  <label className="flex flex-col items-center justify-center w-full h-36 border-2 border-dashed rounded-lg cursor-pointer bg-gray-50 hover:bg-gray-100 dark:hover:bg-bray-800 dark:bg-gray-700 dark:border-gray-600 dark:hover:border-gray-500 dark:hover:bg-gray-600">
                     <div className="flex flex-col items-center justify-center pt-5 pb-6">
                       <Image className="w-8 h-8 mb-3 text-gray-400" />
                       <p className="mb-2 text-sm text-gray-500 dark:text-gray-400">

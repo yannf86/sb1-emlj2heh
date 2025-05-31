@@ -22,6 +22,7 @@ export const getLocationParameters = async () => {
 // Get locations for a hotel
 export const getHotelLocations = async (hotelId: string) => {
   try {
+    // First get the hotel-location relationships
     const q = query(
       collection(db, 'hotel_locations'),
       where('hotel_id', '==', hotelId),
@@ -30,7 +31,7 @@ export const getHotelLocations = async (hotelId: string) => {
     const querySnapshot = await getDocs(q);
     const locationIds = querySnapshot.docs.map(doc => doc.data().location_id);
     
-    // Get the actual location data
+    // Then get the actual location data
     if (locationIds.length === 0) return [];
     
     const locationsQuery = query(
