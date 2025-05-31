@@ -90,12 +90,12 @@ export const getClientSatisfactionParameter = async (id: string) => {
     }
     
     // Try fallback to parameters collection
-    const legacyRef = doc(db, 'parameters', id);
-    const legacySnap = await getDoc(legacyRef);
-    if (legacySnap.exists() && legacySnap.data().type === 'client_satisfaction') {
+    const paramRef = doc(db, 'parameters', id);
+    const paramSnap = await getDoc(paramRef);
+    if (paramSnap.exists() && paramSnap.data().type === 'client_satisfaction') {
       return {
-        id: legacySnap.id,
-        ...legacySnap.data()
+        id: paramSnap.id,
+        ...paramSnap.data()
       };
     }
     
@@ -116,10 +116,10 @@ export const getClientSatisfactionLabel = async (id: string): Promise<string> =>
     }
     
     // Try fallback to parameters collection
-    const legacyRef = doc(db, 'parameters', id);
-    const legacySnap = await getDoc(legacyRef);
-    if (legacySnap.exists() && legacySnap.data().type === 'client_satisfaction') {
-      return legacySnap.data().label;
+    const paramRef = doc(db, 'parameters', id);
+    const paramSnap = await getDoc(paramRef);
+    if (paramSnap.exists() && paramSnap.data().type === 'client_satisfaction') {
+      return paramSnap.data().label;
     }
     
     return 'Inconnu';

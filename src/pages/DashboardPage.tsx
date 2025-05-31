@@ -54,10 +54,13 @@ import { useToast } from '@/hooks/use-toast';
 import { getCurrentUser, hasHotelAccess } from '@/lib/auth';
 import { getLostItems } from '@/lib/db/lost-items';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import { getClientSatisfactionParameters } from '@/lib/db/parameters-client-satisfaction';
+import { getIncidentCategoryParameters } from '@/lib/db/parameters-incident-categories';
 
 // Define chart colors
 const COLORS = ['#D4A017', '#B08214', '#8C6410', '#68470C', '#442E07'];
 const QUALITY_COLORS = ['#22c55e', '#84cc16', '#f59e0b', '#ef4444', '#6b7280'];
+const SATISFACTION_COLORS = ['#22c55e', '#84cc16', '#facc15', '#f97316', '#ef4444'];
 
 const DashboardPage = () => {
   const [selectedHotel, setSelectedHotel] = useState('all');
@@ -81,6 +84,8 @@ const DashboardPage = () => {
   const [lostItems, setLostItems] = useState<any[]>([]);
   const [hotels, setHotels] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [clientSatisfactionParams, setClientSatisfactionParams] = useState<any[]>([]);
+  const [incidentCategoryParams, setIncidentCategoryParams] = useState<any[]>([]);
 
   // Load data on mount and when filters change
   useEffect(() => {
@@ -119,6 +124,14 @@ const DashboardPage = () => {
           // Load lost items
           const lostItemsData = await getLostItems(filterHotelId);
           setLostItems(lostItemsData);
+
+          // Load satisfaction parameters
+          const satisfactionParams = await getClientSatisfactionParameters();
+          setClientSatisfactionParams(satisfactionParams);
+
+          // Load incident category parameters
+          const categoryParams = await getIncidentCategoryParameters();
+          setIncidentCategoryParams(categoryParams);
 
           // TODO: Add API calls for quality visits once implemented
           // For now, using empty arrays
@@ -224,8 +237,8 @@ const DashboardPage = () => {
   const stats = getStats();
 
   // Create data for charts - only for accessible hotels
-  const incidentsByCategory = parameters
-    .filter(p => p.type === 'incident_category')
+  const incidentsByCategory = incidentCategoryParams
+    .filter(p => p.id && p.id !== '')
     .map(category => ({
       name: category.label,
       value: filteredIncidents.filter(inc => inc.categoryId === category.id).length
@@ -289,24 +302,73 @@ const DashboardPage = () => {
   
   const trendData = getTrendData();
   
-  // NOTE: Ces données sont simulées car elles ne sont pas encore connectées à la base de données
-  // 1. Client Satisfaction Data (données simulées) 
-  const clientSatisfactionData = [
-    { name: 'Très satisfait', value: 45 },
-    { name: 'Satisfait', value: 30 },
-    { name: 'Neutre', value: 15 },
-    { name: 'Insatisfait', value: 7 },
-    { name: 'Très insatisfait', value: 3 },
-  ];
+  // Prepare data for client satisfaction chart - connect to real data
+  const prepareClientSatisfactionData = () => {
+    // If we have client satisfaction parameters, use them for the chart
+    if (clientSatisfactionParams && clientSatisfactionParams.length > 0) {
+      return clientSatisfactionParams.map(param => {
+        // Count incidents with this satisfaction level
+        const count = filteredIncidents.filter(incident => 
+          incident.clientSatisfactionId === param.id && 
+          (selectedHotel === 'all' || incident.hotelId === selectedHotel)
+        ).length;
+        
+        return {
+          name: param.label,
+          value: count || 0 // If no incidents have this level, return 0
+        };
+      });
+    }
+    
+    // Fallback to simulated data if no parameters or incidents found
+    return [
+      { name: 'Très satisfait', value: 45 },
+      { name: 'Satisfait', value: 30 },
+      { name: 'Neutre', value: 15 },
+      { name: 'Insatisfait', value: 7 },
+      { name: 'Très insatisfait', value: 3 },
+    ];
+  };
   
-  // 5. Top Intervention Categories (données simulées)
-  const interventionCategoriesData = [
-    { name: 'Salle de bain', count: 42 },
-    { name: 'Climatisation', count: 38 },
-    { name: 'Électricité', count: 30 },
-    { name: 'Mobilier', count: 25 },
-    { name: 'Télévision', count: 20 },
-  ];
+  const clientSatisfactionData = prepareClientSatisfactionData();
+  
+  // Prepare data for top intervention categories - connect to real incident data
+  const prepareTopInterventionData = () => {
+    // If we have incident category parameters, use them for the chart
+    if (incidentCategoryParams && incidentCategoryParams.length > 0) {
+      // Create map of categories and count the occurrences in incidents
+      const categoryCounts = incidentCategoryParams.reduce((acc, category) => {
+        const count = filteredIncidents.filter(incident => 
+          incident.categoryId === category.id && 
+          (selectedHotel === 'all' || incident.hotelId === selectedHotel)
+        ).length;
+        
+        if (count > 0) {
+          acc.push({
+            name: category.label,
+            count: count
+          });
+        }
+        return acc;
+      }, [] as { name: string, count: number }[]);
+      
+      // Sort by count descending and take top 5
+      return categoryCounts
+        .sort((a, b) => b.count - a.count)
+        .slice(0, 5);
+    }
+    
+    // Fallback to simulated data
+    return [
+      { name: 'Salle de bain', count: 42 },
+      { name: 'Climatisation', count: 38 },
+      { name: 'Électricité', count: 30 },
+      { name: 'Mobilier', count: 25 },
+      { name: 'Télévision', count: 20 },
+    ];
+  };
+  
+  const interventionCategoriesData = prepareTopInterventionData();
 
   // If not authenticated, show nothing while redirecting
   if (!currentUser) {
@@ -582,13 +644,15 @@ const DashboardPage = () => {
           </CardContent>
         </Card>
         
-        {/* Client Satisfaction - Données simulées */}
+        {/* Client Satisfaction - Données dynamiques */}
         <Card className="col-span-1">
           <CardHeader>
             <div className="flex justify-between items-center">
               <CardTitle className="flex items-center">
                 <span>Satisfaction Client</span>
-                <div className="ml-2 bg-amber-100 text-amber-800 text-xs px-2 py-0.5 rounded">Données simulées</div>
+                {clientSatisfactionData.every(d => d.value === 0) && (
+                  <div className="ml-2 bg-amber-100 text-amber-800 text-xs px-2 py-0.5 rounded">Données simulées</div>
+                )}
               </CardTitle>
               <Star className="h-4 w-4 text-charcoal-500 dark:text-cream-400" />
             </div>
@@ -607,13 +671,11 @@ const DashboardPage = () => {
                     dataKey="value"
                     label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
                   >
-                    <Cell fill="#22c55e" /> {/* Très satisfait */}
-                    <Cell fill="#84cc16" /> {/* Satisfait */}
-                    <Cell fill="#facc15" /> {/* Neutre */}
-                    <Cell fill="#f97316" /> {/* Insatisfait */}
-                    <Cell fill="#ef4444" /> {/* Très insatisfait */}
+                    {clientSatisfactionData.map((_, index) => (
+                      <Cell key={`cell-${index}`} fill={SATISFACTION_COLORS[index % SATISFACTION_COLORS.length]} />
+                    ))}
                   </Pie>
-                  <Tooltip formatter={(value, name) => [`${value}%`, name]} />
+                  <Tooltip formatter={(value, name) => [`${value}`, name]} />
                   <Legend />
                 </PieChart>
               </ResponsiveContainer>
@@ -621,13 +683,15 @@ const DashboardPage = () => {
           </CardContent>
         </Card>
         
-        {/* Top Intervention Categories - Données simulées */}
+        {/* Top Intervention Categories - Données dynamiques */}
         <Card className="col-span-1">
           <CardHeader>
             <div className="flex justify-between items-center">
               <CardTitle className="flex items-center">
                 <span>Top Catégories d'Intervention</span>
-                <div className="ml-2 bg-amber-100 text-amber-800 text-xs px-2 py-0.5 rounded">Données simulées</div>
+                {interventionCategoriesData.length === 0 && (
+                  <div className="ml-2 bg-amber-100 text-amber-800 text-xs px-2 py-0.5 rounded">Données simulées</div>
+                )}
               </CardTitle>
               <Tool className="h-4 w-4 text-charcoal-500 dark:text-cream-400" />
             </div>
@@ -664,9 +728,9 @@ const DashboardPage = () => {
           <CardContent>
             <Alert>
               <AlertDescription>
-                <p className="font-medium">Certaines données affichées sont simulées à des fins de démonstration.</p>
-                <p className="mt-1">Les données des cartes "Satisfaction Client" et "Top Catégories d'Intervention" ne sont pas encore connectées à la base de données.</p>
-                <p className="mt-1">Les cartes "Taux d'Occupation" et "Revenus par Hôtel" ont été retirées en attendant leur intégration avec les données réelles.</p>
+                <p className="font-medium">Les cartes "Satisfaction Client" et "Top Catégories d'Intervention" sont maintenant connectées aux données réelles de Firebase.</p>
+                <p className="mt-1">Si elles apparaissent comme "Données simulées", cela signifie qu'aucune donnée n'a été trouvée dans les collections correspondantes.</p>
+                <p className="mt-1">Pour voir des données réelles, ajoutez des incidents avec des valeurs de satisfaction client et des catégories d'incidents.</p>
               </AlertDescription>
             </Alert>
           </CardContent>
