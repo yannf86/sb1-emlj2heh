@@ -51,7 +51,7 @@ import { getIncidents } from '@/lib/db/incidents';
 import { getMaintenanceRequests } from '@/lib/db/maintenance';
 import { getHotels } from '@/lib/db/hotels';
 import { useToast } from '@/hooks/use-toast';
-import { getCurrentUser, hasHotelAccess } from '@/lib/auth';
+import { getCurrentUser, hasHotelAccess, isAuthenticated } from '@/lib/auth';
 import { getLostItems } from '@/lib/db/lost-items';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { getClientSatisfactionParameters } from '@/lib/db/parameters-client-satisfaction';
@@ -72,10 +72,10 @@ const DashboardPage = () => {
 
   // Redirect to login if not authenticated
   useEffect(() => {
-    if (!currentUser) {
+    if (!isAuthenticated()) {
       navigate('/login');
     }
-  }, [currentUser, navigate]);
+  }, [navigate]);
 
   // State for data
   const [incidents, setIncidents] = useState<any[]>([]);
@@ -84,6 +84,7 @@ const DashboardPage = () => {
   const [lostItems, setLostItems] = useState<any[]>([]);
   const [hotels, setHotels] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [clientSatisfactionParams, setClientSatisfactionParams] = useState<any[]>([]);
   const [incidentCategoryParams, setIncidentCategoryParams] = useState<any[]>([]);
 
@@ -92,9 +93,10 @@ const DashboardPage = () => {
     const loadData = async () => {
       try {
         setLoading(true);
+        setError(null);
         
         // Don't attempt to load data if user is not authenticated
-        if (!currentUser) {
+        if (!isAuthenticated()) {
           return;
         }
         
@@ -150,6 +152,7 @@ const DashboardPage = () => {
         }
       } catch (error) {
         console.error('Error loading dashboard data:', error);
+        setError(error instanceof Error ? error.message : 'Une erreur inconnue est survenue');
         toast({
           title: "Erreur",
           description: "Impossible de charger les données du tableau de bord",
@@ -161,7 +164,7 @@ const DashboardPage = () => {
     };
 
     loadData();
-  }, [selectedHotel, toast, currentUser, navigate]);
+  }, [selectedHotel, toast, navigate]);
   
   // Filter data based on selected period
   const filterByPeriod = (data: { date: string }[]) => {
@@ -371,7 +374,7 @@ const DashboardPage = () => {
   const interventionCategoriesData = prepareTopInterventionData();
 
   // If not authenticated, show nothing while redirecting
-  if (!currentUser) {
+  if (!isAuthenticated()) {
     return (
       <div className="flex items-center justify-center h-full">
         <div className="text-center">
@@ -391,6 +394,30 @@ const DashboardPage = () => {
           <h2 className="text-xl font-semibold mb-2">Chargement des données...</h2>
           <p className="text-muted-foreground">Veuillez patienter pendant le chargement du tableau de bord.</p>
         </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="space-y-6">
+        <div className="flex flex-col space-y-2 md:flex-row md:justify-between md:items-center">
+          <div>
+            <h1 className="text-2xl font-bold tracking-tight">Tableau de Bord</h1>
+            <p className="text-charcoal-500 dark:text-cream-400">Vue d'ensemble des opérations hôtelières</p>
+          </div>
+        </div>
+        
+        <Alert variant="destructive">
+          <AlertTriangle className="h-5 w-5" />
+          <AlertDescription>
+            Une erreur est survenue lors du chargement des données: {error}
+          </AlertDescription>
+        </Alert>
+        
+        <Button onClick={() => window.location.reload()}>
+          Réessayer
+        </Button>
       </div>
     );
   }

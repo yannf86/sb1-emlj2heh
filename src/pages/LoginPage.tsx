@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Building as Buildings, Lock, Mail, Key, UserCircle, AlertTriangle, Wrench } from 'lucide-react';
+import { Building as Buildings, Lock, Mail, Key, UserCircle, AlertTriangle, Wrench, Eye, EyeOff } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -17,12 +17,14 @@ const LoginPage = () => {
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [showPassword, setShowPassword] = useState(false);
 
   // State for technician login
   const [techEmail, setTechEmail] = useState('');
   const [techPassword, setTechPassword] = useState('');
   const [techLoading, setTechLoading] = useState(false);
   const [techErrorMessage, setTechErrorMessage] = useState<string | null>(null);
+  const [showTechPassword, setShowTechPassword] = useState(false);
   
   // Auth check loading state
   const [checkingAuth, setCheckingAuth] = useState(true);
@@ -184,7 +186,7 @@ const LoginPage = () => {
             <form onSubmit={handleUserSubmit}>
               <CardContent className="space-y-4">
                 {errorMessage && (
-                  <Alert variant="destructive" className="mb-4">
+                  <Alert variant="destructive\" className="mb-4">
                     <AlertTriangle className="h-4 w-4" />
                     <AlertDescription>{errorMessage}</AlertDescription>
                   </Alert>
@@ -237,15 +239,26 @@ const LoginPage = () => {
                       Mot de passe oublié ?
                     </button>
                   </div>
-                  <Input
-                    id="password"
-                    type="password"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    placeholder="••••••••"
-                    className="w-full"
-                    required
-                  />
+                  <div className="relative">
+                    <Input
+                      id="password"
+                      type={showPassword ? "text" : "password"}
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      placeholder="••••••••"
+                      className="w-full"
+                      required
+                    />
+                    <Button 
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="absolute right-0 top-0 h-10"
+                      onClick={() => setShowPassword(!showPassword)}
+                    >
+                      {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                    </Button>
+                  </div>
                 </div>
               </CardContent>
               <CardFooter>
@@ -270,7 +283,7 @@ const LoginPage = () => {
             <form onSubmit={handleTechnicianSubmit}>
               <CardContent className="space-y-4">
                 {techErrorMessage && (
-                  <Alert variant="destructive" className="mb-4">
+                  <Alert variant="destructive\" className="mb-4">
                     <AlertTriangle className="h-4 w-4" />
                     <AlertDescription>{techErrorMessage}</AlertDescription>
                   </Alert>
@@ -296,15 +309,26 @@ const LoginPage = () => {
                     <Lock className="h-4 w-4 text-muted-foreground mr-2" />
                     <label htmlFor="tech-password" className="text-sm font-medium after:content-['*'] after:ml-0.5 after:text-red-500">Mot de passe</label>
                   </div>
-                  <Input
-                    id="tech-password"
-                    type="password"
-                    value={techPassword}
-                    onChange={(e) => setTechPassword(e.target.value)}
-                    placeholder="••••••••"
-                    className="w-full"
-                    required
-                  />
+                  <div className="relative">
+                    <Input
+                      id="tech-password"
+                      type={showTechPassword ? "text" : "password"}
+                      value={techPassword}
+                      onChange={(e) => setTechPassword(e.target.value)}
+                      placeholder="••••••••"
+                      className="w-full"
+                      required
+                    />
+                    <Button 
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="absolute right-0 top-0 h-10"
+                      onClick={() => setShowTechPassword(!showTechPassword)}
+                    >
+                      {showTechPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                    </Button>
+                  </div>
                 </div>
               </CardContent>
               <CardFooter>

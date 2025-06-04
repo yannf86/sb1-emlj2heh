@@ -16,6 +16,12 @@ export const getIncidents = async (hotelId?: string) => {
       return [];
     }
     
+    // Check if user has any hotels assigned
+    if (!currentUser.hotels || currentUser.hotels.length === 0) {
+      console.warn(`User ${currentUser.id} has no hotels assigned`);
+      return [];
+    }
+    
     let q;
     
     // Build query based on user role and filter parameters
@@ -35,12 +41,17 @@ export const getIncidents = async (hotelId?: string) => {
       // and combine the results, since Firestore doesn't support OR queries on the same field
       const results = [];
       for (const hotel of currentUser.hotels) {
-        const hotelQuery = query(collection(db, 'incidents'), where('hotelId', '==', hotel));
-        const querySnapshot = await getDocs(hotelQuery);
-        results.push(...querySnapshot.docs.map(doc => ({
-          id: doc.id,
-          ...doc.data()
-        })));
+        try {
+          const hotelQuery = query(collection(db, 'incidents'), where('hotelId', '==', hotel));
+          const querySnapshot = await getDocs(hotelQuery);
+          results.push(...querySnapshot.docs.map(doc => ({
+            id: doc.id,
+            ...doc.data()
+          })));
+        } catch (error) {
+          console.error(`Error getting incidents for hotel ${hotel}:`, error);
+          // Continue with other hotels even if one fails
+        }
       }
       return results as Incident[];
     } else {
@@ -49,13 +60,25 @@ export const getIncidents = async (hotelId?: string) => {
       return [];
     }
     
-    const querySnapshot = await getDocs(q);
-    return querySnapshot.docs.map(doc => ({
-      id: doc.id,
-      ...doc.data()
-    })) as Incident[];
+    try {
+      const querySnapshot = await getDocs(q);
+      return querySnapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      })) as Incident[];
+    } catch (error: any) {
+      if (error.code === 'permission-denied' || error.message?.includes('permission')) {
+        console.error('Firebase permission denied. Please check Firestore security rules.');
+        return []; // Return empty array instead of throwing when permissions are denied
+      }
+      throw error; // Re-throw other errors
+    }
   } catch (error) {
     console.error('Error getting incidents:', error);
+    if (error instanceof Error && 
+        (error.message.includes('permission') || error.message.includes('unauthorized'))) {
+      return []; // Return empty array for permission errors instead of throwing
+    }
     throw error;
   }
 };

@@ -10,11 +10,14 @@ import {
   Loader2, 
   Calendar, 
   Star,
-  Database
+  Database,
+  RefreshCw
 } from 'lucide-react';
 import { getCurrentTechnician } from '@/lib/technician-auth';
 import { getQuoteRequestsCount } from '@/lib/db/quote-requests';
 import { useToast } from '@/hooks/use-toast';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { TECHNICIAN_SPECIALTIES } from '@/pages/TechniciansPage';
 
 const TechnicianDashboard = () => {
   const [loading, setLoading] = useState(true);
@@ -26,12 +29,20 @@ const TechnicianDashboard = () => {
     acceptedQuotes: 0,
     total: 0
   });
+  const [retryCount, setRetryCount] = useState(0);
   
   const technician = getCurrentTechnician();
   const navigate = useNavigate();
   const { toast } = useToast();
   
-  // Load dashboard data
+  // Check authentication and redirect if not logged in
+  useEffect(() => {
+    if (!technician) {
+      navigate('/technician-login');
+    }
+  }, [technician, navigate]);
+
+  // Load dashboard data with retry mechanism
   useEffect(() => {
     const loadDashboard = async () => {
       try {
@@ -39,23 +50,45 @@ const TechnicianDashboard = () => {
         setError(null);
         setIndexError(false);
         
+        console.log(`Loading quote requests (attempt ${retryCount + 1})...`);
+
+        // Check if technician exists before making the request
+        if (!technician) {
+          console.error('No technician logged in, redirecting to login');
+          navigate('/technician-login');
+          return;
+        }
+        
+        console.log("Loading dashboard for technician:", technician.id, technician.name);
+        console.log("Technician specialties:", technician.specialties);
+        
         // Load quote request counts
         const requestCounts = await getQuoteRequestsCount();
-        setStats(requestCounts);
         
-        // Check if we have a Firestore index error
-        if (requestCounts.requiresIndex) {
-          setIndexError(true);
-          setError('Un index Firebase est requis pour cette requête. L\'index est en cours de création et sera bientôt disponible.');
-          toast({
-            title: "Configuration Firebase en cours",
-            description: "Un index est en cours de création pour afficher les demandes de devis. Veuillez réessayer dans quelques minutes.",
-            variant: "destructive"
-          });
+        // Check if we have an error or index issue
+        if (requestCounts.error) {
+          if (requestCounts.requiresIndex) {
+            console.log("Index error detected:", requestCounts.errorMessage);
+            setIndexError(true);
+            setError('Un index Firebase est requis pour cette requête. L\'index est en cours de création et sera bientôt disponible.');
+            toast({
+              title: "Configuration Firebase en cours",
+              description: "Un index est en cours de création pour afficher les demandes de devis. Veuillez réessayer dans quelques minutes.",
+              variant: "destructive"
+            });
+          } else if (requestCounts.errorMessage) {
+            setError(`Erreur: ${requestCounts.errorMessage}`);
+          } else {
+            setError('Une erreur est survenue lors du chargement des données.');
+          }
+        } else {
+          // Set stats if there are no errors
+          console.log("Request counts:", requestCounts);
+          setStats(requestCounts);
         }
       } catch (error) {
         console.error('Error loading dashboard data:', error);
-        setError('Une erreur est survenue lors du chargement des données.');
+        setError(error instanceof Error ? error.message : 'Une erreur est survenue lors du chargement des données.');
         toast({
           title: "Erreur",
           description: "Impossible de charger les données du tableau de bord.",
@@ -67,7 +100,29 @@ const TechnicianDashboard = () => {
     };
     
     loadDashboard();
-  }, [toast]);
+  }, [toast, navigate, technician, retryCount]);
+  
+  // Handle manual refresh
+  const handleRefresh = () => {
+    setRetryCount(prev => prev + 1);
+  };
+  
+  // Helper function to convert specialties codes to readable names
+  const getSpecialtyName = (specialtyId: string): string => {
+    const specialty = TECHNICIAN_SPECIALTIES.find(s => s.id === specialtyId);
+    return specialty ? specialty.name : specialtyId;
+  };
+  
+  if (!technician) {
+    return (
+      <div className="flex items-center justify-center h-full">
+        <div className="text-center">
+          <Loader2 className="h-8 w-8 animate-spin mb-4 mx-auto text-brand-500" />
+          <p className="text-lg font-medium">Redirection vers la page de connexion...</p>
+        </div>
+      </div>
+    );
+  }
   
   if (loading) {
     return (
@@ -88,39 +143,37 @@ const TechnicianDashboard = () => {
       </div>
       
       {error && (
-        <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 p-4 rounded-md">
-          <div className="flex">
-            <AlertCircle className="h-5 w-5 text-red-600 dark:text-red-400 mr-3" />
-            <div>
-              <h3 className="text-sm font-medium text-red-800 dark:text-red-300">Erreur</h3>
-              <p className="mt-1 text-sm text-red-700 dark:text-red-400">{error}</p>
-              {indexError && (
-                <div className="mt-2">
-                  <p className="text-sm text-red-700 dark:text-red-400">
-                    L'index Firebase nécessaire est en cours de création. Cette opération peut prendre quelques minutes.
+        <Alert variant="destructive">
+          <AlertCircle className="h-5 w-5" />
+          <AlertDescription>
+            {error}
+            {indexError && (
+              <div className="mt-2">
+                <p className="text-sm">
+                  L'index Firebase nécessaire est en cours de création. Cette opération peut prendre quelques minutes.
+                </p>
+                <p className="text-sm mt-1">
+                  Veuillez patienter et réessayer dans quelques instants.
+                </p>
+                <div className="flex items-center mt-2">
+                  <Database className="h-4 w-4 mr-1" />
+                  <p className="text-xs">
+                    Statut: Index Firebase en cours de création
                   </p>
-                  <p className="text-sm text-red-700 dark:text-red-400 mt-1">
-                    Veuillez patienter et réessayer dans quelques instants.
-                  </p>
-                  <div className="flex items-center mt-2">
-                    <Database className="h-4 w-4 text-red-600 dark:text-red-400 mr-1" />
-                    <p className="text-xs text-red-700 dark:text-red-400">
-                      Statut: Index Firebase en cours de création
-                    </p>
-                  </div>
                 </div>
-              )}
-              <Button 
-                size="sm" 
-                variant="outline" 
-                className="mt-2"
-                onClick={() => window.location.reload()}
-              >
-                Réessayer
-              </Button>
-            </div>
-          </div>
-        </div>
+              </div>
+            )}
+            <Button 
+              size="sm" 
+              variant="outline" 
+              className="mt-2"
+              onClick={handleRefresh}
+            >
+              <RefreshCw className="h-4 w-4 mr-1" />
+              Réessayer
+            </Button>
+          </AlertDescription>
+        </Alert>
       )}
       
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -181,7 +234,7 @@ const TechnicianDashboard = () => {
                 className="mt-2" 
                 variant="outline" 
                 size="sm"
-                onClick={() => navigate('/technician/accepted-quotes')}
+                onClick={() => navigate('/technician/schedule')}
               >
                 Voir les interventions
               </Button>
@@ -235,12 +288,12 @@ const TechnicianDashboard = () => {
               <div>
                 <p className="text-sm font-medium">Spécialités:</p>
                 <div className="flex flex-wrap gap-1 mt-1">
-                  {technician.specialties.map((specialty: string) => (
+                  {technician.specialties.map((specialty) => (
                     <span 
                       key={specialty}
                       className="inline-flex items-center rounded-full bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-700 ring-1 ring-inset ring-blue-700/10"
                     >
-                      {specialty}
+                      {getSpecialtyName(specialty)}
                     </span>
                   ))}
                 </div>

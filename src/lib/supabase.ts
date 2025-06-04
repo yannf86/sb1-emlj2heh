@@ -1,23 +1,50 @@
 import { createClient } from '@supabase/supabase-js';
 
 // Initialize Supabase client with environment variables
-const supabaseUrl = 'https://incunfhzpnrbaftzpktd.supabase.co';
-const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImluY3VuZmh6cG5yYmFmdHpwa3RkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDU1OTk3ODMsImV4cCI6MjA2MTE3NTc4M30.b1aZXoAxRfYS41_NMts5042cIWeaJYG4iCnCcNKUJoA';
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
-export const supabase = createClient(supabaseUrl, supabaseAnonKey);
+// Validate Supabase configuration
+if (!supabaseUrl || !supabaseAnonKey) {
+  console.error('Missing Supabase configuration. Please check your environment variables.');
+}
+
+export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+  auth: {
+    persistSession: true,
+    autoRefreshToken: true,
+  },
+  global: {
+    fetch: (...args) => {
+      return fetch(...args);
+    },
+  },
+});
 
 /**
- * Upload a file to Supabase Storage
+ * Upload a file to Supabase Storage with retry mechanism
  * @param file File to upload
  * @param bucket Bucket name ('photoavant', 'photoapres', 'devis', 'objettrouve', or 'photosincident')
  * @param customPath Optional custom path within the bucket
  * @returns URL to the uploaded file
  */
-export const uploadToSupabase = async (file: File, bucket: string, customPath?: string): Promise<string> => {
+export const uploadToSupabase = async (file: File, bucket: string, customPath?: string, retries = 3): Promise<string> => {
   try {
     if (!file) {
       throw new Error('No file provided for upload');
     }
+    
+    // Validate Supabase configuration
+    if (!supabaseUrl || !supabaseAnonKey) {
+      throw new Error('Missing Supabase configuration. Please check your environment variables.');
+    }
+    
+    // Validate bucket name
+    const validBuckets = ['photoavant', 'photoapres', 'devis', 'objettrouve', 'photosincident'];
+    if (!validBuckets.includes(bucket)) {
+      console.warn(`⚠️ Using non-standard bucket name: ${bucket}`);
+    }
+    
     console.log(`🚀 Starting upload to Supabase bucket: ${bucket}, file: ${file.name} (${(file.size/1024).toFixed(1)}KB)`);
     
     // Create a unique file name
@@ -38,7 +65,20 @@ export const uploadToSupabase = async (file: File, bucket: string, customPath?: 
     
     if (error) {
       console.error('❌ Error uploading to Supabase:', error);
+      
+      // If we have network-related errors and retries left, attempt retry
+      if ((error.message?.includes('Failed to fetch') || error.message?.includes('NetworkError')) && retries > 0) {
+        console.log(`⏱️ Retrying upload (${retries} attempts left)...`);
+        // Wait a bit before retrying
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        return uploadToSupabase(file, bucket, customPath, retries - 1);
+      }
+      
       throw error;
+    }
+    
+    if (!data || !data.path) {
+      throw new Error('No data returned from Supabase upload');
     }
     
     // Get public URL
@@ -51,6 +91,18 @@ export const uploadToSupabase = async (file: File, bucket: string, customPath?: 
     
   } catch (error) {
     console.error('❌ Error in uploadToSupabase:', error);
+    
+    // Improve error message for better debugging
+    if (error instanceof Error) {
+      if (error.message.includes('Failed to fetch')) {
+        throw new Error(`Network error while connecting to Supabase Storage. This is likely a CORS issue. Please add 'http://localhost:5173' to your Supabase Storage CORS configuration in the Supabase dashboard under Storage > Settings > CORS. Original error: ${error.message}`);
+      } else if (error.message.includes('not found') || error.message.includes('404')) {
+        throw new Error(`Bucket "${bucket}" not found. Please check your Supabase Storage configuration.`);
+      } else if (error.message.includes('permission') || error.message.includes('403')) {
+        throw new Error(`Permission denied when uploading to bucket "${bucket}". Please check RLS policies in your Supabase project.`);
+      }
+    }
+    
     throw error;
   }
 };
@@ -179,5 +231,32 @@ export const dataUrlToFile = async (dataUrl: string, fileName: string): Promise<
   } catch (error) {
     console.error('❌ Error converting data URL to File:', error);
     return null;
+  }
+};
+
+/**
+ * Check if Supabase connection is working
+ * @returns Boolean indicating if connection is working
+ */
+export const checkSupabaseConnection = async (): Promise<boolean> => {
+  try {
+    if (!supabaseUrl || !supabaseAnonKey) {
+      console.error('Missing Supabase configuration');
+      return false;
+    }
+    
+    // Test connection by retrieving bucket information
+    const { data, error } = await supabase.storage.getBucket('photoavant');
+    
+    if (error) {
+      console.error('Supabase connection test failed:', error);
+      return false;
+    }
+    
+    console.log('Supabase connection test successful');
+    return true;
+  } catch (error) {
+    console.error('Error checking Supabase connection:', error);
+    return false;
   }
 };

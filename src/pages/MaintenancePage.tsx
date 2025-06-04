@@ -72,7 +72,9 @@ import { getHotels, getHotelName } from '@/lib/db/hotels';
 import { getLocationLabel } from '@/lib/db/parameters-locations';
 import { getInterventionTypeLabel } from '@/lib/db/parameters-intervention-type';
 import { getStatusLabel } from '@/lib/db/parameters-status';
-import { getUserName } from '@/lib/db/users';
+import { getUserName, getUsers } from '@/lib/db/users';
+import { sendMaintenanceEmailNotifications } from '@/lib/email';
+import { getTechnicians } from '@/lib/db/technicians';
 
 // Import components
 import MaintenanceDialog from '@/components/maintenance/MaintenanceDialog';
@@ -88,10 +90,14 @@ const MaintenancePage = () => {
   const [filterHotel, setFilterHotel] = useState('all');
   const [filterStatus, setFilterStatus] = useState('all');
   const [filterType, setFilterType] = useState('all');
+  const [filterAssignedUser, setFilterAssignedUser] = useState('all'); // NOUVEAU: filtre par utilisateur assigné
+  const [filterTechnician, setFilterTechnician] = useState('all'); // NOUVEAU: filtre par technicien
   const [searchQuery, setSearchQuery] = useState('');
   const [filtersExpanded, setFiltersExpanded] = useState(false);
   const [maintenanceRequests, setMaintenanceRequests] = useState<any[]>([]);
   const [availableHotels, setAvailableHotels] = useState<any[]>([]);
+  const [allUsers, setAllUsers] = useState<any[]>([]);
+  const [technicians, setTechnicians] = useState<any[]>([]);
   const [collectionChecked, setCollectionChecked] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const { toast } = useToast();
@@ -120,6 +126,8 @@ const MaintenancePage = () => {
     };
     loadMaintenanceRequests();
     loadAvailableHotels();
+    loadAllUsers();
+    loadTechnicians();
   }, [collectionChecked, toast]);
   
   // Function to load hotels the current user has access to
@@ -147,6 +155,26 @@ const MaintenancePage = () => {
     }
   };
   
+  // Function to load all users
+  const loadAllUsers = async () => {
+    try {
+      const usersData = await getUsers();
+      setAllUsers(usersData);
+    } catch (error) {
+      console.error('Error loading users:', error);
+    }
+  };
+  
+  // Function to load all technicians
+  const loadTechnicians = async () => {
+    try {
+      const techniciansData = await getTechnicians();
+      setTechnicians(techniciansData);
+    } catch (error) {
+      console.error('Error loading technicians:', error);
+    }
+  };
+  
   // New maintenance dialog
   const [newMaintenanceDialogOpen, setNewMaintenanceDialogOpen] = useState(false);
   
@@ -167,6 +195,26 @@ const MaintenancePage = () => {
     
     // Filter by intervention type
     if (filterType !== 'all' && request.interventionTypeId !== filterType) return false;
+    
+    // Filter by assigned user
+    if (filterAssignedUser === 'none' && request.assignedUserId) return false;
+    if (filterAssignedUser !== 'all' && filterAssignedUser !== 'none' && 
+        request.assignedUserId !== filterAssignedUser) return false;
+    
+    // Filter by technician
+    if (filterTechnician === 'none' && 
+        (request.technicianId || (request.technicianIds && request.technicianIds.length > 0))) {
+      return false;
+    }
+    
+    if (filterTechnician !== 'all' && filterTechnician !== 'none') {
+      // Check in both technicianId (legacy) and technicianIds array
+      const inTechnicianId = request.technicianId === filterTechnician;
+      const inTechnicianIds = request.technicianIds && 
+                             request.technicianIds.includes(filterTechnician);
+      
+      if (!inTechnicianId && !inTechnicianIds) return false;
+    }
     
     // Search query
     if (searchQuery) {
@@ -196,6 +244,30 @@ const MaintenancePage = () => {
         receivedById: currentUser.id
       });
       console.log("Maintenance request created successfully with ID:", maintenanceId);
+      
+      // Send email notifications to technicians
+      if (formData.technicianIds && formData.technicianIds.length > 0) {
+        try {
+          await sendMaintenanceEmailNotifications(
+            maintenanceId, 
+            formData.hotelId, 
+            formData.technicianIds, 
+            'new_quote_request'
+          );
+          
+          toast({
+            title: "Notifications envoyées",
+            description: "Les techniciens ont été notifiés par email",
+          });
+        } catch (emailError) {
+          console.error("Error sending email notifications:", emailError);
+          toast({
+            title: "Avertissement",
+            description: "La demande a été créée mais l'envoi des emails a échoué",
+            variant: "destructive"
+          });
+        }
+      }
 
       toast({
         title: "Demande d'intervention créée",
@@ -224,9 +296,46 @@ const MaintenancePage = () => {
     try {
       setIsProcessing(true);
       
+      // Check if any technicians were added (for email notifications)
+      let newTechnicians: string[] = [];
+      
+      if (selectedMaintenance && updatedData.technicianIds) {
+        // Determine which technicians are newly added
+        const oldTechnicianIds = selectedMaintenance.technicianIds || 
+                              (selectedMaintenance.technicianId ? [selectedMaintenance.technicianId] : []);
+        
+        newTechnicians = updatedData.technicianIds.filter(
+          (id: string) => !oldTechnicianIds.includes(id)
+        );
+      }
+      
       console.log("Updating maintenance request with data:", updatedData);
       // Update maintenance request
       await updateMaintenanceRequest(updatedData.id, updatedData);
+      
+      // Send email notifications to newly added technicians
+      if (newTechnicians.length > 0) {
+        try {
+          await sendMaintenanceEmailNotifications(
+            updatedData.id,
+            updatedData.hotelId,
+            newTechnicians,
+            'new_quote_request'
+          );
+          
+          toast({
+            title: "Notifications envoyées",
+            description: `${newTechnicians.length} technicien(s) ont été notifiés par email`,
+          });
+        } catch (emailError) {
+          console.error("Error sending email notifications:", emailError);
+          toast({
+            title: "Avertissement",
+            description: "La mise à jour a été effectuée mais l'envoi des emails a échoué",
+            variant: "destructive"
+          });
+        }
+      }
       
       // Reload maintenance requests
       const updatedRequests = await getMaintenanceRequests();
@@ -256,6 +365,8 @@ const MaintenancePage = () => {
     setFilterHotel('all');
     setFilterStatus('all');
     setFilterType('all');
+    setFilterAssignedUser('all');
+    setFilterTechnician('all');
     setSearchQuery('');
   };
   
@@ -426,6 +537,10 @@ const MaintenancePage = () => {
         onStatusChange={setFilterStatus}
         filterType={filterType}
         onTypeChange={setFilterType}
+        filterAssignedUser={filterAssignedUser}
+        onAssignedUserChange={setFilterAssignedUser}
+        filterTechnician={filterTechnician}
+        onTechnicianChange={setFilterTechnician}
         filtersExpanded={filtersExpanded}
         onFiltersExpandedChange={setFiltersExpanded}
         onReset={resetFilters}
@@ -579,6 +694,75 @@ const MaintenancePage = () => {
                       <Tooltip formatter={(value, name) => [value, name]} />
                       <Legend />
                     </PieChart>
+                  </ResponsiveContainer>
+                </div>
+              </CardContent>
+            </Card>
+            
+            {/* Interventions by Assigned User - NEW */}
+            <Card className="col-span-1">
+              <CardHeader>
+                <CardTitle>Interventions par Utilisateur Assigné</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="h-80">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart
+                      data={allUsers.map(user => {
+                        const count = filteredRequests.filter(request => 
+                          request.assignedUserId === user.id
+                        ).length;
+                        
+                        return {
+                          name: user.name,
+                          count: count
+                        };
+                      }).filter(item => item.count > 0).sort((a, b) => b.count - a.count)}
+                      margin={{ top: 20, right: 30, left: 20, bottom: 5 }}
+                    >
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="name" />
+                      <YAxis />
+                      <Tooltip />
+                      <Legend />
+                      <Bar dataKey="count" name="Nombre d'interventions" fill="#3b82f6" />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              </CardContent>
+            </Card>
+            
+            {/* Interventions by Technician - NEW */}
+            <Card className="col-span-1">
+              <CardHeader>
+                <CardTitle>Interventions par Technicien</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="h-80">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart
+                      data={technicians.map(tech => {
+                        // Count interventions where this technician is either in technicianId (legacy)
+                        // or in the technicianIds array
+                        const count = filteredRequests.filter(request => 
+                          request.technicianId === tech.id || 
+                          (request.technicianIds && request.technicianIds.includes(tech.id))
+                        ).length;
+                        
+                        return {
+                          name: tech.name,
+                          count: count
+                        };
+                      }).filter(item => item.count > 0).sort((a, b) => b.count - a.count)}
+                      margin={{ top: 20, right: 30, left: 20, bottom: 5 }}
+                    >
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="name" />
+                      <YAxis />
+                      <Tooltip />
+                      <Legend />
+                      <Bar dataKey="count" name="Nombre d'interventions" fill="#f59e0b" />
+                    </BarChart>
                   </ResponsiveContainer>
                 </div>
               </CardContent>

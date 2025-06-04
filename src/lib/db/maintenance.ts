@@ -5,6 +5,29 @@ import { getCurrentUser } from '../auth';
 import { uploadToSupabase, isDataUrl, dataUrlToFile } from '../supabase';
 import { deleteFile } from './file-upload';
 import { removeDummyDoc } from './ensure-collections';
+import { sendMaintenanceEmailNotifications } from '../email';
+import { getHotelName } from './hotels';
+import { getLocationLabel } from './parameters-locations';
+import { getInterventionTypeLabel } from './parameters-intervention-type';
+
+// Helper function to remove undefined values from an object
+const removeUndefined = (obj: Record<string, any>): Record<string, any> => {
+  const result: Record<string, any> = {};
+  for (const [key, value] of Object.entries(obj)) {
+    if (value !== undefined) {
+      if (value === null || typeof value !== 'object') {
+        result[key] = value;
+      } else if (Array.isArray(value)) {
+        result[key] = value.map(item => 
+          typeof item === 'object' && item !== null ? removeUndefined(item) : item
+        );
+      } else {
+        result[key] = removeUndefined(value);
+      }
+    }
+  }
+  return result;
+};
 
 // Get all maintenance requests
 export const getMaintenanceRequests = async (hotelId?: string) => {
@@ -84,9 +107,10 @@ export const getMaintenanceRequest = async (id: string) => {
     
     // Check if current user has access to this maintenance request
     const currentUser = getCurrentUser();
-    if (!currentUser) return null;
+    if (!currentUser) return maintenanceData;
     
-    if (!currentUser.hotels.includes(maintenanceData.hotelId)) {
+    // If user is not admin, check if they have access to this hotel
+    if (currentUser.role !== 'admin' && !currentUser.hotels.includes(maintenanceData.hotelId)) {
       console.error('User does not have access to this maintenance request');
       return null;
     }
@@ -115,7 +139,7 @@ export const createMaintenanceRequest = async (data: Omit<Maintenance, 'id' | 'c
       throw new Error('You do not have permission to create maintenance requests for this hotel');
     }
     
-    // Create payload
+    // Create the maintenance payload
     const payload: any = {
       ...maintenanceData,
       createdAt: new Date().toISOString(),
@@ -128,7 +152,10 @@ export const createMaintenanceRequest = async (data: Omit<Maintenance, 'id' | 'c
         userId: currentUser?.id || 'system',
         action: 'create',
         changes: { type: 'initial_creation' }
-      }]
+      }],
+      // Initialize emailsSent to track notifications
+      emailsSent: {},
+      hasQuote: !!hasQuote
     };
     
     // Upload photoBefore to Supabase if present
@@ -190,13 +217,15 @@ export const createMaintenanceRequest = async (data: Omit<Maintenance, 'id' | 'c
         throw new Error(`Failed to upload quote file: ${error instanceof Error ? error.message : String(error)}`);
       }
     }
+
+    // Make sure technicianIds is always an array, even if empty
+    if (!payload.technicianIds) {
+      payload.technicianIds = [];
+    }
     
-    // Essayer de supprimer le document dummy_doc s'il existe
-    try {
-      await removeDummyDoc('maintenance');
-    } catch (error) {
-      console.error('Error removing dummy document:', error);
-      // Ce n'est pas critique, on continue
+    // Make sure the legacy technicianId is included in the technicianIds array if present
+    if (payload.technicianId && !payload.technicianIds.includes(payload.technicianId)) {
+      payload.technicianIds.push(payload.technicianId);
     }
     
     // If we have hasQuote but not quoteStatus, set default quoteStatus to pending
@@ -205,9 +234,9 @@ export const createMaintenanceRequest = async (data: Omit<Maintenance, 'id' | 'c
     }
     
     // Create maintenance request in Firestore
-    console.log('Creating maintenance request with payload', payload);
+    console.log("Creating maintenance request with payload", payload);
     const docRef = await addDoc(collection(db, 'maintenance'), payload);
-    console.log('Maintenance request created with ID:', docRef.id);
+    console.log("Maintenance request created successfully with ID:", docRef.id);
     return docRef.id;
   } catch (error) {
     console.error('Error creating maintenance request:', error);
@@ -234,14 +263,24 @@ const trackChanges = (oldData: any, newData: any) => {
         key === 'photoAfterPreview' || 
         key === 'quoteFile' || 
         key === 'hasQuote' ||
+        key === 'emailsSent' ||
         typeof value === 'function') {
       continue;
     }
     
     // Check if the field exists in old data
     if (key in oldData) {
-      // Check if the value is different
-      if (JSON.stringify(oldData[key]) !== JSON.stringify(value)) {
+      // For arrays, we need to stringify them for comparison
+      if (Array.isArray(value) && Array.isArray(oldData[key])) {
+        if (JSON.stringify(oldData[key].sort()) !== JSON.stringify(value.sort())) {
+          changes[key] = {
+            old: oldData[key],
+            new: value
+          };
+        }
+      }
+      // For other values, do a direct comparison
+      else if (JSON.stringify(oldData[key]) !== JSON.stringify(value)) {
         changes[key] = {
           old: oldData[key],
           new: value
@@ -260,7 +299,7 @@ const trackChanges = (oldData: any, newData: any) => {
 };
 
 // Update maintenance request
-export const updateMaintenanceRequest = async (id: string, data: Partial<Maintenance>) => {
+export const updateMaintenanceRequest = async (id: string, data: Partial<Maintenance>, actorId?: string) => {
   try {
     // Ignorer le document dummy
     if (id === 'dummy_doc') {
@@ -278,27 +317,51 @@ export const updateMaintenanceRequest = async (id: string, data: Partial<Mainten
     
     const oldData = docSnap.data();
     
-    // Get current user
+    // Get current user or use provided actorId
     const currentUser = getCurrentUser();
-    if (!currentUser) {
-      throw new Error('User not authenticated');
-    }
+    let userId = actorId || (currentUser?.id || 'system');
     
-    // Verify user has access to this maintenance request
-    if (!currentUser.hotels.includes(oldData.hotelId)) {
-      throw new Error('You do not have permission to update this maintenance request');
+    // Only verify user access if we're using the current user (not an actorId)
+    if (!actorId && currentUser) {
+      // Verify user has access to this maintenance request
+      if (!currentUser.hotels.includes(oldData.hotelId)) {
+        throw new Error('You do not have permission to update this maintenance request');
+      }
     }
     
     // Extract file fields if present
-    const { photoBefore, photoBeforePreview, photoAfter, photoAfterPreview, quoteFile, hasQuote, ...maintenanceData } = data as any;
-    
-    const userId = currentUser?.id || 'system';
+    const { photoBefore, photoBeforePreview, photoAfter, photoAfterPreview, quoteFile, hasQuote, emailsSent, ...maintenanceData } = data as any;
     
     // Create update payload
     const payload: any = { ...maintenanceData };
     
+    // Update hasQuote field if provided
+    if (hasQuote !== undefined) {
+      payload.hasQuote = hasQuote;
+    }
+    
     // Track what has changed
     const changes = trackChanges(oldData, payload);
+    
+    // Check for changes in technicians assignment
+    let newTechnicians: string[] = [];
+    
+    // Determine which technicians are newly added
+    if (payload.technicianIds) {
+      // Existing technicians
+      const oldTechnicianIds = oldData.technicianIds || 
+                            (oldData.technicianId ? [oldData.technicianId] : []);
+      
+      // Find new technicians
+      newTechnicians = payload.technicianIds.filter(
+        (id: string) => !oldTechnicianIds.includes(id)
+      );
+    }
+    
+    // Make sure legacy technicianId is included in technicianIds array if present
+    if (payload.technicianId && payload.technicianIds && !payload.technicianIds.includes(payload.technicianId)) {
+      payload.technicianIds.push(payload.technicianId);
+    }
     
     // Upload photoBefore to Supabase if present
     if (photoBefore instanceof File) {
@@ -464,14 +527,57 @@ export const updateMaintenanceRequest = async (id: string, data: Partial<Mainten
       payload.history = history;
     }
     
+    // Preserve the emailsSent tracking object if it exists
+    if (oldData.emailsSent) {
+      payload.emailsSent = oldData.emailsSent;
+    } else {
+      payload.emailsSent = {};
+    }
+    
     // Update timestamps and user
     payload.updatedAt = new Date().toISOString();
     payload.updatedBy = userId;
     
+    // Remove undefined values from the payload before updating Firestore
+    const cleanPayload = removeUndefined(payload);
+    
     // Update the document in Firestore
-    console.log('Updating maintenance request with payload', payload);
-    await updateDoc(docRef, payload);
+    await updateDoc(docRef, cleanPayload);
     console.log('Maintenance request updated successfully');
+    
+    // If there are new technicians added, send them notifications
+    if (newTechnicians.length > 0) {
+      try {
+        console.log(`Sending notifications to ${newTechnicians.length} new technicians:`, newTechnicians);
+        const notificationResult = await sendMaintenanceEmailNotifications(
+          id,
+          oldData.hotelId,
+          newTechnicians,
+          'new_quote_request'
+        );
+        
+        // Update the emailsSent tracking in the document
+        const emailsUpdate: Record<string, boolean> = {};
+        newTechnicians.forEach(techId => {
+          emailsUpdate[`emailsSent.${techId}.new_quote_request`] = true;
+        });
+        
+        if (Object.keys(emailsUpdate).length > 0) {
+          await updateDoc(docRef, emailsUpdate);
+        }
+        
+        if (notificationResult) {
+          console.log('Notifications sent successfully');
+        } else {
+          console.warn('Some notifications may have failed to send');
+        }
+      } catch (emailError) {
+        console.error('Error sending notification emails to technicians:', emailError);
+        // Continue without failing the operation
+      }
+    }
+    
+    return id;
   } catch (error) {
     console.error('Error updating maintenance request:', error);
     throw error;
@@ -558,6 +664,30 @@ export const deleteMaintenanceRequest = async (id: string) => {
     await deleteDoc(docRef);
   } catch (error) {
     console.error('Error deleting maintenance request:', error);
+    throw error;
+  }
+};
+
+// Get maintenance requests by technician ID
+export const getMaintenanceRequestsByTechnician = async (technicianId: string) => {
+  try {
+    if (!technicianId) {
+      throw new Error('Technician ID is required');
+    }
+    
+    const maintenanceQuery = query(
+      collection(db, 'maintenance'),
+      where('technicianIds', 'array-contains', technicianId)
+    );
+    
+    const snapshot = await getDocs(maintenanceQuery);
+    
+    return snapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data()
+    })) as Maintenance[];
+  } catch (error) {
+    console.error('Error getting maintenance requests by technician:', error);
     throw error;
   }
 };

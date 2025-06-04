@@ -10,6 +10,7 @@ import { getHotelName } from '@/lib/db/hotels';
 import { getLocationLabel } from '@/lib/db/parameters-locations';
 import { getInterventionTypeLabel } from '@/lib/db/parameters-intervention-type';
 import { getStatusLabel } from '@/lib/db/parameters-status';
+import { getUserName } from '@/lib/db/users';
 
 interface MaintenanceListProps {
   maintenanceRequests: Maintenance[];
@@ -73,6 +74,16 @@ const MaintenanceList: React.FC<MaintenanceListProps> = ({ maintenanceRequests, 
               newLabels[request.id].statusLabel = 'Inconnu';
             }
           }
+          
+          // Load assigned user name (if applicable)
+          if (request.assignedUserId) {
+            try {
+              newLabels[request.id].assignedUserName = await getUserName(request.assignedUserId);
+            } catch (error) {
+              console.error(`Error loading assigned user for ID ${request.assignedUserId}:`, error);
+              newLabels[request.id].assignedUserName = 'Inconnu';
+            }
+          }
         }
 
         setResolvedLabels(newLabels);
@@ -108,6 +119,7 @@ const MaintenanceList: React.FC<MaintenanceListProps> = ({ maintenanceRequests, 
           <TableHead>Type d'intervention</TableHead>
           <TableHead>Photos</TableHead>
           <TableHead>Devis</TableHead>
+          <TableHead>Assigné à</TableHead>
           <TableHead>Statut</TableHead>
           <TableHead className="text-right">Actions</TableHead>
         </TableRow>
@@ -115,7 +127,7 @@ const MaintenanceList: React.FC<MaintenanceListProps> = ({ maintenanceRequests, 
       <TableBody>
         {maintenanceRequests.length === 0 ? (
           <TableRow>
-            <TableCell colSpan={8} className="text-center">
+            <TableCell colSpan={9} className="text-center">
               Aucune intervention trouvée
             </TableCell>
           </TableRow>
@@ -135,13 +147,13 @@ const MaintenanceList: React.FC<MaintenanceListProps> = ({ maintenanceRequests, 
                 <TableCell>
                   <div className="flex space-x-1">
                     {request.photoBefore && (
-                      <span className="inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium bg-blue-50 text-blue-600 border-blue-200">
+                      <span className="inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-semibold bg-blue-50 text-blue-600 border-blue-300">
                         <Image className="h-3 w-3 mr-1" />
                         Avant
                       </span>
                     )}
                     {request.photoAfter && (
-                      <span className="inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium bg-green-50 text-green-600 border-green-200">
+                      <span className="inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-semibold bg-green-50 text-green-600 border-green-200">
                         <Image className="h-3 w-3 mr-1" />
                         Après
                       </span>
@@ -155,6 +167,8 @@ const MaintenanceList: React.FC<MaintenanceListProps> = ({ maintenanceRequests, 
                         <FileUp className="h-3 w-3 mr-1" />
                         {request.quoteAmount ? `${request.quoteAmount}€` : 'Devis'}
                       </span>
+                      
+                      {/* Quote status badge */}
                       {request.quoteStatus && (
                         <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${
                           request.quoteStatus === 'accepted' 
@@ -170,6 +184,8 @@ const MaintenanceList: React.FC<MaintenanceListProps> = ({ maintenanceRequests, 
                             : <><Clock8 className="h-3 w-3 mr-1" /> En attente</>}
                         </span>
                       )}
+                      
+                      {/* Legacy support */}
                       {!request.quoteStatus && request.quoteAccepted !== undefined && (
                         <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${
                           request.quoteAccepted 
@@ -182,6 +198,22 @@ const MaintenanceList: React.FC<MaintenanceListProps> = ({ maintenanceRequests, 
                         </span>
                       )}
                     </div>
+                  )}
+                  
+                  {/* Multiple quotes count (if applicable) */}
+                  {request.quotes && request.quotes.length > 1 && (
+                    <span className="text-xs text-muted-foreground mt-1">
+                      {request.quotes.length} devis
+                    </span>
+                  )}
+                </TableCell>
+                <TableCell>
+                  {request.assignedUserId ? (
+                    <span className="font-medium">
+                      {labels.assignedUserName || 'Chargement...'}
+                    </span>
+                  ) : (
+                    <span className="text-muted-foreground text-xs">Non assigné</span>
                   )}
                 </TableCell>
                 <TableCell>

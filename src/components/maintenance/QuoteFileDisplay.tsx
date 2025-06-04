@@ -13,6 +13,22 @@ const QuoteFileDisplay: React.FC<QuoteFileDisplayProps> = ({
   onDelete,
   isEditable = true
 }) => {
+  // Check if the URL is valid before rendering
+  const isValidUrl = !!quoteUrl && typeof quoteUrl === 'string' && (
+    quoteUrl.startsWith('http://') || 
+    quoteUrl.startsWith('https://') || 
+    quoteUrl.startsWith('data:')
+  );
+
+  if (!isValidUrl) {
+    return (
+      <div className="flex items-center gap-2 text-red-500">
+        <FileText className="h-4 w-4" />
+        <span>URL de fichier invalide</span>
+      </div>
+    );
+  }
+
   return (
     <div className="flex items-center gap-2">
       <a 
@@ -32,6 +48,7 @@ const QuoteFileDisplay: React.FC<QuoteFileDisplayProps> = ({
           size="icon"
           className="h-8 w-8"
           onClick={onDelete}
+          type="button"
         >
           <X size={16} />
         </Button>

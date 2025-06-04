@@ -1,43 +1,85 @@
-import React, { useEffect } from 'react';
-import { Navigate } from 'react-router-dom';
+import React, { useEffect, useState } from 'react';
+import { Navigate, useNavigate } from 'react-router-dom';
 import { 
   isTechnicianLoggedIn, 
   refreshTechnicianSession, 
   checkTechnicianSessionExpiry, 
-  logoutTechnician 
+  logoutTechnician,
+  getCurrentTechnician
 } from '@/lib/technician-auth';
+import { Building, Loader2 } from 'lucide-react';
 
 interface TechnicianProtectedRouteProps {
   children: React.ReactNode;
 }
 
 const TechnicianProtectedRoute: React.FC<TechnicianProtectedRouteProps> = ({ children }) => {
-  // Check if technician is logged in and if session has expired
-  const isLoggedIn = isTechnicianLoggedIn();
-  const hasSessionExpired = checkTechnicianSessionExpiry();
+  // State to track authentication status
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null); // null means "checking"
+  const navigate = useNavigate();
   
-  // Handle expired session
-  useEffect(() => {
-    if (isLoggedIn && hasSessionExpired) {
-      console.log("Technician session expired");
+  // Function to check authentication status
+  const checkAuthStatus = () => {
+    const technician = getCurrentTechnician();
+    const loggedIn = isTechnicianLoggedIn();
+    const sessionExpired = checkTechnicianSessionExpiry();
+    
+    if (!technician || !loggedIn || sessionExpired) {
+      console.log("Technician not authenticated or session expired");
       logoutTechnician();
-      window.location.href = '/technician-login';
+      setIsAuthenticated(false);
+      return false;
     }
-  }, [isLoggedIn, hasSessionExpired]);
+    
+    // Refresh session to extend expiration but don't trigger a re-render
+    refreshTechnicianSession();
+    
+    // Only update state if it's changed to prevent unnecessary renders
+    if (isAuthenticated !== true) {
+      setIsAuthenticated(true);
+    }
+    return true;
+  };
   
-  // Refresh session if logged in (extends expiration)
+  // Initial authentication check
   useEffect(() => {
-    if (isLoggedIn && !hasSessionExpired) {
-      refreshTechnicianSession();
-    }
-  }, [isLoggedIn, hasSessionExpired]);
+    checkAuthStatus();
+  }, []);
   
-  if (!isLoggedIn || hasSessionExpired) {
-    // Redirect to login page if not logged in or session expired
+  // Periodic authentication check (every 5 minutes to reduce flickering)
+  useEffect(() => {
+    if (isAuthenticated) {
+      const intervalId = setInterval(() => {
+        // Perform check but don't trigger re-render unless necessary
+        if (!checkAuthStatus()) {
+          // Only navigate away if authentication failed
+          navigate('/technician-login');
+        }
+      }, 300000); // Check every 5 minutes instead of every 60 seconds
+      
+      return () => clearInterval(intervalId);
+    }
+  }, [isAuthenticated, navigate]);
+
+  // Loading state
+  if (isAuthenticated === null) {
+    return (
+      <div className="min-h-screen bg-cream-100 dark:bg-charcoal-900 flex items-center justify-center p-4">
+        <div className="text-center">
+          <Building className="h-12 w-12 text-brand-500 mx-auto mb-4" />
+          <Loader2 className="h-8 w-8 animate-spin mx-auto mb-4 text-brand-500" />
+          <p className="text-lg font-medium">Vérification de l'authentification...</p>
+        </div>
+      </div>
+    );
+  }
+  
+  // If not authenticated, redirect to login
+  if (!isAuthenticated) {
     return <Navigate to="/technician-login" replace />;
   }
 
-  // Render children if logged in
+  // Render children if authenticated
   return <>{children}</>;
 };
 

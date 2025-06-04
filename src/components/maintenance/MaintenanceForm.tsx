@@ -5,19 +5,22 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
-import { Image, X, FileUp, Loader2 } from 'lucide-react';
+import { Image, X, FileUp, Loader2, User } from 'lucide-react';
 import { Maintenance, MaintenanceFormData } from './types/maintenance.types';
 import { getHotels } from '@/lib/db/hotels';
 import { getHotelLocations } from '@/lib/db/parameters-locations';
 import { getInterventionTypeParameters } from '@/lib/db/parameters-intervention-type';
 import { getStatusParameters } from '@/lib/db/parameters-status';
+import { getCurrentUser } from '@/lib/auth';
+import { getUsers, getUsersByHotel } from '@/lib/db/users';
+import { useDate } from '@/hooks/use-date';
 import { useToast } from '@/hooks/use-toast';
+import { findStatusIdByCode } from '@/lib/db/parameters-status';
 import { deleteFromSupabase } from '@/lib/supabase';
 import { getTechniciansByHotel } from '@/lib/db/technicians';
 import QuoteFileDisplay from './QuoteFileDisplay';
 import PhotoDisplay from './PhotoDisplay';
 import { CheckboxGroup } from '@/pages/components/CheckboxGroup';
-import { getCurrentUser } from '@/lib/auth';
 
 interface MaintenanceFormProps {
   isOpen: boolean;
@@ -56,6 +59,7 @@ const MaintenanceForm: React.FC<MaintenanceFormProps> = ({
         description: '',
         statusId: '',
         receivedById: currentUser?.id || '',
+        assignedUserId: '', // NOUVEAU: utilisateur interne assigné
         technicianIds: [],
         estimatedAmount: '',
         finalAmount: '',
@@ -72,10 +76,12 @@ const MaintenanceForm: React.FC<MaintenanceFormProps> = ({
   const [interventionTypes, setInterventionTypes] = useState<any[]>([]);
   const [statusParams, setStatusParams] = useState<any[]>([]);
   const [technicians, setTechnicians] = useState<any[]>([]);
+  const [internalUsers, setInternalUsers] = useState<any[]>([]);
   const [selectedTechnicians, setSelectedTechnicians] = useState<string[]>(formData.technicianIds || []);
   const [loading, setLoading] = useState(true);
   const [loadingLocations, setLoadingLocations] = useState(false);
   const [loadingTechnicians, setLoadingTechnicians] = useState(false);
+  const [loadingUsers, setLoadingUsers] = useState(false);
   const [saving, setSaving] = useState(false);
   const [photoBeforeUploading, setPhotoBeforeUploading] = useState(false);
   const [photoAfterUploading, setPhotoAfterUploading] = useState(false);
@@ -123,7 +129,12 @@ const MaintenanceForm: React.FC<MaintenanceFormProps> = ({
           loadTechniciansForHotel(formData.hotelId);
         }
         
-        // Load locations for the selected hotel
+        // Initialize internal users if we have a hotel selected
+        if (formData.hotelId) {
+          loadInternalUsersForHotel(formData.hotelId);
+        }
+        
+        // Load locations for the current hotel
         if (formData.hotelId) {
           const locationsData = await getHotelLocations(formData.hotelId);
           setLocations(locationsData);
@@ -143,8 +154,36 @@ const MaintenanceForm: React.FC<MaintenanceFormProps> = ({
     loadData();
   }, [formData.hotelId, toast]);
 
-  // Load technicians for a specific hotel
+  // Load locations when hotel changes
+  const loadLocationsForHotel = async (hotelId: string) => {
+    if (!hotelId) {
+      setLocations([]);
+      return;
+    }
+
+    try {
+      setLoadingLocations(true);
+      const locationsData = await getHotelLocations(hotelId);
+      setLocations(locationsData);
+    } catch (error) {
+      console.error('Error loading locations:', error);
+      toast({
+        title: "Erreur",
+        description: "Impossible de charger les lieux pour cet hôtel",
+        variant: "destructive",
+      });
+    } finally {
+      setLoadingLocations(false);
+    }
+  };
+  
+  // Load technicians when hotel changes
   const loadTechniciansForHotel = async (hotelId: string) => {
+    if (!hotelId) {
+      setTechnicians([]);
+      return;
+    }
+
     try {
       setLoadingTechnicians(true);
       const technicianData = await getTechniciansByHotel(hotelId);
@@ -168,44 +207,37 @@ const MaintenanceForm: React.FC<MaintenanceFormProps> = ({
       setLoadingTechnicians(false);
     }
   };
+  
+  // Load internal users when hotel changes
+  const loadInternalUsersForHotel = async (hotelId: string) => {
+    if (!hotelId) {
+      setInternalUsers([]);
+      return;
+    }
 
-  // Load locations when hotel changes
+    try {
+      setLoadingUsers(true);
+      const usersData = await getUsersByHotel(hotelId);
+      setInternalUsers(usersData);
+    } catch (error) {
+      console.error('Error loading users:', error);
+      toast({
+        title: "Erreur",
+        description: "Impossible de charger les utilisateurs pour cet hôtel",
+        variant: "destructive",
+      });
+    } finally {
+      setLoadingUsers(false);
+    }
+  };
+  
   useEffect(() => {
-    const loadLocations = async () => {
-      if (!formData.hotelId) {
-        setLocations([]);
-        setFormData(prev => ({
-          ...prev,
-          locationId: ''
-        }));
-        setTechnicians([]);
-        setSelectedTechnicians([]);
-        return;
-      }
-
-      try {
-        setLoadingLocations(true);
-        const locationsData = await getHotelLocations(formData.hotelId);
-        setLocations(locationsData);
-        
-        // Also load technicians for this hotel
-        await loadTechniciansForHotel(formData.hotelId);
-        
-      } catch (error) {
-        console.error('Error loading locations/technicians:', error);
-        toast({
-          title: "Erreur",
-          description: "Impossible de charger les données pour cet hôtel",
-          variant: "destructive",
-        });
-        setLocations([]);
-      } finally {
-        setLoadingLocations(false);
-      }
-    };
-
-    loadLocations();
-  }, [formData.hotelId, toast]);
+    if (formData.hotelId) {
+      loadLocationsForHotel(formData.hotelId);
+      loadTechniciansForHotel(formData.hotelId);
+      loadInternalUsersForHotel(formData.hotelId);
+    }
+  }, [formData.hotelId]);
 
   // Handle form input changes
   const handleFormChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
@@ -516,8 +548,8 @@ const MaintenanceForm: React.FC<MaintenanceFormProps> = ({
       // For new interventions, set default status if not specified
       if (!isEditing && !formData.statusId) {
         // Find the "open" status
-        const openStatus = statusParams.find(s => s.code === 'open');
-        formData.statusId = openStatus ? openStatus.id : statusParams[0]?.id;
+        const openStatus = await findStatusIdByCode('open');
+        formData.statusId = openStatus || statusParams[0]?.id;
       }
       
       // Make sure technicianIds is properly set from selectedTechnicians
@@ -619,7 +651,7 @@ const MaintenanceForm: React.FC<MaintenanceFormProps> = ({
                 </SelectTrigger>
                 <SelectContent>
                   {filteredHotels.length === 0 ? (
-                    <SelectItem value="none" disabled>Aucun hôtel disponible</SelectItem>
+                    <SelectItem value="none\" disabled>Aucun hôtel disponible</SelectItem>
                   ) : (
                     filteredHotels.map(hotel => (
                       <SelectItem key={hotel.id} value={hotel.id}>{hotel.name}</SelectItem>
@@ -641,9 +673,9 @@ const MaintenanceForm: React.FC<MaintenanceFormProps> = ({
                 </SelectTrigger>
                 <SelectContent>
                   {loadingLocations ? (
-                    <SelectItem value="loading" disabled>Chargement...</SelectItem>
+                    <SelectItem value="loading\" disabled>Chargement...</SelectItem>
                   ) : locations.length === 0 ? (
-                    <SelectItem value="none" disabled>Aucun lieu disponible pour cet hôtel</SelectItem>
+                    <SelectItem value="none\" disabled>Aucun lieu disponible pour cet hôtel</SelectItem>
                   ) : (
                     locations
                       .filter(location => location.id && location.id !== '')
@@ -668,7 +700,7 @@ const MaintenanceForm: React.FC<MaintenanceFormProps> = ({
               </SelectTrigger>
               <SelectContent>
                 {interventionTypes.length === 0 ? (
-                  <SelectItem value="none" disabled>Aucun type disponible</SelectItem>
+                  <SelectItem value="none\" disabled>Aucun type disponible</SelectItem>
                 ) : (
                   interventionTypes.map(type => (
                     <SelectItem key={type.id} value={type.id}>{type.label}</SelectItem>
@@ -676,6 +708,46 @@ const MaintenanceForm: React.FC<MaintenanceFormProps> = ({
                 )}
               </SelectContent>
             </Select>
+          </div>
+          
+          {/* Nouveau: utilisateur interne assigné */}
+          <div className="space-y-2">
+            <Label htmlFor="assignedUserId" className="flex items-center">
+              <User className="h-4 w-4 mr-2 text-muted-foreground" />
+              Assigné à
+            </Label>
+            <Select 
+              value={formData.assignedUserId || "none"} 
+              onValueChange={(value) => handleSelectChange('assignedUserId', value === "none" ? null : value)}
+              disabled={loadingUsers || !formData.hotelId || saving}
+            >
+              <SelectTrigger id="assignedUserId">
+                <SelectValue placeholder={
+                  !formData.hotelId
+                    ? "Sélectionnez d'abord un hôtel"
+                    : loadingUsers
+                      ? "Chargement..."
+                      : "Sélectionnez un utilisateur"
+                } />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">Non assigné</SelectItem>
+                {loadingUsers ? (
+                  <SelectItem value="loading" disabled>Chargement des utilisateurs...</SelectItem>
+                ) : internalUsers.length === 0 ? (
+                  <SelectItem value="no-users" disabled>Aucun utilisateur disponible</SelectItem>
+                ) : (
+                  internalUsers
+                    .filter(user => user.id && user.id !== '')
+                    .map(user => (
+                      <SelectItem key={user.id} value={user.id}>{user.name}</SelectItem>
+                    ))
+                )}
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">
+              Utilisateur interne responsable du suivi de cette intervention
+            </p>
           </div>
           
           <div className="space-y-2">
@@ -773,7 +845,7 @@ const MaintenanceForm: React.FC<MaintenanceFormProps> = ({
             <div className="flex items-center space-x-2">
               <Switch 
                 id="hasQuote" 
-                checked={Boolean(formData.quoteUrl || formData.quoteFile || formData.hasQuote)}
+                checked={Boolean(formData.quoteUrl || formData.quoteFile || formData.hasQuote || (formData.technicianIds && formData.technicianIds.length > 0))}
                 onCheckedChange={(checked) => {
                   if (!checked && formData.quoteUrl) {
                     handleDeleteQuoteFile();
@@ -786,7 +858,7 @@ const MaintenanceForm: React.FC<MaintenanceFormProps> = ({
               <Label htmlFor="hasQuote">Demande de devis</Label>
             </div>
             
-            {(formData.quoteUrl || formData.quoteFile || formData.hasQuote) && (
+            {(formData.quoteUrl || formData.quoteFile || formData.hasQuote || (formData.technicianIds && formData.technicianIds.length > 0)) && (
               <>
                 {/* Affiche le fichier de devis existant */}
                 {formData.quoteUrl && !formData.quoteFile && (
@@ -850,7 +922,7 @@ const MaintenanceForm: React.FC<MaintenanceFormProps> = ({
                         Fichier sélectionné: {formData.quoteFile.name} ({(formData.quoteFile.size / 1024).toFixed(0)} KB)
                       </p>
                       <Button 
-                        variant="ghost" 
+                        variant="destructive" 
                         size="sm"
                         onClick={() => setFormData(prev => ({ ...prev, quoteFile: null }))}
                       >
@@ -894,7 +966,7 @@ const MaintenanceForm: React.FC<MaintenanceFormProps> = ({
                   </SelectTrigger>
                   <SelectContent>
                     {statusParams.length === 0 ? (
-                      <SelectItem value="none" disabled>Aucun statut disponible</SelectItem>
+                      <SelectItem value="none\" disabled>Aucun statut disponible</SelectItem>
                     ) : (
                       statusParams.map(status => (
                         <SelectItem key={status.id} value={status.id}>{status.label}</SelectItem>

@@ -12,6 +12,9 @@ import { Input } from '@/components/ui/input';
 import { formatDate } from '@/lib/utils';
 import { getQuoteRequestsForTechnician, submitQuote, updateQuote } from '@/lib/db/quote-requests';
 import { useToast } from '@/hooks/use-toast';
+import { getCurrentTechnician, logoutTechnician } from '@/lib/technician-auth';
+import { TECHNICIAN_SPECIALTIES } from '@/pages/TechniciansPage';
+import { getMaintenanceRequest } from '@/lib/db/maintenance';
 
 const TechnicianQuoteRequests = () => {
   const [loading, setLoading] = useState(true);
@@ -24,6 +27,7 @@ const TechnicianQuoteRequests = () => {
   const [detailDialogOpen, setDetailDialogOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
+  const [retryCount, setRetryCount] = useState(0);
   
   // Quote form state
   const [quoteAmount, setQuoteAmount] = useState('');
@@ -43,42 +47,46 @@ const TechnicianQuoteRequests = () => {
         setError(null);
         setIndexError(false);
         
-        const requests = await getQuoteRequestsForTechnician();
-        setQuoteRequests(requests);
+        console.log(`Loading quote requests (attempt ${retryCount + 1})...`);
+
+        // Verify technician exists before making the request
+        const technician = getCurrentTechnician();
+        if (!technician) {
+          console.error('No technician logged in, redirecting to login');
+          navigate('/technician-login');
+          return;
+        }
         
-        // Check if we have a Firebase index error
-        if (requests.length === 0) {
-          try {
-            // Try to detect if this is an index error
-            const testQuery = query(
-              collection(db, 'maintenance'),
-              where('technicianIds', 'array-contains', 'any-id'),
-              orderBy('date', 'desc')
-            );
-            await getDocs(testQuery);
-          } catch (error) {
-            if (error instanceof Error && 
-                (error.message.includes('requires an index') || 
-                 error.message.includes('FirebaseError: 9 FAILED_PRECONDITION') ||
-                 error.message.includes('index is currently building'))) {
-              setIndexError(true);
-              setError('Un index Firebase est requis pour cette requête. L\'index est en cours de création et sera bientôt disponible.');
-            }
+        console.log("Loading dashboard for technician:", technician.id, technician.name);
+        console.log("Technician specialties:", technician.specialties);
+        
+        // Load quote request counts
+        const requests = await getQuoteRequestsForTechnician();
+        
+        // Check if we have an error or index issue
+        if (requests.error) {
+          if (requests.requiresIndex) {
+            console.log("Index error detected:", requests.errorMessage);
+            setIndexError(true);
+            setError('Un index Firebase est requis pour cette requête. L\'index est en cours de création et sera bientôt disponible.');
+            toast({
+              title: "Configuration Firebase en cours",
+              description: "Un index est en cours de création pour afficher les demandes de devis. Veuillez réessayer dans quelques minutes.",
+              variant: "destructive"
+            });
+          } else if (requests.errorMessage) {
+            setError(`Erreur: ${requests.errorMessage}`);
+          } else {
+            setError('Une erreur est survenue lors du chargement des données.');
           }
+        } else {
+          // Set stats if there are no errors
+          console.log("Request data:", requests);
+          setQuoteRequests(requests);
         }
       } catch (error) {
-        console.error('Error getting quote requests:', error);
-        setError('Une erreur est survenue lors du chargement des demandes de devis.');
-        
-        // Check if this is an index error
-        if (error instanceof Error && 
-            (error.message.includes('requires an index') || 
-             error.message.includes('FirebaseError: 9 FAILED_PRECONDITION') ||
-             error.message.includes('index is currently building'))) {
-          setIndexError(true);
-          setError('Un index Firebase est requis pour cette requête. L\'index est en cours de création et sera bientôt disponible.');
-        }
-        
+        console.error('Error loading quote requests:', error);
+        setError(error instanceof Error ? error.message : 'Une erreur est survenue lors du chargement des données.');
         toast({
           title: "Erreur",
           description: "Impossible de charger les demandes de devis.",
@@ -90,26 +98,36 @@ const TechnicianQuoteRequests = () => {
     };
     
     loadRequests();
-  }, [toast]);
+  }, [toast, navigate, retryCount]);
   
   // Filter quote requests based on status
   const filteredRequests = quoteRequests.filter(request => {
+    const currentTechnician = getCurrentTechnician();
+    if (!currentTechnician) return false;
+    
     if (filterStatus === 'all') return true;
-    if (filterStatus === 'pending' && !request.quoteSubmitted) return true;
-    if (filterStatus === 'submitted' && request.quoteSubmitted && request.quoteStatus === 'pending') return true;
-    if (filterStatus === 'accepted' && request.quoteSubmitted && request.quoteStatus === 'accepted') return true;
-    if (filterStatus === 'rejected' && request.quoteSubmitted && request.quoteStatus === 'rejected') return true;
+    
+    // Get quote status for this technician
+    const quoteStatus = getQuoteStatus(request);
+    
+    if (filterStatus === 'pending' && !quoteStatus) return true; // No quote submitted yet
+    if (filterStatus === 'submitted' && quoteStatus === 'pending') return true;
+    if (filterStatus === 'accepted' && quoteStatus === 'accepted') return true;
+    if (filterStatus === 'rejected' && quoteStatus === 'rejected') return true;
+    
     return false;
   });
   
   // Handle view details
   const handleViewDetails = (request: any) => {
+    console.log('Viewing details for request:', request.id);
     setSelectedRequest(request);
     setDetailDialogOpen(true);
   };
   
   // Handle submit quote
   const handleSubmitQuoteClick = (request: any) => {
+    console.log('Opening quote form for request:', request.id);
     setSelectedRequest(request);
     setQuoteAmount('');
     setQuoteComments('');
@@ -120,16 +138,64 @@ const TechnicianQuoteRequests = () => {
     setQuoteDialogOpen(true);
   };
 
-  // Handle edit quote - NEW FUNCTION
+  // Handle edit quote
   const handleEditQuoteClick = (request: any) => {
+    console.log('Opening edit form for existing quote:', request.id);
+    
+    // Find the quote from the current technician
+    const technician = getCurrentTechnician();
+    if (!technician) {
+      toast({
+        title: "Erreur",
+        description: "Vous devez être connecté pour modifier un devis",
+        variant: "destructive"
+      });
+      return;
+    }
+    
+    let technicianQuote = null;
+    let quoteAmount = '';
+    let quoteComments = '';
+    let quoteUrl = null;
+    
+    // Check if there are quotes in the new format
+    if (request.quotes && Array.isArray(request.quotes)) {
+      technicianQuote = request.quotes.find(q => q.technicianId === technician.id);
+      if (technicianQuote) {
+        quoteAmount = technicianQuote.amount?.toString() || '';
+        quoteComments = technicianQuote.comments || '';
+        quoteUrl = technicianQuote.url || null;
+      }
+    } else if (request.technicianId === technician.id) {
+      // Legacy format - use the main quote data
+      quoteAmount = request.quoteAmount?.toString() || '';
+      quoteComments = request.quoteComments || '';
+      quoteUrl = request.quoteUrl || null;
+    }
+    
+    if (!technicianQuote && request.technicianId !== technician.id) {
+      toast({
+        title: "Erreur",
+        description: "Vous n'avez pas soumis de devis pour cette demande",
+        variant: "destructive"
+      });
+      return;
+    }
+    
     setSelectedRequest(request);
-    setQuoteAmount(request.quoteAmount?.toString() || '');
-    setQuoteComments(request.quoteComments || '');
+    setQuoteAmount(quoteAmount);
+    setQuoteComments(quoteComments);
     setQuoteFile(null);
-    setExistingFileUrl(request.quoteUrl || null);
+    setExistingFileUrl(quoteUrl);
     setAcceptRequest(true);
     setIsEditing(true);
     setQuoteDialogOpen(true);
+  };
+  
+  // Helper function to get specialty name from ID
+  const getSpecialtyName = (specialtyId: string): string => {
+    const specialty = TECHNICIAN_SPECIALTIES.find(s => s.id === specialtyId);
+    return specialty ? specialty.name : specialtyId;
   };
   
   // Handle file select
@@ -154,12 +220,26 @@ const TechnicianQuoteRequests = () => {
     try {
       setSubmitting(true);
       
+      // Verify technician is logged in
+      const technician = getCurrentTechnician();
+      if (!technician) {
+        console.error('No technician logged in, redirecting to login');
+        // Close the dialog before redirecting
+        setQuoteDialogOpen(false);
+        // Logout the technician (clear their session)
+        logoutTechnician();
+        // Redirect to login page
+        navigate('/technician-login');
+        return;
+      }
+      
       if (acceptRequest && (!quoteAmount || parseFloat(quoteAmount) <= 0)) {
         toast({
           title: "Montant invalide",
           description: "Veuillez saisir un montant valide pour le devis",
           variant: "destructive"
         });
+        setSubmitting(false);
         return;
       }
       
@@ -172,40 +252,41 @@ const TechnicianQuoteRequests = () => {
         existingFileUrl: existingFileUrl
       };
       
-      // Submit or update the quote
+      console.log('Submitting quote with data:', {
+        ...quoteData,
+        quoteFile: quoteFile ? `${quoteFile.name} (${quoteFile.size} bytes)` : null
+      });
+      
+      // Submit or update the quote directly with the selected request object
       let result;
       if (isEditing) {
-        result = await updateQuote(selectedRequest.id, quoteData);
+        result = await updateQuote(selectedRequest, quoteData);
         toast({
           title: "Devis modifié",
           description: result.message || "Votre devis a été mis à jour avec succès",
         });
       } else {
-        result = await submitQuote(selectedRequest.id, quoteData);
+        result = await submitQuote(selectedRequest, quoteData);
         toast({
           title: acceptRequest ? "Devis soumis" : "Demande refusée",
           description: result.message,
         });
       }
       
-      // Update local state to reflect the change
-      setQuoteRequests(prev => prev.map(req => {
-        if (req.id === selectedRequest.id) {
-          return {
-            ...req,
-            quoteSubmitted: acceptRequest,
-            quoteRejected: !acceptRequest,
-            quoteAmount: acceptRequest ? parseFloat(quoteAmount) : null,
-            quoteStatus: 'pending',
-            quoteComments: quoteComments,
-            quoteUrl: result.quoteUrl || req.quoteUrl
-          };
-        }
-        return req;
-      }));
+      // Reload the quote requests after update
+      const updatedRequests = await getQuoteRequestsForTechnician();
+      if (!updatedRequests.error) {
+        setQuoteRequests(updatedRequests);
+      }
       
       // Close dialog
       setQuoteDialogOpen(false);
+      
+      // Reset form
+      setQuoteAmount('');
+      setQuoteComments('');
+      setQuoteFile(null);
+      setExistingFileUrl(null);
     } catch (error) {
       console.error('Error submitting quote:', error);
       toast({
@@ -216,6 +297,51 @@ const TechnicianQuoteRequests = () => {
     } finally {
       setSubmitting(false);
     }
+  };
+
+  // Get current quote status for a technician in a request
+  const getQuoteStatus = (request: any) => {
+    const technician = getCurrentTechnician();
+    if (!technician) return null;
+    
+    // Check if request has quotes array
+    if (request.quotes && Array.isArray(request.quotes)) {
+      const technicianQuote = request.quotes.find((q: any) => q.technicianId === technician.id);
+      if (technicianQuote) {
+        return technicianQuote.status;
+      }
+    } 
+    
+    // Legacy format - only if this technician is the assigned one
+    if (request.technicianId === technician.id) {
+      // IMPROVED: Check explicitly for status values in the correct order
+      if (request.quoteStatus) {
+        return request.quoteStatus; 
+      } else if (request.quoteAccepted === true) {
+        return 'accepted';
+      } else if (request.quoteAccepted === false) {
+        return 'rejected';
+      } else if (request.quoteSubmitted) {
+        return 'pending';
+      }
+    }
+    
+    // No quote submitted yet
+    return null;
+  };
+  
+  // Check if technician has submitted a quote for this request
+  const hasSubmittedQuote = (request: any) => {
+    const technician = getCurrentTechnician();
+    if (!technician) return false;
+    
+    // Check if request has quotes array
+    if (request.quotes && Array.isArray(request.quotes)) {
+      return request.quotes.some((q: any) => q.technicianId === technician.id);
+    }
+    
+    // Legacy format - only if this technician is the assigned one
+    return request.technicianId === technician.id && request.quoteSubmitted;
   };
   
   if (loading) {
@@ -257,7 +383,9 @@ const TechnicianQuoteRequests = () => {
           
           <Button 
             variant="outline"
-            onClick={() => window.location.reload()}
+            onClick={() => {
+              setRetryCount(prev => prev + 1);
+            }}
           >
             Actualiser
           </Button>
@@ -319,98 +447,100 @@ const TechnicianQuoteRequests = () => {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filteredRequests.map((request) => (
-                  <TableRow key={request.id}>
-                    <TableCell>
-                      <div className="font-medium">{formatDate(request.date)}</div>
-                      <div className="text-xs text-muted-foreground">{request.time}</div>
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex items-center space-x-1">
-                        <Building className="h-4 w-4 text-muted-foreground" />
-                        <span>{request.hotelName}</span>
-                      </div>
-                      <div className="flex items-center space-x-1 text-xs text-muted-foreground mt-1">
-                        <MapPin className="h-3 w-3" />
-                        <span>{request.locationName}</span>
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex items-center space-x-1">
-                        <Tool className="h-4 w-4 text-muted-foreground" />
-                        <span>{request.interventionTypeName}</span>
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <div className="max-w-xs truncate">
-                        {request.description}
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      {!request.quoteSubmitted && !request.quoteRejected ? (
-                        <span className="inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold bg-blue-50 text-blue-600 border-blue-300">
-                          En attente de devis
-                        </span>
-                      ) : request.quoteStatus === 'pending' ? (
-                        <span className="inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold bg-amber-50 text-amber-600 border-amber-300">
-                          Devis soumis
-                        </span>
-                      ) : request.quoteStatus === 'accepted' ? (
-                        <span className="inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold bg-green-50 text-green-600 border-green-300">
-                          Devis accepté
-                        </span>
-                      ) : request.quoteStatus === 'rejected' ? (
-                        <span className="inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold bg-red-50 text-red-600 border-red-300">
-                          Devis refusé
-                        </span>
-                      ) : (
-                        <span className="inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold bg-red-50 text-red-600 border-red-300">
-                          Demande refusée
-                        </span>
-                      )}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => handleViewDetails(request)}
-                        className="mr-2"
-                      >
-                        <Eye className="h-4 w-4 mr-1" />
-                        Détails
-                      </Button>
-                      
-                      {!request.quoteSubmitted && !request.quoteRejected && (
+                {filteredRequests.map((request) => {
+                  const quoteStatus = getQuoteStatus(request);
+                  const hasQuote = hasSubmittedQuote(request);
+                  
+                  return (
+                    <TableRow key={request.id}>
+                      <TableCell>
+                        <div className="font-medium">{formatDate(request.date)}</div>
+                        <div className="text-xs text-muted-foreground">{request.time}</div>
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex items-center space-x-1">
+                          <Building className="h-4 w-4 text-muted-foreground" />
+                          <span>{request.hotelName}</span>
+                        </div>
+                        <div className="flex items-center space-x-1 text-xs text-muted-foreground mt-1">
+                          <MapPin className="h-3 w-3" />
+                          <span>{request.locationName}</span>
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex items-center space-x-1">
+                          <Tool className="h-4 w-4 text-muted-foreground" />
+                          <span>{request.interventionTypeName}</span>
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <div className="max-w-xs truncate">
+                          {request.description}
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        {!hasQuote ? (
+                          <span className="inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold bg-blue-50 text-blue-600 border-blue-300">
+                            En attente de devis
+                          </span>
+                        ) : quoteStatus === 'pending' ? (
+                          <span className="inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold bg-amber-50 text-amber-600 border-amber-300">
+                            Devis soumis
+                          </span>
+                        ) : quoteStatus === 'accepted' ? (
+                          <span className="inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold bg-green-50 text-green-600 border-green-300">
+                            Devis accepté
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold bg-red-50 text-red-600 border-red-300">
+                            Devis refusé
+                          </span>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-right">
                         <Button
-                          onClick={() => handleSubmitQuoteClick(request)}
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleViewDetails(request)}
+                          className="mr-2"
                         >
-                          <FileText className="h-4 w-4 mr-1" />
-                          Soumettre devis
+                          <Eye className="h-4 w-4 mr-1" />
+                          Détails
                         </Button>
-                      )}
-                      
-                      {/* Edit button for pending quotes that have been submitted */}
-                      {request.quoteSubmitted && request.quoteStatus === 'pending' && (
-                        <Button
-                          onClick={() => handleEditQuoteClick(request)}
-                          variant="outline"
-                        >
-                          <Edit className="h-4 w-4 mr-1" />
-                          Modifier
-                        </Button>
-                      )}
-                      
-                      {request.quoteSubmitted && request.quoteStatus === 'accepted' && (
-                        <Button
-                          variant="outline"
-                        >
-                          <Calendar className="h-4 w-4 mr-1" />
-                          Planifier
-                        </Button>
-                      )}
-                    </TableCell>
-                  </TableRow>
-                ))}
+                        
+                        {!hasQuote && (
+                          <Button
+                            onClick={() => handleSubmitQuoteClick(request)}
+                          >
+                            <FileText className="h-4 w-4 mr-1" />
+                            Soumettre devis
+                          </Button>
+                        )}
+                        
+                        {/* Edit button for pending quotes that have been submitted */}
+                        {hasQuote && quoteStatus === 'pending' && (
+                          <Button
+                            onClick={() => handleEditQuoteClick(request)}
+                            variant="outline"
+                          >
+                            <Edit className="h-4 w-4 mr-1" />
+                            Modifier
+                          </Button>
+                        )}
+                        
+                        {quoteStatus === 'accepted' && (
+                          <Button
+                            variant="outline"
+                            onClick={() => navigate('/technician/schedule')}
+                          >
+                            <Calendar className="h-4 w-4 mr-1" />
+                            Planifier
+                          </Button>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
               </TableBody>
             </Table>
           </CardContent>
@@ -482,76 +612,188 @@ const TechnicianQuoteRequests = () => {
                 </div>
               )}
               
-              {selectedRequest.quoteSubmitted && (
-                <div className="bg-brand-50 border border-brand-200 p-4 rounded-md">
-                  <div className="flex justify-between items-start">
-                    <p className="font-medium">Votre devis</p>
+              {(() => {
+                // Find the quote from the current technician
+                const technician = getCurrentTechnician();
+                if (!technician) return null;
+                
+                let technicianQuote = null;
+                if (selectedRequest.quotes && Array.isArray(selectedRequest.quotes)) {
+                  technicianQuote = selectedRequest.quotes.find(q => q.technicianId === technician.id);
+                  if (technicianQuote) {
+                    // Get actual quote status
+                    const actualStatus = technicianQuote.status || 'pending';
                     
-                    {/* Edit button inside the quote details section */}
-                    {selectedRequest.quoteStatus === 'pending' && (
-                      <Button 
-                        size="sm" 
-                        variant="outline" 
-                        onClick={() => {
-                          setDetailDialogOpen(false);
-                          handleEditQuoteClick(selectedRequest);
-                        }}
-                      >
-                        <Edit className="h-3 w-3 mr-1" />
-                        Modifier
-                      </Button>
-                    )}
-                  </div>
-                  
-                  <div className="grid grid-cols-2 gap-4 mt-2">
-                    <div>
-                      <p className="text-sm text-muted-foreground">Montant</p>
-                      <p className="font-bold">{selectedRequest.quoteAmount} €</p>
-                    </div>
-                    <div>
-                      <p className="text-sm text-muted-foreground">Statut</p>
-                      <div>
-                        {selectedRequest.quoteStatus === 'pending' ? (
-                          <span className="inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold bg-amber-50 text-amber-600 border-amber-300">
-                            En attente
-                          </span>
-                        ) : selectedRequest.quoteStatus === 'accepted' ? (
-                          <span className="inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold bg-green-50 text-green-600 border-green-300">
-                            Accepté
-                          </span>
-                        ) : (
-                          <span className="inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold bg-red-50 text-red-600 border-red-300">
-                            Refusé
-                          </span>
+                    return (
+                      <div className={`p-4 rounded-md border ${
+                        actualStatus === 'accepted' ? 'bg-green-50 border-green-200' : 
+                        actualStatus === 'rejected' ? 'bg-red-50 border-red-200' : 
+                        'bg-brand-50 border-brand-200'
+                      }`}>
+                        <div className="flex justify-between items-start">
+                          <p className="font-medium">Votre devis</p>
+                          
+                          {/* Edit button inside the quote details section - only for pending quotes */}
+                          {actualStatus === 'pending' && (
+                            <Button 
+                              size="sm" 
+                              variant="outline" 
+                              onClick={() => {
+                                setDetailDialogOpen(false);
+                                handleEditQuoteClick(selectedRequest);
+                              }}
+                            >
+                              <Edit className="h-3 w-3 mr-1" />
+                              Modifier
+                            </Button>
+                          )}
+                        </div>
+                        
+                        <div className="grid grid-cols-2 gap-4 mt-2">
+                          <div>
+                            <p className="text-sm text-muted-foreground">Montant</p>
+                            <p className="font-bold">{technicianQuote.amount} €</p>
+                          </div>
+                          <div>
+                            <p className="text-sm text-muted-foreground">Statut</p>
+                            <div>
+                              {actualStatus === 'pending' ? (
+                                <span className="inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold bg-amber-50 text-amber-600 border-amber-300">
+                                  En attente
+                                </span>
+                              ) : actualStatus === 'accepted' ? (
+                                <span className="inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold bg-green-50 text-green-600 border-green-300">
+                                  Accepté
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold bg-red-50 text-red-600 border-red-300">
+                                  Refusé
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                        
+                        {/* Display file link if exists */}
+                        {technicianQuote.url && (
+                          <div className="mt-2">
+                            <p className="text-sm text-muted-foreground">Document</p>
+                            <a 
+                              href={technicianQuote.url} 
+                              target="_blank" 
+                              rel="noreferrer" 
+                              className="text-sm text-brand-600 hover:text-brand-800 flex items-center mt-1"
+                            >
+                              <FileText className="h-3.5 w-3.5 mr-1" />
+                              Voir le document
+                            </a>
+                          </div>
+                        )}
+                        
+                        {technicianQuote.comments && (
+                          <div className="mt-2">
+                            <p className="text-sm text-muted-foreground">Commentaires</p>
+                            <p className="text-sm">{technicianQuote.comments}</p>
+                          </div>
                         )}
                       </div>
-                    </div>
-                  </div>
+                    );
+                  }
+                } 
+                
+                // Legacy format - create an artificial quote object if this technician is the assigned one
+                if (selectedRequest.technicianId === technician.id) {
+                  // Determine the real status based on the priority of fields
+                  let actualStatus;
+                  if (selectedRequest.quoteStatus) {
+                    actualStatus = selectedRequest.quoteStatus;
+                  } else if (selectedRequest.quoteAccepted === true) {
+                    actualStatus = 'accepted';
+                  } else if (selectedRequest.quoteAccepted === false) {
+                    actualStatus = 'rejected';
+                  } else {
+                    actualStatus = 'pending';
+                  }
                   
-                  {/* Display file link if exists */}
-                  {selectedRequest.quoteUrl && (
-                    <div className="mt-2">
-                      <p className="text-sm text-muted-foreground">Document</p>
-                      <a 
-                        href={selectedRequest.quoteUrl} 
-                        target="_blank" 
-                        rel="noreferrer" 
-                        className="text-sm text-brand-600 hover:text-brand-800 flex items-center mt-1"
-                      >
-                        <FileText className="h-3.5 w-3.5 mr-1" />
-                        Voir le document
-                      </a>
+                  return (
+                    <div className={`p-4 rounded-md border ${
+                      actualStatus === 'accepted' ? 'bg-green-50 border-green-200' : 
+                      actualStatus === 'rejected' ? 'bg-red-50 border-red-200' : 
+                      'bg-brand-50 border-brand-200'
+                    }`}>
+                      <div className="flex justify-between items-start">
+                        <p className="font-medium">Votre devis</p>
+                        
+                        {/* Edit button inside the quote details section - only for pending quotes */}
+                        {actualStatus === 'pending' && (
+                          <Button 
+                            size="sm" 
+                            variant="outline" 
+                            onClick={() => {
+                              setDetailDialogOpen(false);
+                              handleEditQuoteClick(selectedRequest);
+                            }}
+                          >
+                            <Edit className="h-3 w-3 mr-1" />
+                            Modifier
+                          </Button>
+                        )}
+                      </div>
+                      
+                      <div className="grid grid-cols-2 gap-4 mt-2">
+                        <div>
+                          <p className="text-sm text-muted-foreground">Montant</p>
+                          <p className="font-bold">{selectedRequest.quoteAmount} €</p>
+                        </div>
+                        <div>
+                          <p className="text-sm text-muted-foreground">Statut</p>
+                          <div>
+                            {actualStatus === 'pending' ? (
+                              <span className="inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold bg-amber-50 text-amber-600 border-amber-300">
+                                En attente
+                              </span>
+                            ) : actualStatus === 'accepted' ? (
+                              <span className="inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold bg-green-50 text-green-600 border-green-300">
+                                Accepté
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold bg-red-50 text-red-600 border-red-300">
+                                Refusé
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                      
+                      {/* Display file link if exists */}
+                      {selectedRequest.quoteUrl && (
+                        <div className="mt-2">
+                          <p className="text-sm text-muted-foreground">Document</p>
+                          <a 
+                            href={selectedRequest.quoteUrl} 
+                            target="_blank" 
+                            rel="noreferrer" 
+                            className="text-sm text-brand-600 hover:text-brand-800 flex items-center mt-1"
+                          >
+                            <FileText className="h-3.5 w-3.5 mr-1" />
+                            Voir le document
+                          </a>
+                        </div>
+                      )}
+                      
+                      {selectedRequest.quoteComments && (
+                        <div className="mt-2">
+                          <p className="text-sm text-muted-foreground">Commentaires</p>
+                          <p className="text-sm">{selectedRequest.quoteComments}</p>
+                        </div>
+                      )}
                     </div>
-                  )}
-                  
-                  {selectedRequest.quoteComments && (
-                    <div className="mt-2">
-                      <p className="text-sm text-muted-foreground">Commentaires</p>
-                      <p className="text-sm">{selectedRequest.quoteComments}</p>
-                    </div>
-                  )}
-                </div>
-              )}
+                  );
+                }
+                
+                // No quote from this technician
+                return null;
+              })()}
             </div>
           )}
           
@@ -560,7 +802,7 @@ const TechnicianQuoteRequests = () => {
               Fermer
             </Button>
             
-            {selectedRequest && !selectedRequest.quoteSubmitted && !selectedRequest.quoteRejected && (
+            {selectedRequest && !hasSubmittedQuote(selectedRequest) && (
               <Button onClick={() => {
                 setDetailDialogOpen(false);
                 handleSubmitQuoteClick(selectedRequest);

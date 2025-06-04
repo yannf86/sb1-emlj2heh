@@ -7,6 +7,8 @@ export const useMaintenanceList = (maintenanceRequests: Maintenance[]) => {
     filterHotel: 'all',
     filterStatus: 'all',
     filterType: 'all',
+    filterAssignedUser: 'all',
+    filterTechnician: 'all',
     filtersExpanded: false
   });
 
@@ -20,6 +22,26 @@ export const useMaintenanceList = (maintenanceRequests: Maintenance[]) => {
       
       // Filter by intervention type
       if (filters.filterType !== 'all' && request.interventionTypeId !== filters.filterType) return false;
+      
+      // Filter by assigned user
+      if (filters.filterAssignedUser === 'none' && request.assignedUserId) return false;
+      if (filters.filterAssignedUser !== 'all' && filters.filterAssignedUser !== 'none' && 
+          request.assignedUserId !== filters.filterAssignedUser) return false;
+      
+      // Filter by technician
+      if (filters.filterTechnician === 'none' && 
+          (request.technicianId || (request.technicianIds && request.technicianIds.length > 0))) {
+        return false;
+      }
+      
+      if (filters.filterTechnician !== 'all' && filters.filterTechnician !== 'none') {
+        // Check in both technicianId (legacy) and technicianIds array
+        const inTechnicianId = request.technicianId === filters.filterTechnician;
+        const inTechnicianIds = request.technicianIds && 
+                               request.technicianIds.includes(filters.filterTechnician);
+        
+        if (!inTechnicianId && !inTechnicianIds) return false;
+      }
       
       // Search query
       if (filters.searchQuery) {
@@ -39,6 +61,8 @@ export const useMaintenanceList = (maintenanceRequests: Maintenance[]) => {
       filterHotel: 'all',
       filterStatus: 'all',
       filterType: 'all',
+      filterAssignedUser: 'all',
+      filterTechnician: 'all',
       filtersExpanded: false
     });
   };

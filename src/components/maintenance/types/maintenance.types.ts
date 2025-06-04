@@ -11,6 +11,7 @@ export interface Maintenance {
   receivedById: string;
   technicianId?: string; // Pour rétrocompatibilité
   technicianIds?: string[]; // Nouveau: liste des techniciens
+  assignedUserId?: string; // NOUVEAU: utilisateur interne assigné
   statusId: string;
   estimatedAmount?: number;
   finalAmount?: number;
@@ -26,6 +27,7 @@ export interface Maintenance {
   quoteAcceptedById?: string;
   comments?: string;
   quotes?: MaintenanceQuote[]; // Nouveau: tableau de devis
+  emailsSent?: { [key: string]: boolean }; // NOUVEAU: suivi des emails envoyés
   createdAt: string;
   updatedAt: string;
   createdBy?: string;
@@ -65,6 +67,7 @@ export interface MaintenanceFormData {
   hotelId: string;
   locationId: string;
   interventionTypeId: string;
+  assignedUserId?: string; // NOUVEAU: utilisateur interne assigné
   photoBefore: File | null;
   photoBeforePreview: string;
   hasQuote: boolean;
@@ -78,6 +81,8 @@ export interface MaintenanceFilters {
   filterHotel: string;
   filterStatus: string;
   filterType: string;
+  filterAssignedUser: string; // NOUVEAU: filtre par utilisateur assigné
+  filterTechnician: string; // NOUVEAU: filtre par technicien
   filtersExpanded: boolean;
 }
 

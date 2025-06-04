@@ -2,9 +2,11 @@ import React, { useState, useEffect } from 'react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Search, SlidersHorizontal, RefreshCw } from 'lucide-react';
+import { Search, SlidersHorizontal, RefreshCw, User, Wrench } from 'lucide-react';
 import { parameters } from '@/lib/data';
 import { getHotels } from '@/lib/db/hotels';
+import { getUsers } from '@/lib/db/users';
+import { getTechnicians } from '@/lib/db/technicians';
 import { useToast } from '@/hooks/use-toast';
 import { getCurrentUser } from '@/lib/auth';
 
@@ -17,6 +19,10 @@ interface MaintenanceFiltersProps {
   onStatusChange: (value: string) => void;
   filterType: string;
   onTypeChange: (value: string) => void;
+  filterAssignedUser: string; // NOUVEAU: filtre par utilisateur assigné
+  onAssignedUserChange: (value: string) => void; // NOUVEAU: fonction pour changer l'utilisateur assigné
+  filterTechnician: string; // NOUVEAU: filtre par technicien
+  onTechnicianChange: (value: string) => void; // NOUVEAU: fonction pour changer le technicien
   filtersExpanded: boolean;
   onFiltersExpandedChange: (value: boolean) => void;
   onReset: () => void;
@@ -31,11 +37,17 @@ const MaintenanceFilters: React.FC<MaintenanceFiltersProps> = ({
   onStatusChange,
   filterType,
   onTypeChange,
+  filterAssignedUser,
+  onAssignedUserChange,
+  filterTechnician,
+  onTechnicianChange,
   filtersExpanded,
   onFiltersExpandedChange,
   onReset
 }) => {
   const [hotels, setHotels] = useState<any[]>([]);
+  const [users, setUsers] = useState<any[]>([]);
+  const [technicians, setTechnicians] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const { toast } = useToast();
   const currentUser = getCurrentUser();
@@ -43,14 +55,14 @@ const MaintenanceFilters: React.FC<MaintenanceFiltersProps> = ({
   const statusParams = parameters.filter(p => p.type === 'status');
   const interventionTypeParams = parameters.filter(p => p.type === 'intervention_type');
 
-  // Load hotels from Firebase
+  // Load hotels from Firestore
   useEffect(() => {
     const loadHotels = async () => {
       try {
         setLoading(true);
         const hotelsData = await getHotels();
         
-        // Filter hotels based on user permissions
+        // Filter hotels based on user's permissions
         if (currentUser?.role === 'admin') {
           setHotels(hotelsData);
         } else if (currentUser) {
@@ -58,8 +70,6 @@ const MaintenanceFilters: React.FC<MaintenanceFiltersProps> = ({
             currentUser.hotels.includes(hotel.id)
           );
           setHotels(filteredHotels);
-        } else {
-          setHotels([]);
         }
       } catch (error) {
         console.error('Error loading hotels:', error);
@@ -75,6 +85,34 @@ const MaintenanceFilters: React.FC<MaintenanceFiltersProps> = ({
     
     loadHotels();
   }, [toast, currentUser]);
+  
+  // Load users
+  useEffect(() => {
+    const loadUsers = async () => {
+      try {
+        const usersData = await getUsers();
+        setUsers(usersData);
+      } catch (error) {
+        console.error('Error loading users:', error);
+      }
+    };
+    
+    loadUsers();
+  }, []);
+
+  // Load technicians
+  useEffect(() => {
+    const loadTechnicians = async () => {
+      try {
+        const techniciansData = await getTechnicians();
+        setTechnicians(techniciansData);
+      } catch (error) {
+        console.error('Error loading technicians:', error);
+      }
+    };
+    
+    loadTechnicians();
+  }, []);
 
   return (
     <div className="flex flex-col space-y-2">
@@ -112,7 +150,7 @@ const MaintenanceFilters: React.FC<MaintenanceFiltersProps> = ({
       </div>
       
       {filtersExpanded && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 p-4 border rounded-md">
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2 p-4 border rounded-md">
           <div>
             <label className="text-sm font-medium mb-1 block">Statut</label>
             <Select value={filterStatus} onValueChange={onStatusChange}>
@@ -138,6 +176,46 @@ const MaintenanceFilters: React.FC<MaintenanceFiltersProps> = ({
                 <SelectItem value="all">Tous les types</SelectItem>
                 {interventionTypeParams.map(type => (
                   <SelectItem key={type.id} value={type.id}>{type.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          
+          <div>
+            <label className="text-sm font-medium mb-1 block flex items-center">
+              <User className="h-4 w-4 mr-1 text-muted-foreground" />
+              Assigné à
+            </label>
+            <Select value={filterAssignedUser} onValueChange={onAssignedUserChange}>
+              <SelectTrigger>
+                <SelectValue placeholder="Tous les utilisateurs" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Tous les utilisateurs</SelectItem>
+                <SelectItem value="none">Non assigné</SelectItem>
+                {users.map(user => (
+                  <SelectItem key={user.id} value={user.id}>{user.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          
+          <div>
+            <label className="text-sm font-medium mb-1 block flex items-center">
+              <Wrench className="h-4 w-4 mr-1 text-muted-foreground" />
+              Technicien
+            </label>
+            <Select value={filterTechnician} onValueChange={onTechnicianChange}>
+              <SelectTrigger>
+                <SelectValue placeholder="Tous les techniciens" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Tous les techniciens</SelectItem>
+                <SelectItem value="none">Non assigné</SelectItem>
+                {technicians.map(tech => (
+                  <SelectItem key={tech.id} value={tech.id}>
+                    {tech.name}{tech.company ? ` (${tech.company})` : ''}
+                  </SelectItem>
                 ))}
               </SelectContent>
             </Select>

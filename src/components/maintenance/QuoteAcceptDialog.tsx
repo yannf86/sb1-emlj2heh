@@ -135,6 +135,7 @@ const QuoteAcceptDialog: React.FC<QuoteAcceptDialogProps> = ({
             />
           </div>
           
+          {/* Alerts based on decision */}
           {decision === 'accepted' && (
             <Alert>
               <AlertTriangle className="h-4 w-4" />

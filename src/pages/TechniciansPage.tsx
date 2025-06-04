@@ -7,15 +7,16 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
-import { Search, UserPlus, PenTool as Tool, Building, Phone, Mail, FileText, Star, CheckCircle, XCircle, Edit, Trash2, RefreshCw, AlertCircle, Euro } from 'lucide-react';
+import { Search, UserPlus, PenTool as Tool, Building, Phone, Mail, FileText, Star, CheckCircle, XCircle, Edit, Trash2, RefreshCw, AlertCircle, Euro, Key, Lock, Eye, EyeOff } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { collection, addDoc, updateDoc, doc, getDoc, getDocs, deleteDoc, query, where, startAfter, limit, orderBy } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { getHotels } from '@/lib/db/hotels';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { CheckboxGroup } from './components/CheckboxGroup';
+import { registerTechnician, updateTechnicianPassword, checkEmailInUse } from '@/lib/technician-auth';
 
-const TECHNICIAN_SPECIALTIES = [
+export const TECHNICIAN_SPECIALTIES = [
   { id: 'spec1', name: 'Plomberie' },
   { id: 'spec2', name: 'Électricité' },
   { id: 'spec3', name: 'Climatisation/Chauffage' },
@@ -39,6 +40,7 @@ interface TechnicianData {
   hotels: string[];
   available: boolean;
   active: boolean;
+  password?: string; // Champ pour mot de passe
   rating?: number;
   completedJobs?: number;
   createdAt?: string;
@@ -50,6 +52,7 @@ const TechniciansPage = () => {
   const [newTechnicianDialogOpen, setNewTechnicianDialogOpen] = useState(false);
   const [editTechnicianDialogOpen, setEditTechnicianDialogOpen] = useState(false);
   const [deleteTechnicianDialogOpen, setDeleteTechnicianDialogOpen] = useState(false);
+  const [passwordDialogOpen, setPasswordDialogOpen] = useState(false); // Dialogue pour mot de passe
   const [selectedTechnician, setSelectedTechnician] = useState<TechnicianData | null>(null);
   const [selectedHotels, setSelectedHotels] = useState<string[]>([]);
   const [selectedSpecialties, setSelectedSpecialties] = useState<string[]>([]);
@@ -76,6 +79,13 @@ const TechniciansPage = () => {
     available: true,
     active: true
   });
+
+  // Password state
+  const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [emailInUse, setEmailInUse] = useState(false);
+  const [checkingEmail, setCheckingEmail] = useState(false);
 
   // Load technicians and hotels on mount
   useEffect(() => {
@@ -191,6 +201,9 @@ const TechniciansPage = () => {
       });
       setSelectedHotels([]);
       setSelectedSpecialties([]);
+      setPassword('');
+      setConfirmPassword('');
+      setEmailInUse(false);
     }
   }, [newTechnicianDialogOpen]);
 
@@ -202,8 +215,19 @@ const TechniciansPage = () => {
       });
       setSelectedHotels(selectedTechnician.hotels || []);
       setSelectedSpecialties(selectedTechnician.specialties || []);
+      setPassword('');
+      setConfirmPassword('');
     }
   }, [editTechnicianDialogOpen, selectedTechnician]);
+
+  // Initialize password dialog
+  useEffect(() => {
+    if (passwordDialogOpen) {
+      setPassword('');
+      setConfirmPassword('');
+      setShowPassword(false);
+    }
+  }, [passwordDialogOpen]);
 
   // Filter technicians based on search query
   const filteredTechnicians = technicians.filter(technician => {
@@ -230,10 +254,25 @@ const TechniciansPage = () => {
     setDeleteTechnicianDialogOpen(true);
   };
 
+  // Open password dialog for a technician
+  const handleManagePassword = (technician: TechnicianData) => {
+    setSelectedTechnician(technician);
+    setPasswordDialogOpen(true);
+  };
+
   // Handle form input changes
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
     setFormData(prev => ({ ...prev, [name]: value }));
+    
+    // Check email in real-time
+    if (name === 'email' && value) {
+      setCheckingEmail(true);
+      checkEmailInUse(value).then(inUse => {
+        setEmailInUse(inUse);
+        setCheckingEmail(false);
+      });
+    }
   };
 
   // Handle form boolean changes
@@ -258,6 +297,34 @@ const TechniciansPage = () => {
     if (selectedSpecialties.length === 0) {
       return { valid: false, message: "Au moins une spécialité doit être sélectionnée" };
     }
+    
+    // Validation du mot de passe pour les nouveaux techniciens
+    if (!selectedTechnician && (!password || password.length < 6)) {
+      return { valid: false, message: "Le mot de passe doit contenir au moins 6 caractères" };
+    }
+    
+    if (!selectedTechnician && password !== confirmPassword) {
+      return { valid: false, message: "Les mots de passe ne correspondent pas" };
+    }
+    
+    if (emailInUse && !selectedTechnician) {
+      return { valid: false, message: "Cet email est déjà utilisé. Veuillez en choisir un autre." };
+    }
+    
+    return { valid: true, message: "" };
+  };
+  
+  // Validate password
+  const validatePassword = () => {
+    if (!password) {
+      return { valid: false, message: "Le mot de passe est requis" };
+    }
+    if (password.length < 6) {
+      return { valid: false, message: "Le mot de passe doit contenir au moins 6 caractères" };
+    }
+    if (password !== confirmPassword) {
+      return { valid: false, message: "Les mots de passe ne correspondent pas" };
+    }
     return { valid: true, message: "" };
   };
 
@@ -277,18 +344,21 @@ const TechniciansPage = () => {
       setSaving(true);
       setError(null);
 
-      // Create technician in Firestore
+      // Create technician in Firestore with registerTechnician
+      // This will handle authentication and create the record
       const technicianData = {
         ...formData,
         specialties: selectedSpecialties,
         hotels: selectedHotels,
         rating: 0,
-        completedJobs: 0,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString()
+        completedJobs: 0
       };
       
-      const docRef = await addDoc(collection(db, 'technicians'), technicianData);
+      const result = await registerTechnician(formData.email, password, technicianData);
+      
+      if (!result.success) {
+        throw new Error(result.message);
+      }
       
       toast({
         title: "Technicien créé",
@@ -309,6 +379,8 @@ const TechniciansPage = () => {
       });
       setSelectedHotels([]);
       setSelectedSpecialties([]);
+      setPassword('');
+      setConfirmPassword('');
       setNewTechnicianDialogOpen(false);
 
       // Reload technicians
@@ -348,8 +420,12 @@ const TechniciansPage = () => {
 
       // Update technician in Firestore
       const technicianRef = doc(db, 'technicians', selectedTechnician.id);
+      
+      // Don't include password in update
+      const { password, ...dataToUpdate } = formData;
+      
       await updateDoc(technicianRef, {
-        ...formData,
+        ...dataToUpdate,
         specialties: selectedSpecialties,
         hotels: selectedHotels,
         updatedAt: new Date().toISOString()
@@ -374,6 +450,8 @@ const TechniciansPage = () => {
       });
       setSelectedHotels([]);
       setSelectedSpecialties([]);
+      setPassword('');
+      setConfirmPassword('');
       setEditTechnicianDialogOpen(false);
 
       // Reload technicians
@@ -384,6 +462,55 @@ const TechniciansPage = () => {
       toast({
         title: "Erreur",
         description: "Une erreur est survenue lors de la modification du technicien",
+        variant: "destructive",
+      });
+    } finally {
+      setSaving(false);
+    }
+  };
+  
+  // Handle password update
+  const handleUpdatePassword = async () => {
+    const validation = validatePassword();
+    if (!validation.valid) {
+      toast({
+        title: "Erreur de validation",
+        description: validation.message,
+        variant: "destructive",
+      });
+      return;
+    }
+    
+    try {
+      setSaving(true);
+      setError(null);
+      
+      if (!selectedTechnician?.id) {
+        throw new Error("ID du technicien manquant");
+      }
+      
+      // Update password using the dedicated function
+      const result = await updateTechnicianPassword(selectedTechnician.id, password);
+      
+      if (!result.success) {
+        throw new Error(result.message);
+      }
+      
+      toast({
+        title: "Email de réinitialisation envoyé",
+        description: "Un email de réinitialisation de mot de passe a été envoyé au technicien",
+      });
+      
+      setPasswordDialogOpen(false);
+      setPassword('');
+      setConfirmPassword('');
+      
+    } catch (error: any) {
+      console.error('Error updating password:', error);
+      setError(`Erreur lors de la mise à jour du mot de passe: ${error.message}`);
+      toast({
+        title: "Erreur",
+        description: "Une erreur est survenue lors de la modification du mot de passe",
         variant: "destructive",
       });
     } finally {
@@ -438,6 +565,12 @@ const TechniciansPage = () => {
     loadData();
   };
 
+  // Helper function to get specialty name from ID
+  const getSpecialtyName = (specialtyId: string): string => {
+    const specialty = TECHNICIAN_SPECIALTIES.find(s => s.id === specialtyId);
+    return specialty ? specialty.name : specialtyId;
+  };
+
   // Render technician form content (common for create and edit)
   const renderTechnicianForm = () => (
     <div className="grid gap-4 py-4">
@@ -474,14 +607,28 @@ const TechniciansPage = () => {
           <Label htmlFor="email" className="after:content-['*'] after:ml-0.5 after:text-red-500">
             Email
           </Label>
-          <Input
-            id="email"
-            name="email"
-            type="email"
-            value={formData.email}
-            onChange={handleInputChange}
-            placeholder="john.doe@example.com"
-          />
+          <div>
+            <Input
+              id="email"
+              name="email"
+              type="email"
+              value={formData.email}
+              onChange={handleInputChange}
+              placeholder="john.doe@example.com"
+              disabled={!!selectedTechnician}
+              className={emailInUse ? "border-red-500" : ""}
+            />
+            {emailInUse && !selectedTechnician && (
+              <p className="text-red-500 text-xs mt-1">
+                Cet email est déjà utilisé par un autre compte
+              </p>
+            )}
+            {checkingEmail && (
+              <p className="text-slate-500 text-xs mt-1">
+                Vérification de l'email...
+              </p>
+            )}
+          </div>
         </div>
         
         <div className="space-y-2">
@@ -498,6 +645,50 @@ const TechniciansPage = () => {
         </div>
       </div>
 
+      {/* Mot de passe - seulement pour les nouveaux techniciens */}
+      {!selectedTechnician && (
+        <div className="grid grid-cols-2 gap-4">
+          <div className="space-y-2">
+            <Label htmlFor="password" className="after:content-['*'] after:ml-0.5 after:text-red-500">
+              Mot de passe
+            </Label>
+            <div className="relative">
+              <Input
+                id="password"
+                name="password"
+                type={showPassword ? "text" : "password"}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="••••••••"
+              />
+              <Button 
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="absolute right-0 top-0 h-10"
+                onClick={() => setShowPassword(!showPassword)}
+              >
+                {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+              </Button>
+            </div>
+          </div>
+          
+          <div className="space-y-2">
+            <Label htmlFor="confirmPassword" className="after:content-['*'] after:ml-0.5 after:text-red-500">
+              Confirmer le mot de passe
+            </Label>
+            <Input
+              id="confirmPassword"
+              name="confirmPassword"
+              type="password"
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+              placeholder="••••••••"
+            />
+          </div>
+        </div>
+      )}
+
       <div className="space-y-2">
         <Label htmlFor="hourlyRate">
           Taux horaire (€)
@@ -506,6 +697,7 @@ const TechniciansPage = () => {
           id="hourlyRate"
           name="hourlyRate"
           type="number"
+          step="0.01"
           value={formData.hourlyRate}
           onChange={handleInputChange}
           placeholder="45.00"
@@ -680,7 +872,7 @@ const TechniciansPage = () => {
                     <TableCell>
                       <div className="flex flex-wrap gap-1">
                         {technician.specialties?.slice(0, 3).map(specialty => {
-                          const specialtyName = TECHNICIAN_SPECIALTIES.find(s => s.id === specialty)?.name || specialty;
+                          const specialtyName = getSpecialtyName(specialty);
                           return (
                             <span 
                               key={specialty}
@@ -729,6 +921,16 @@ const TechniciansPage = () => {
                       )}
                     </TableCell>
                     <TableCell className="text-right space-x-1">
+                      <Button 
+                        variant="ghost" 
+                        size="sm"
+                        onClick={() => handleManagePassword(technician)}
+                        disabled={saving}
+                      >
+                        <Key className="h-4 w-4 mr-2" />
+                        Mot de passe
+                      </Button>
+                    
                       <Button 
                         variant="ghost" 
                         size="sm"
@@ -789,6 +991,8 @@ const TechniciansPage = () => {
             });
             setSelectedHotels([]);
             setSelectedSpecialties([]);
+            setPassword('');
+            setConfirmPassword('');
           }
         }}
       >
@@ -814,7 +1018,7 @@ const TechniciansPage = () => {
             </Button>
             <Button 
               onClick={handleCreateTechnician}
-              disabled={saving}
+              disabled={saving || emailInUse || checkingEmail}
             >
               {saving ? 'Création...' : 'Créer le technicien'}
             </Button>
@@ -858,6 +1062,64 @@ const TechniciansPage = () => {
               disabled={saving}
             >
               {saving ? 'Enregistrement...' : 'Enregistrer les modifications'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      
+      {/* Password Dialog */}
+      <Dialog
+        open={passwordDialogOpen}
+        onOpenChange={(open) => {
+          setPasswordDialogOpen(open);
+          if (!open) {
+            setSelectedTechnician(null);
+            setPassword('');
+            setConfirmPassword('');
+          }
+        }}
+      >
+        <DialogContent className="sm:max-w-[500px]">
+          <DialogHeader>
+            <DialogTitle>Gérer le mot de passe</DialogTitle>
+            <DialogDescription>
+              Envoyez un email de réinitialisation de mot de passe au technicien.
+            </DialogDescription>
+          </DialogHeader>
+          
+          {selectedTechnician && (
+            <div className="space-y-4 py-4">
+              <div className="flex items-center mb-4">
+                <Lock className="h-5 w-5 mr-2 text-brand-500" />
+                <div>
+                  <h3 className="font-medium">{selectedTechnician.name}</h3>
+                  <p className="text-sm text-muted-foreground">{selectedTechnician.email}</p>
+                </div>
+              </div>
+              
+              <Alert>
+                <AlertCircle className="h-4 w-4" />
+                <AlertDescription>
+                  En cliquant sur le bouton "Envoyer l'email de réinitialisation", un email sera envoyé au technicien 
+                  lui permettant de définir ou modifier son mot de passe.
+                </AlertDescription>
+              </Alert>
+            </div>
+          )}
+          
+          <DialogFooter>
+            <Button 
+              variant="outline" 
+              onClick={() => setPasswordDialogOpen(false)}
+              disabled={saving}
+            >
+              Annuler
+            </Button>
+            <Button 
+              onClick={handleUpdatePassword}
+              disabled={saving}
+            >
+              {saving ? 'Envoi en cours...' : 'Envoyer l\'email de réinitialisation'}
             </Button>
           </DialogFooter>
         </DialogContent>

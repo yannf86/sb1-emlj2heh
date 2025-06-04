@@ -1,39 +1,31 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Building as BuildingIcon, Lock, Mail, Wrench, AlertTriangle } from 'lucide-react';
+import { Building as BuildingIcon, Lock, Mail, Wrench, AlertTriangle, Eye, EyeOff } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { useToast } from '@/hooks/use-toast';
-import { loginTechnician } from '@/lib/technician-auth';
+import { loginTechnician, isTechnicianLoggedIn } from '@/lib/technician-auth';
 
 const TechnicianLoginPage = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [showPassword, setShowPassword] = useState(false);
   const navigate = useNavigate();
   const { toast } = useToast();
   
   // Check if already logged in
   useEffect(() => {
-    const techAuth = localStorage.getItem('technicianAuth');
-    if (techAuth) {
-      try {
-        const auth = JSON.parse(techAuth);
-        const now = new Date();
-        // If session is still valid, redirect to dashboard
-        if (auth.expires && new Date(auth.expires) > now) {
-          navigate('/technician-dashboard');
-        } else {
-          // Clear expired session
-          localStorage.removeItem('technicianAuth');
-        }
-      } catch (e) {
-        localStorage.removeItem('technicianAuth');
+    const checkAuth = async () => {
+      if (isTechnicianLoggedIn()) {
+        navigate('/technician/dashboard');
       }
-    }
+    };
+    
+    checkAuth();
   }, [navigate]);
   
   // Handle login form submission
@@ -64,7 +56,7 @@ const TechnicianLoginPage = () => {
           title: "Connexion réussie",
           description: `Bienvenue, ${result.technician.name}`,
         });
-        navigate('/technician-dashboard');
+        navigate('/technician/dashboard');
       } else {
         setErrorMessage(result.message || "Identifiants incorrects");
       }
@@ -91,7 +83,7 @@ const TechnicianLoginPage = () => {
         <form onSubmit={handleSubmit}>
           <CardContent className="space-y-4">
             {errorMessage && (
-              <Alert variant="destructive" className="mb-4">
+              <Alert variant="destructive\" className="mb-4">
                 <AlertTriangle className="h-4 w-4" />
                 <AlertDescription>{errorMessage}</AlertDescription>
               </Alert>
@@ -117,15 +109,26 @@ const TechnicianLoginPage = () => {
                 <Lock className="h-4 w-4 text-muted-foreground mr-2" />
                 <label htmlFor="password" className="text-sm font-medium after:content-['*'] after:ml-0.5 after:text-red-500">Mot de passe</label>
               </div>
-              <Input
-                id="password"
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="••••••••"
-                className="w-full"
-                required
-              />
+              <div className="relative">
+                <Input
+                  id="password"
+                  type={showPassword ? "text" : "password"}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="••••••••"
+                  className="w-full"
+                  required
+                />
+                <Button 
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="absolute right-0 top-0 h-10"
+                  onClick={() => setShowPassword(!showPassword)}
+                >
+                  {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </Button>
+              </div>
             </div>
           </CardContent>
           <CardFooter className="flex flex-col space-y-4">
@@ -138,7 +141,7 @@ const TechnicianLoginPage = () => {
             </Button>
             <div className="mt-4 text-center">
               <p className="text-sm text-muted-foreground">
-                Portal réservé aux techniciens. Pour créer un compte technicien, veuillez contacter un administrateur.
+                Portail réservé aux techniciens. Pour créer un compte technicien, veuillez contacter un administrateur.
               </p>
             </div>
           </CardFooter>

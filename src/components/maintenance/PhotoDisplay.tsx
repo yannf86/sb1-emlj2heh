@@ -24,6 +24,12 @@ const PhotoDisplay: React.FC<PhotoDisplayProps> = ({
           src={photoUrl} 
           alt={type === 'before' ? `${altText} avant` : `${altText} après`}
           className="w-full h-full object-contain"
+          loading="lazy"
+          onError={(e) => {
+            console.error(`Error loading image: ${photoUrl}`);
+            e.currentTarget.src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjQiIGhlaWdodD0iMjQiIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMjQiIGhlaWdodD0iMjQiIGZpbGw9IiNmMWYxZjEiLz48cGF0aCBkPSJNMTIgMTJDMTQuMjA5MSAxMiAxNiAxMC4yMDkxIDE2IDhDMTYgNS43OTA4NiAxNC4yMDkxIDQgMTIgNEM5Ljc5MDg2IDQgOCA1Ljc5MDg2IDggOEM4IDEwLjIwOTEgOS43OTA4NiAxMiAxMiAxMloiIGZpbGw9IiNjMmMyYzIiLz48cGF0aCBkPSJNNSAxOUM1IDE1LjEzNCA4LjEzNDAxIDEyIDEyIDEyQzE1Ljg2NiAxMiAxOSAxNS4xMzQgMTkgMTlDMTkgMTkuNTUyMyAxOC41NTIzIDIwIDE4IDIwSDZDNS40NDc3MiAyMCA1IDE5LjU1MjMgNSAxOVoiIGZpbGw9IiNjMmMyYzIiLz48L3N2Zz4=';
+            e.currentTarget.classList.add('error-image');
+          }}
         />
       </div>
       
