@@ -155,7 +155,9 @@ export const createMaintenanceRequest = async (data: Omit<Maintenance, 'id' | 'c
       }],
       // Initialize emailsSent to track notifications
       emailsSent: {},
-      hasQuote: !!hasQuote
+      hasQuote: !!hasQuote,
+      // CORRECTION: Marquer explicitement comme non soumis par défaut
+      quoteSubmitted: false
     };
     
     // Upload photoBefore to Supabase if present
@@ -212,6 +214,8 @@ export const createMaintenanceRequest = async (data: Omit<Maintenance, 'id' | 'c
         console.log('Uploading quote file to Supabase');
         const quoteUrl = await uploadToSupabase(quoteFile, 'devis');
         payload.quoteUrl = quoteUrl;
+        // MODIFICATION: Ne marquer comme soumis que si un fichier de devis est fourni
+        payload.quoteSubmitted = true;
       } catch (error) {
         console.error('Error uploading quote file to Supabase:', error);
         throw new Error(`Failed to upload quote file: ${error instanceof Error ? error.message : String(error)}`);
@@ -228,10 +232,8 @@ export const createMaintenanceRequest = async (data: Omit<Maintenance, 'id' | 'c
       payload.technicianIds.push(payload.technicianId);
     }
     
-    // If we have hasQuote but not quoteStatus, set default quoteStatus to pending
-    if (hasQuote && !payload.quoteStatus) {
-      payload.quoteStatus = 'pending';
-    }
+    // CORRECTION: Ne pas définir quoteStatus par défaut pour une nouvelle demande
+    // Supprimer les lignes qui définissent quoteStatus = 'pending'
     
     // Create maintenance request in Firestore
     console.log("Creating maintenance request with payload", payload);
@@ -482,6 +484,12 @@ export const updateMaintenanceRequest = async (id: string, data: Partial<Mainten
         
         payload.quoteUrl = quoteUrl;
         changes['quoteUrl'] = { old: oldData.quoteUrl || null, new: 'Updated' };
+        
+        // MODIFICATION: Ne marquer comme soumis que si un fichier de devis est uploadé
+        if (!oldData.quoteSubmitted) {
+          payload.quoteSubmitted = true;
+          changes['quoteSubmitted'] = { old: oldData.quoteSubmitted || false, new: true };
+        }
       } catch (error) {
         console.error('Error uploading quote file to Supabase during update:', error);
         throw new Error(`Failed to upload quote file: ${error instanceof Error ? error.message : String(error)}`);
@@ -498,11 +506,13 @@ export const updateMaintenanceRequest = async (id: string, data: Partial<Mainten
       payload.quoteUrl = null;
       payload.quoteAmount = null;
       payload.quoteStatus = null;
+      payload.quoteSubmitted = false;  // CORRECTION: Mettre aussi quoteSubmitted à false
       
       // Track these changes
       if (oldData.quoteUrl) changes['quoteUrl'] = { old: oldData.quoteUrl, new: null };
       if (oldData.quoteAmount) changes['quoteAmount'] = { old: oldData.quoteAmount, new: null };
       if (oldData.quoteStatus) changes['quoteStatus'] = { old: oldData.quoteStatus, new: null };
+      if (oldData.quoteSubmitted) changes['quoteSubmitted'] = { old: oldData.quoteSubmitted, new: false };
     }
     
     // Handle compatibility with old quoteAccepted boolean field

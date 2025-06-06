@@ -6,7 +6,7 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { FileUp, Loader2, X } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
-import { uploadToSupabase, deleteFromSupabase } from '@/lib/supabase';
+import { uploadToSupabase, deleteFromSupabase } from '../../lib/supabase';
 import { Maintenance } from './types/maintenance.types';
 import { getTechniciansByHotel } from '@/lib/db/technicians';
 

@@ -5,7 +5,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
-import { Image, X, FileUp, Loader2, User } from 'lucide-react';
+import { Image, X, FileUp, Loader2, User, ChevronDown, ChevronRight, Plus } from 'lucide-react';
 import { Maintenance, MaintenanceFormData } from './types/maintenance.types';
 import { getHotels } from '@/lib/db/hotels';
 import { getHotelLocations } from '@/lib/db/parameters-locations';
@@ -18,9 +18,9 @@ import { useToast } from '@/hooks/use-toast';
 import { findStatusIdByCode } from '@/lib/db/parameters-status';
 import { deleteFromSupabase } from '@/lib/supabase';
 import { getTechniciansByHotel } from '@/lib/db/technicians';
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import QuoteFileDisplay from './QuoteFileDisplay';
 import PhotoDisplay from './PhotoDisplay';
-import { CheckboxGroup } from '@/pages/components/CheckboxGroup';
 
 interface MaintenanceFormProps {
   isOpen: boolean;
@@ -28,6 +28,14 @@ interface MaintenanceFormProps {
   onSubmit: (formData: any) => void;
   isEditing?: boolean;
   maintenance?: Maintenance;
+}
+
+interface QuoteRequestData {
+  technicianId: string | null;
+  quoteFile: File | null;
+  quoteAmount: string;
+  quoteComments?: string;
+  expanded: boolean;
 }
 
 const MaintenanceForm: React.FC<MaintenanceFormProps> = ({
@@ -46,8 +54,7 @@ const MaintenanceForm: React.FC<MaintenanceFormProps> = ({
       return {
         ...maintenance,
         photoBeforePreview: maintenance.photoBefore || '',
-        photoAfterPreview: maintenance.photoAfter || '',
-        quoteFile: null
+        photoAfterPreview: maintenance.photoAfter || ''
       };
     } else {
       return {
@@ -59,7 +66,7 @@ const MaintenanceForm: React.FC<MaintenanceFormProps> = ({
         description: '',
         statusId: '',
         receivedById: currentUser?.id || '',
-        assignedUserId: '', // NOUVEAU: utilisateur interne assigné
+        assignedUserId: '',
         technicianIds: [],
         estimatedAmount: '',
         finalAmount: '',
@@ -71,13 +78,23 @@ const MaintenanceForm: React.FC<MaintenanceFormProps> = ({
     }
   });
   
+  // Gestion des demandes de devis multiples
+  const [quoteRequests, setQuoteRequests] = useState<QuoteRequestData[]>([
+    { technicianId: null, quoteFile: null, quoteAmount: '', expanded: false, quoteComments: '' },
+    { technicianId: null, quoteFile: null, quoteAmount: '', expanded: false, quoteComments: '' },
+    { technicianId: null, quoteFile: null, quoteAmount: '', expanded: false, quoteComments: '' }
+  ]);
+  
+  // Gestion de l'affichage des sections de devis
+  const [showQuoteRequest, setShowQuoteRequest] = useState(false);
+  const [activeQuoteCount, setActiveQuoteCount] = useState(0);
+  
   const [hotels, setHotels] = useState<any[]>([]);
   const [locations, setLocations] = useState<any[]>([]);
   const [interventionTypes, setInterventionTypes] = useState<any[]>([]);
   const [statusParams, setStatusParams] = useState<any[]>([]);
   const [technicians, setTechnicians] = useState<any[]>([]);
   const [internalUsers, setInternalUsers] = useState<any[]>([]);
-  const [selectedTechnicians, setSelectedTechnicians] = useState<string[]>(formData.technicianIds || []);
   const [loading, setLoading] = useState(true);
   const [loadingLocations, setLoadingLocations] = useState(false);
   const [loadingTechnicians, setLoadingTechnicians] = useState(false);
@@ -105,6 +122,50 @@ const MaintenanceForm: React.FC<MaintenanceFormProps> = ({
       }));
     }
   }, [formData.quoteStatus, formData.quoteAccepted, formData.quoteUrl]);
+  
+  // Initialiser les demandes de devis à partir des données existantes
+  useEffect(() => {
+    if (isEditing && maintenance) {
+      if (maintenance.quotes && maintenance.quotes.length > 0) {
+        const updatedQuoteRequests = [...quoteRequests];
+        
+        // Remplir avec les données des devis existants
+        maintenance.quotes.forEach((quote, index) => {
+          if (index < updatedQuoteRequests.length) {
+            updatedQuoteRequests[index] = {
+              technicianId: quote.technicianId || null,
+              quoteFile: null,
+              quoteAmount: quote.amount?.toString() || '',
+              quoteComments: quote.comments || '',
+              expanded: true
+            };
+          }
+        });
+        
+        setQuoteRequests(updatedQuoteRequests);
+        setShowQuoteRequest(true);
+        setActiveQuoteCount(Math.min(maintenance.quotes.length, 3));
+      } else if (maintenance.technicianIds && maintenance.technicianIds.length > 0) {
+        // Ancienne structure avec technicianIds
+        const updatedQuoteRequests = [...quoteRequests];
+        
+        // Mettre à jour les demandes de devis avec les technicienIds existants
+        maintenance.technicianIds.forEach((techId, index) => {
+          if (index < updatedQuoteRequests.length) {
+            updatedQuoteRequests[index] = {
+              ...updatedQuoteRequests[index],
+              technicianId: techId,
+              expanded: true
+            };
+          }
+        });
+        
+        setQuoteRequests(updatedQuoteRequests);
+        setShowQuoteRequest(true);
+        setActiveQuoteCount(Math.min(maintenance.technicianIds.length, 3));
+      }
+    }
+  }, [isEditing, maintenance]);
 
   // Load data on mount
   useEffect(() => {
@@ -188,14 +249,6 @@ const MaintenanceForm: React.FC<MaintenanceFormProps> = ({
       setLoadingTechnicians(true);
       const technicianData = await getTechniciansByHotel(hotelId);
       setTechnicians(technicianData);
-      
-      // Initialize selected technicians from existing data
-      if (isEditing && maintenance && maintenance.technicianIds) {
-        setSelectedTechnicians(maintenance.technicianIds);
-      } else if (isEditing && maintenance && maintenance.technicianId) {
-        // Support legacy data with single technicianId
-        setSelectedTechnicians([maintenance.technicianId]);
-      }
     } catch (error) {
       console.error('Error loading technicians:', error);
       toast({
@@ -258,7 +311,12 @@ const MaintenanceForm: React.FC<MaintenanceFormProps> = ({
         locationId: '',
         technicianIds: []
       }));
-      setSelectedTechnicians([]);
+      setQuoteRequests([
+        { technicianId: null, quoteFile: null, quoteAmount: '', expanded: false, quoteComments: '' },
+        { technicianId: null, quoteFile: null, quoteAmount: '', expanded: false, quoteComments: '' },
+        { technicianId: null, quoteFile: null, quoteAmount: '', expanded: false, quoteComments: '' }
+      ]);
+      setActiveQuoteCount(0);
     } else {
       setFormData(prev => ({
         ...prev,
@@ -275,17 +333,30 @@ const MaintenanceForm: React.FC<MaintenanceFormProps> = ({
     }));
   };
 
-  // Handle technician selection changes
-  const handleTechniciansChange = (selectedIds: string[]) => {
-    setSelectedTechnicians(selectedIds);
-    setFormData(prev => ({
-      ...prev,
-      technicianIds: selectedIds
-    }));
+  // Handle quote request changes
+  const handleQuoteRequestChange = (index: number, field: keyof QuoteRequestData, value: any) => {
+    const updatedQuoteRequests = [...quoteRequests];
+    updatedQuoteRequests[index] = {
+      ...updatedQuoteRequests[index],
+      [field]: value
+    };
+    setQuoteRequests(updatedQuoteRequests);
+  };
+  
+  // Ajouter une demande de devis
+  const addQuoteRequest = () => {
+    if (activeQuoteCount < 3) {
+      setActiveQuoteCount(prev => prev + 1);
+      
+      // Expand the newly added quote request
+      const updatedQuoteRequests = [...quoteRequests];
+      updatedQuoteRequests[activeQuoteCount].expanded = true;
+      setQuoteRequests(updatedQuoteRequests);
+    }
   };
 
   // Handle file uploads
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>, fileType: 'photoBefore' | 'photoAfter' | 'quoteFile') => {
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>, fileType: 'photoBefore' | 'photoAfter' | 'quoteFile', quoteIndex?: number) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
@@ -338,12 +409,12 @@ const MaintenanceForm: React.FC<MaintenanceFormProps> = ({
           });
         };
         reader.readAsDataURL(file);
-      } else if (fileType === 'quoteFile') {
+      } else if (fileType === 'quoteFile' && typeof quoteIndex === 'number') {
         // Validate file size (5MB max for documents)
         if (file.size > 5 * 1024 * 1024) {
           toast({
             title: "Fichier trop volumineux",
-            description: "La taille du fichier ne doit pas dépasser 5MB",
+            description: "La taille maximum autorisée est de 5MB",
             variant: "destructive",
           });
           return;
@@ -360,10 +431,8 @@ const MaintenanceForm: React.FC<MaintenanceFormProps> = ({
           return;
         }
         
-        setFormData(prev => ({
-          ...prev,
-          quoteFile: file
-        }));
+        // Update the specific quote request
+        handleQuoteRequestChange(quoteIndex, 'quoteFile', file);
       }
     } catch (error) {
       if (fileType === 'photoBefore') setPhotoBeforeUploading(false);
@@ -455,43 +524,11 @@ const MaintenanceForm: React.FC<MaintenanceFormProps> = ({
     }
   };
 
-  // Handle delete quote file
-  const handleDeleteQuoteFile = async () => {
-    try {
-      // If we have an existing quote URL, delete it from Supabase
-      if (maintenance?.quoteUrl) {
-        console.log('🗑️ Deleting quote file from Supabase:', maintenance.quoteUrl);
-        const success = await deleteFromSupabase(maintenance.quoteUrl);
-        if (success) {
-          console.log('✅ Quote file deleted successfully from Supabase');
-          toast({
-            title: "Devis supprimé",
-            description: "Le fichier de devis a été supprimé avec succès",
-          });
-        } else {
-          console.error('❌ Failed to delete quote file from Supabase');
-          toast({
-            title: "Avertissement",
-            description: "Le devis a été retiré du formulaire mais peut-être pas du stockage",
-            variant: "destructive",
-          });
-        }
-      }
-      
-      // Update form data
-      setFormData(prev => ({
-        ...prev,
-        quoteUrl: '',
-        quoteFile: null
-      }));
-    } catch (error) {
-      console.error('Error deleting quote file:', error);
-      toast({
-        title: "Erreur",
-        description: "Une erreur est survenue lors de la suppression du fichier de devis",
-        variant: "destructive",
-      });
-    }
+  // Remove a technician quote file
+  const handleRemoveQuoteFile = (index: number) => {
+    const updatedQuoteRequests = [...quoteRequests];
+    updatedQuoteRequests[index].quoteFile = null;
+    setQuoteRequests(updatedQuoteRequests);
   };
 
   // Filter hotels based on user role
@@ -521,8 +558,24 @@ const MaintenanceForm: React.FC<MaintenanceFormProps> = ({
       }
     }
     
-    // Validation pour les techniciens sélectionnés si hasQuote est activé
-    if (formData.hasQuote && (!selectedTechnicians || selectedTechnicians.length === 0)) {
+    // Validate active quote requests
+    const activeTechnicianIds: string[] = [];
+    for (let i = 0; i < activeQuoteCount; i++) {
+      const quoteRequest = quoteRequests[i];
+      if (!quoteRequest.technicianId) {
+        return { valid: false, message: `Veuillez sélectionner un technicien pour la demande de devis ${i+1}` };
+      }
+      
+      // Check for duplicate technicians
+      if (activeTechnicianIds.includes(quoteRequest.technicianId)) {
+        return { valid: false, message: "Vous avez sélectionné le même technicien pour plusieurs devis" };
+      }
+      
+      activeTechnicianIds.push(quoteRequest.technicianId);
+    }
+    
+    // If quote requests are active but no technicians are selected, show warning
+    if (showQuoteRequest && activeQuoteCount > 0 && activeTechnicianIds.length === 0) {
       return { valid: false, message: "Veuillez sélectionner au moins un technicien pour la demande de devis" };
     }
     
@@ -552,17 +605,55 @@ const MaintenanceForm: React.FC<MaintenanceFormProps> = ({
         formData.statusId = openStatus || statusParams[0]?.id;
       }
       
-      // Make sure technicianIds is properly set from selectedTechnicians
-      formData.technicianIds = selectedTechnicians;
+      // Collect technician IDs from active quote requests
+      const technicianIds: string[] = [];
+      for (let i = 0; i < activeQuoteCount; i++) {
+        if (quoteRequests[i].technicianId) {
+          technicianIds.push(quoteRequests[i].technicianId);
+        }
+      }
       
-      // If we have a single technician selected, set technicianId for backwards compatibility
-      if (selectedTechnicians.length === 1) {
-        formData.technicianId = selectedTechnicians[0];
-      } else if (selectedTechnicians.length > 0) {
-        // Just use the first one for backwards compatibility, but all are in technicianIds array
-        formData.technicianId = selectedTechnicians[0];
+      // Add to formData
+      formData.technicianIds = technicianIds;
+      
+      // If we have a single technician, set technicianId for backwards compatibility
+      if (technicianIds.length === 1) {
+        formData.technicianId = technicianIds[0];
+      } else if (technicianIds.length > 0) {
+        // Just use the first one for backwards compatibility
+        formData.technicianId = technicianIds[0];
       } else {
         formData.technicianId = null;
+      }
+      
+      // Process quote files and data if needed
+      if (showQuoteRequest && activeQuoteCount > 0) {
+        // Initialize quotes array if it doesn't exist
+        if (!formData.quotes) {
+          formData.quotes = [];
+        }
+        
+        // Add quote data for each active quote request
+        for (let i = 0; i < activeQuoteCount; i++) {
+          const quoteRequest = quoteRequests[i];
+          
+          if (quoteRequest.technicianId) {
+            formData.quotes.push({
+              technicianId: quoteRequest.technicianId,
+              amount: quoteRequest.quoteAmount ? parseFloat(quoteRequest.quoteAmount) : null,
+              comments: quoteRequest.quoteComments || null,
+              status: 'pending',
+              createdAt: new Date().toISOString(),
+              createdBy: currentUser?.id || 'system'
+            });
+            
+            // We'll handle the files separately during submission in the actual function
+            // that calls the API, since we need to upload each file individually
+            if (quoteRequest.quoteFile) {
+              formData[`quoteFile_${i}`] = quoteRequest.quoteFile;
+            }
+          }
+        }
       }
       
       await onSubmit(formData);
@@ -600,9 +691,7 @@ const MaintenanceForm: React.FC<MaintenanceFormProps> = ({
       <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>
-            {isEditing 
-              ? 'Modifier l\'intervention' 
-              : 'Nouvelle Intervention Technique'}
+            {isEditing ? 'Modifier l\'intervention' : 'Nouvelle Intervention Technique'}
           </DialogTitle>
           <DialogDescription>
             {isEditing 
@@ -842,111 +931,407 @@ const MaintenanceForm: React.FC<MaintenanceFormProps> = ({
           </div>
           
           <div className="space-y-4 border-t pt-4">
-            <div className="flex items-center space-x-2">
-              <Switch 
-                id="hasQuote" 
-                checked={Boolean(formData.quoteUrl || formData.quoteFile || formData.hasQuote || (formData.technicianIds && formData.technicianIds.length > 0))}
-                onCheckedChange={(checked) => {
-                  if (!checked && formData.quoteUrl) {
-                    handleDeleteQuoteFile();
-                  } else {
-                    handleSwitchChange('hasQuote', checked);
-                  }
-                }}
-                disabled={saving}
-              />
-              <Label htmlFor="hasQuote">Demande de devis</Label>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center space-x-2">
+                <Switch 
+                  id="hasQuote" 
+                  checked={showQuoteRequest}
+                  onCheckedChange={(checked) => {
+                    setShowQuoteRequest(checked);
+                    if (checked && activeQuoteCount === 0) {
+                      setActiveQuoteCount(1);
+                      
+                      // Expand the first quote request
+                      const updatedQuoteRequests = [...quoteRequests];
+                      updatedQuoteRequests[0].expanded = true;
+                      setQuoteRequests(updatedQuoteRequests);
+                    }
+                  }}
+                  disabled={saving}
+                />
+                <Label htmlFor="hasQuote">Demande de devis</Label>
+              </div>
             </div>
             
-            {(formData.quoteUrl || formData.quoteFile || formData.hasQuote || (formData.technicianIds && formData.technicianIds.length > 0)) && (
-              <>
-                {/* Affiche le fichier de devis existant */}
-                {formData.quoteUrl && !formData.quoteFile && (
-                  <QuoteFileDisplay 
-                    quoteUrl={formData.quoteUrl}
-                    onDelete={handleDeleteQuoteFile}
-                  />
-                )}
-
-                {/* Liste de sélection des techniciens */}
-                <div className="space-y-2">
-                  <Label htmlFor="technicians" className="after:content-['*'] after:ml-0.5 after:text-red-500">
-                    Techniciens à consulter
-                  </Label>
-                  
-                  {technicians.length === 0 ? (
-                    <div className="p-4 bg-slate-50 rounded-md text-center">
-                      {loadingTechnicians ? (
-                        <p className="text-sm text-slate-500">Chargement des techniciens...</p>
-                      ) : (
-                        <p className="text-sm text-slate-500">Aucun technicien disponible pour cet hôtel. Veuillez en ajouter dans la section Techniciens.</p>
-                      )}
-                    </div>
-                  ) : (
-                    <div className="p-4 border rounded-md max-h-36 overflow-y-auto">
-                      <CheckboxGroup
-                        items={technicians.map(tech => ({ 
-                          id: tech.id, 
-                          name: `${tech.name}${tech.company ? ` (${tech.company})` : ''}`
-                        }))}
-                        selectedItems={selectedTechnicians}
-                        onSelectionChange={handleTechniciansChange}
-                      />
-                    </div>
-                  )}
-                  <p className="text-xs text-muted-foreground">
-                    Les techniciens sélectionnés recevront une notification par email pour soumettre un devis.
-                  </p>
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="quoteFile">Fichier du devis {formData.quoteUrl ? '(remplacer)' : ''}</Label>
-                  <div className="flex items-center justify-center w-full">
-                    <label className="flex flex-col items-center justify-center w-full h-24 border-2 border-dashed rounded-lg cursor-pointer bg-gray-50 hover:bg-gray-100">
-                      <div className="flex flex-col items-center justify-center pt-5 pb-6">
-                        <FileUp className="w-6 h-6 mb-2 text-gray-400" />
-                        <p className="text-xs text-gray-500">Cliquez pour uploader le devis</p>
-                        <p className="text-xs text-gray-500">PDF, DOC, DOCX (MAX. 5MB)</p>
-                      </div>
-                      <input 
-                        type="file" 
-                        className="hidden" 
-                        accept=".pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-                        onChange={(e) => handleFileUpload(e, 'quoteFile')}
-                      />
-                    </label>
-                  </div>
-                  {formData.quoteFile && (
-                    <div className="flex justify-between items-center mt-2 p-2 bg-blue-50 rounded">
-                      <p className="text-sm text-blue-600">
-                        Fichier sélectionné: {formData.quoteFile.name} ({(formData.quoteFile.size / 1024).toFixed(0)} KB)
-                      </p>
-                      <Button 
-                        variant="destructive" 
-                        size="sm"
-                        onClick={() => setFormData(prev => ({ ...prev, quoteFile: null }))}
-                      >
-                        <X className="h-4 w-4" />
-                      </Button>
-                    </div>
-                  )}
-                </div>
+            {showQuoteRequest && (
+              <div className="space-y-4">
+                <p className="text-sm text-muted-foreground">
+                  Sélectionnez des techniciens à qui demander un devis pour cette intervention
+                </p>
                 
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="quoteAmount">Montant du devis (€)</Label>
-                    <Input
-                      id="quoteAmount"
-                      name="quoteAmount"
-                      type="number"
-                      placeholder="0.00"
-                      value={formData.quoteAmount || ''}
-                      onChange={handleFormChange}
-                      disabled={saving}
-                    />
-                  </div>
-                </div>
-              </>
+                {/* Section dépliable pour chaque demande de devis */}
+                <Accordion type="single" collapsible>
+                  {/* Premier devis */}
+                  {activeQuoteCount >= 1 && (
+                    <AccordionItem value="quote1" className="border p-2 rounded-md">
+                      <AccordionTrigger className="py-2 px-4">
+                        <div className="flex items-center">
+                          <span className="font-medium">Demande de devis 1</span>
+                          {quoteRequests[0].technicianId && (
+                            <span className="ml-2 text-sm text-muted-foreground">
+                              - {technicians.find(t => t.id === quoteRequests[0].technicianId)?.name || 'Technicien'}
+                            </span>
+                          )}
+                        </div>
+                      </AccordionTrigger>
+                      <AccordionContent className="p-4 pt-2">
+                        <div className="space-y-4">
+                          <div className="space-y-2">
+                            <Label htmlFor="technician1" className="after:content-['*'] after:ml-0.5 after:text-red-500">
+                              Technicien à consulter
+                            </Label>
+                            <Select 
+                              value={quoteRequests[0].technicianId || ""} 
+                              onValueChange={(value) => handleQuoteRequestChange(0, 'technicianId', value)}
+                              disabled={loadingTechnicians || !formData.hotelId}
+                            >
+                              <SelectTrigger id="technician1">
+                                <SelectValue placeholder={
+                                  !formData.hotelId
+                                    ? "Sélectionnez d'abord un hôtel"
+                                    : loadingTechnicians
+                                      ? "Chargement..."
+                                      : "Sélectionnez un technicien"
+                                } />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {loadingTechnicians ? (
+                                  <SelectItem value="loading\" disabled>Chargement des techniciens...</SelectItem>
+                                ) : technicians.length === 0 ? (
+                                  <SelectItem value="no-technicians" disabled>Aucun technicien disponible</SelectItem>
+                                ) : (
+                                  technicians
+                                    .filter(tech => tech.id && tech.id !== '')
+                                    .map(tech => (
+                                      <SelectItem key={tech.id} value={tech.id}>
+                                        {tech.name}{tech.company ? ` (${tech.company})` : ''}
+                                      </SelectItem>
+                                    ))
+                                )}
+                              </SelectContent>
+                            </Select>
+                          </div>
+
+                          <div className="space-y-2">
+                            <Label htmlFor="quoteFile1">Fichier du devis (optionnel)</Label>
+                            {quoteRequests[0].quoteFile ? (
+                              <div className="flex justify-between items-center mt-2 p-2 bg-blue-50 rounded">
+                                <p className="text-sm text-blue-600">
+                                  {quoteRequests[0].quoteFile.name} ({(quoteRequests[0].quoteFile.size / 1024).toFixed(0)} KB)
+                                </p>
+                                <Button 
+                                  variant="ghost" 
+                                  size="sm"
+                                  onClick={() => handleRemoveQuoteFile(0)}
+                                  className="h-6 p-1"
+                                >
+                                  <X className="h-4 w-4" />
+                                </Button>
+                              </div>
+                            ) : (
+                              <div className="flex items-center justify-center w-full">
+                                <label className="flex flex-col items-center justify-center w-full h-24 border-2 border-dashed rounded-lg cursor-pointer bg-gray-50 hover:bg-gray-100">
+                                  <div className="flex flex-col items-center justify-center pt-5 pb-6">
+                                    <FileUp className="w-6 h-6 mb-2 text-gray-400" />
+                                    <p className="text-xs text-gray-500">Cliquez pour uploader le devis</p>
+                                    <p className="text-xs text-gray-500">PDF, DOC, DOCX (MAX. 5MB)</p>
+                                  </div>
+                                  <input 
+                                    type="file" 
+                                    className="hidden" 
+                                    accept=".pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                                    onChange={(e) => handleFileUpload(e, 'quoteFile', 0)}
+                                    disabled={saving}
+                                  />
+                                </label>
+                              </div>
+                            )}
+                          </div>
+                          
+                          <div className="space-y-2">
+                            <Label htmlFor="quoteAmount1">Montant estimé du devis (€)</Label>
+                            <Input
+                              id="quoteAmount1"
+                              value={quoteRequests[0].quoteAmount}
+                              onChange={(e) => handleQuoteRequestChange(0, 'quoteAmount', e.target.value)}
+                              placeholder="0.00"
+                              type="number"
+                              step="0.01"
+                              disabled={saving}
+                            />
+                          </div>
+                          
+                          <div className="space-y-2">
+                            <Label htmlFor="quoteComments1">Commentaires (optionnel)</Label>
+                            <textarea
+                              id="quoteComments1"
+                              className="min-h-[80px] w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 resize-y"
+                              value={quoteRequests[0].quoteComments || ''}
+                              onChange={(e) => handleQuoteRequestChange(0, 'quoteComments', e.target.value)}
+                              placeholder="Informations supplémentaires pour le technicien..."
+                              disabled={saving}
+                            />
+                          </div>
+                        </div>
+                      </AccordionContent>
+                    </AccordionItem>
+                  )}
+                  
+                  {/* Deuxième devis */}
+                  {activeQuoteCount >= 2 && (
+                    <AccordionItem value="quote2" className="border p-2 rounded-md mt-2">
+                      <AccordionTrigger className="py-2 px-4">
+                        <div className="flex items-center">
+                          <span className="font-medium">Demande de devis 2</span>
+                          {quoteRequests[1].technicianId && (
+                            <span className="ml-2 text-sm text-muted-foreground">
+                              - {technicians.find(t => t.id === quoteRequests[1].technicianId)?.name || 'Technicien'}
+                            </span>
+                          )}
+                        </div>
+                      </AccordionTrigger>
+                      <AccordionContent className="p-4 pt-2">
+                        <div className="space-y-4">
+                          <div className="space-y-2">
+                            <Label htmlFor="technician2" className="after:content-['*'] after:ml-0.5 after:text-red-500">
+                              Technicien à consulter
+                            </Label>
+                            <Select 
+                              value={quoteRequests[1].technicianId || ""} 
+                              onValueChange={(value) => handleQuoteRequestChange(1, 'technicianId', value)}
+                              disabled={loadingTechnicians || !formData.hotelId}
+                            >
+                              <SelectTrigger id="technician2">
+                                <SelectValue placeholder={
+                                  !formData.hotelId
+                                    ? "Sélectionnez d'abord un hôtel"
+                                    : loadingTechnicians
+                                      ? "Chargement..."
+                                      : "Sélectionnez un technicien"
+                                } />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {loadingTechnicians ? (
+                                  <SelectItem value="loading\" disabled>Chargement des techniciens...</SelectItem>
+                                ) : technicians.length === 0 ? (
+                                  <SelectItem value="no-technicians" disabled>Aucun technicien disponible</SelectItem>
+                                ) : (
+                                  technicians
+                                    .filter(tech => tech.id && tech.id !== '' && tech.id !== quoteRequests[0].technicianId)
+                                    .map(tech => (
+                                      <SelectItem key={tech.id} value={tech.id}>
+                                        {tech.name}{tech.company ? ` (${tech.company})` : ''}
+                                      </SelectItem>
+                                    ))
+                                )}
+                              </SelectContent>
+                            </Select>
+                          </div>
+
+                          <div className="space-y-2">
+                            <Label htmlFor="quoteFile2">Fichier du devis (optionnel)</Label>
+                            {quoteRequests[1].quoteFile ? (
+                              <div className="flex justify-between items-center mt-2 p-2 bg-blue-50 rounded">
+                                <p className="text-sm text-blue-600">
+                                  {quoteRequests[1].quoteFile.name} ({(quoteRequests[1].quoteFile.size / 1024).toFixed(0)} KB)
+                                </p>
+                                <Button 
+                                  variant="ghost" 
+                                  size="sm"
+                                  onClick={() => handleRemoveQuoteFile(1)}
+                                  className="h-6 p-1"
+                                >
+                                  <X className="h-4 w-4" />
+                                </Button>
+                              </div>
+                            ) : (
+                              <div className="flex items-center justify-center w-full">
+                                <label className="flex flex-col items-center justify-center w-full h-24 border-2 border-dashed rounded-lg cursor-pointer bg-gray-50 hover:bg-gray-100">
+                                  <div className="flex flex-col items-center justify-center pt-5 pb-6">
+                                    <FileUp className="w-6 h-6 mb-2 text-gray-400" />
+                                    <p className="text-xs text-gray-500">Cliquez pour uploader le devis</p>
+                                    <p className="text-xs text-gray-500">PDF, DOC, DOCX (MAX. 5MB)</p>
+                                  </div>
+                                  <input 
+                                    type="file" 
+                                    className="hidden" 
+                                    accept=".pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                                    onChange={(e) => handleFileUpload(e, 'quoteFile', 1)}
+                                    disabled={saving}
+                                  />
+                                </label>
+                              </div>
+                            )}
+                          </div>
+                          
+                          <div className="space-y-2">
+                            <Label htmlFor="quoteAmount2">Montant estimé du devis (€)</Label>
+                            <Input
+                              id="quoteAmount2"
+                              value={quoteRequests[1].quoteAmount}
+                              onChange={(e) => handleQuoteRequestChange(1, 'quoteAmount', e.target.value)}
+                              placeholder="0.00"
+                              type="number"
+                              step="0.01"
+                              disabled={saving}
+                            />
+                          </div>
+                          
+                          <div className="space-y-2">
+                            <Label htmlFor="quoteComments2">Commentaires (optionnel)</Label>
+                            <textarea
+                              id="quoteComments2"
+                              className="min-h-[80px] w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 resize-y"
+                              value={quoteRequests[1].quoteComments || ''}
+                              onChange={(e) => handleQuoteRequestChange(1, 'quoteComments', e.target.value)}
+                              placeholder="Informations supplémentaires pour le technicien..."
+                              disabled={saving}
+                            />
+                          </div>
+                        </div>
+                      </AccordionContent>
+                    </AccordionItem>
+                  )}
+                  
+                  {/* Troisième devis */}
+                  {activeQuoteCount >= 3 && (
+                    <AccordionItem value="quote3" className="border p-2 rounded-md mt-2">
+                      <AccordionTrigger className="py-2 px-4">
+                        <div className="flex items-center">
+                          <span className="font-medium">Demande de devis 3</span>
+                          {quoteRequests[2].technicianId && (
+                            <span className="ml-2 text-sm text-muted-foreground">
+                              - {technicians.find(t => t.id === quoteRequests[2].technicianId)?.name || 'Technicien'}
+                            </span>
+                          )}
+                        </div>
+                      </AccordionTrigger>
+                      <AccordionContent className="p-4 pt-2">
+                        <div className="space-y-4">
+                          <div className="space-y-2">
+                            <Label htmlFor="technician3" className="after:content-['*'] after:ml-0.5 after:text-red-500">
+                              Technicien à consulter
+                            </Label>
+                            <Select 
+                              value={quoteRequests[2].technicianId || ""} 
+                              onValueChange={(value) => handleQuoteRequestChange(2, 'technicianId', value)}
+                              disabled={loadingTechnicians || !formData.hotelId}
+                            >
+                              <SelectTrigger id="technician3">
+                                <SelectValue placeholder={
+                                  !formData.hotelId
+                                    ? "Sélectionnez d'abord un hôtel"
+                                    : loadingTechnicians
+                                      ? "Chargement..."
+                                      : "Sélectionnez un technicien"
+                                } />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {loadingTechnicians ? (
+                                  <SelectItem value="loading\" disabled>Chargement des techniciens...</SelectItem>
+                                ) : technicians.length === 0 ? (
+                                  <SelectItem value="no-technicians" disabled>Aucun technicien disponible</SelectItem>
+                                ) : (
+                                  technicians
+                                    .filter(tech => 
+                                      tech.id && 
+                                      tech.id !== '' && 
+                                      tech.id !== quoteRequests[0].technicianId &&
+                                      tech.id !== quoteRequests[1].technicianId
+                                    )
+                                    .map(tech => (
+                                      <SelectItem key={tech.id} value={tech.id}>
+                                        {tech.name}{tech.company ? ` (${tech.company})` : ''}
+                                      </SelectItem>
+                                    ))
+                                )}
+                              </SelectContent>
+                            </Select>
+                          </div>
+
+                          <div className="space-y-2">
+                            <Label htmlFor="quoteFile3">Fichier du devis (optionnel)</Label>
+                            {quoteRequests[2].quoteFile ? (
+                              <div className="flex justify-between items-center mt-2 p-2 bg-blue-50 rounded">
+                                <p className="text-sm text-blue-600">
+                                  {quoteRequests[2].quoteFile.name} ({(quoteRequests[2].quoteFile.size / 1024).toFixed(0)} KB)
+                                </p>
+                                <Button 
+                                  variant="ghost" 
+                                  size="sm"
+                                  onClick={() => handleRemoveQuoteFile(2)}
+                                  className="h-6 p-1"
+                                >
+                                  <X className="h-4 w-4" />
+                                </Button>
+                              </div>
+                            ) : (
+                              <div className="flex items-center justify-center w-full">
+                                <label className="flex flex-col items-center justify-center w-full h-24 border-2 border-dashed rounded-lg cursor-pointer bg-gray-50 hover:bg-gray-100">
+                                  <div className="flex flex-col items-center justify-center pt-5 pb-6">
+                                    <FileUp className="w-6 h-6 mb-2 text-gray-400" />
+                                    <p className="text-xs text-gray-500">Cliquez pour uploader le devis</p>
+                                    <p className="text-xs text-gray-500">PDF, DOC, DOCX (MAX. 5MB)</p>
+                                  </div>
+                                  <input 
+                                    type="file" 
+                                    className="hidden" 
+                                    accept=".pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                                    onChange={(e) => handleFileUpload(e, 'quoteFile', 2)}
+                                    disabled={saving}
+                                  />
+                                </label>
+                              </div>
+                            )}
+                          </div>
+                          
+                          <div className="space-y-2">
+                            <Label htmlFor="quoteAmount3">Montant estimé du devis (€)</Label>
+                            <Input
+                              id="quoteAmount3"
+                              value={quoteRequests[2].quoteAmount}
+                              onChange={(e) => handleQuoteRequestChange(2, 'quoteAmount', e.target.value)}
+                              placeholder="0.00"
+                              type="number"
+                              step="0.01"
+                              disabled={saving}
+                            />
+                          </div>
+                          
+                          <div className="space-y-2">
+                            <Label htmlFor="quoteComments3">Commentaires (optionnel)</Label>
+                            <textarea
+                              id="quoteComments3"
+                              className="min-h-[80px] w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 resize-y"
+                              value={quoteRequests[2].quoteComments || ''}
+                              onChange={(e) => handleQuoteRequestChange(2, 'quoteComments', e.target.value)}
+                              placeholder="Informations supplémentaires pour le technicien..."
+                              disabled={saving}
+                            />
+                          </div>
+                        </div>
+                      </AccordionContent>
+                    </AccordionItem>
+                  )}
+                </Accordion>
+                
+                {/* Boutons pour ajouter des devis supplémentaires */}
+                {showQuoteRequest && activeQuoteCount < 3 && (
+                  <Button 
+                    variant="outline" 
+                    className="mt-2"
+                    onClick={addQuoteRequest}
+                    disabled={saving}
+                  >
+                    <Plus className="h-4 w-4 mr-2" />
+                    Demander un {activeQuoteCount === 0 ? "premier" : activeQuoteCount === 1 ? "deuxième" : "troisième"} devis
+                  </Button>
+                )}
+                
+                <p className="text-xs text-muted-foreground mt-2">
+                  Les techniciens sélectionnés recevront une notification par email pour soumettre un devis.
+                </p>
+              </div>
             )}
           </div>
           

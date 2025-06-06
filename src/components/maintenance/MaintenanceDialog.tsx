@@ -68,6 +68,7 @@ const MaintenanceDialog: React.FC<MaintenanceDialogProps> = ({
   const [quoteFormOpen, setQuoteFormOpen] = useState(false);
   const [quoteAcceptDialogOpen, setQuoteAcceptDialogOpen] = useState(false);
   const [selectedMaintenance, setSelectedMaintenance] = useState<Maintenance | null>(null);
+  const [selectedQuoteIndex, setSelectedQuoteIndex] = useState<number>(-1);
   const [userNames, setUserNames] = useState<{[key: string]: string}>({});
   const [resolvedLabels, setResolvedLabels] = useState<{[key: string]: string}>({});
   const [technicianData, setTechnicianData] = useState<any>(null);
@@ -248,36 +249,38 @@ const MaintenanceDialog: React.FC<MaintenanceDialogProps> = ({
     }
   };
 
-  // Handle quote status update (accept/reject)
+  // Update quote status (accept/reject)
   const handleQuoteStatusUpdate = async (status: 'accepted' | 'rejected', comments?: string) => {
     try {
       setIsProcessing(true);
       
-      // Use the first quote for now (legacy support)
-      await updateQuoteStatus(maintenance.id, 0, status, comments);
+      if (selectedQuoteIndex < 0) {
+        throw new Error("Aucun devis sélectionné");
+      }
+
+      await updateQuoteStatus(maintenance.id, selectedQuoteIndex, status, comments);
       
       // Déterminer les techniciens à notifier
-      let techniciansToNotify: string[] = [];
+      let technicianToNotify = '';
       
-      if (maintenance.technicianId) {
-        // Legacy: single technician
-        techniciansToNotify.push(maintenance.technicianId);
-      } else if (maintenance.technicianIds && maintenance.technicianIds.length > 0) {
-        // Multiple technicians
-        techniciansToNotify = maintenance.technicianIds;
+      if (maintenance.quotes && maintenance.quotes.length > selectedQuoteIndex) {
+        technicianToNotify = maintenance.quotes[selectedQuoteIndex].technicianId;
+      } else if (selectedQuoteIndex === 0 && maintenance.technicianId) {
+        // Support for legacy single technician
+        technicianToNotify = maintenance.technicianId;
       }
       
-      // Envoyer des emails de notification aux techniciens
-      if (techniciansToNotify.length > 0) {
+      // Envoyer email de notification au technicien
+      if (technicianToNotify) {
         try {
           await sendMaintenanceEmailNotifications(
             maintenance.id,
             maintenance.hotelId,
-            techniciansToNotify,
+            [technicianToNotify],
             status === 'accepted' ? 'quote_accepted' : 'quote_rejected'
           );
         } catch (emailError) {
-          console.error('Error sending email notifications:', emailError);
+          console.error('Error sending email notification:', emailError);
           // Continue without failing the operation
         }
       }
@@ -308,7 +311,7 @@ const MaintenanceDialog: React.FC<MaintenanceDialogProps> = ({
         // Update quotes array status
         if (updatedMaintenance.quotes && Array.isArray(updatedMaintenance.quotes)) {
           updatedMaintenance.quotes = updatedMaintenance.quotes.map((quote, index) => {
-            if (index === 0) { // Update the first quote (legacy support)
+            if (index === selectedQuoteIndex) {
               return {
                 ...quote,
                 status,
@@ -316,7 +319,7 @@ const MaintenanceDialog: React.FC<MaintenanceDialogProps> = ({
                 statusComments: comments
               };
             } else if (status === 'accepted' && quote.status === 'pending') {
-              // If the first quote is accepted, reject all other pending quotes
+              // If the selected quote is accepted, reject all other pending quotes
               return {
                 ...quote,
                 status: 'rejected',
@@ -590,52 +593,12 @@ const MaintenanceDialog: React.FC<MaintenanceDialogProps> = ({
                       variant="default" 
                       onClick={() => {
                         setSelectedMaintenance(maintenance);
+                        setSelectedQuoteIndex(index);
                         setQuoteAcceptDialogOpen(true);
                       }}
                       className="mr-2"
                     >
-                      <Check className="h-3 w-3 mr-1" /> Accepter
-                    </Button>
-                    <Button 
-                      size="sm" 
-                      variant="destructive" 
-                      onClick={() => {
-                        // Utiliser l'index actuel du devis dans la boucle
-                        updateQuoteStatus(maintenance.id, index, 'rejected')
-                          .then(() => {
-                            if (onUpdate) {
-                              const updatedQuotes = [...maintenance.quotes];
-                              updatedQuotes[index] = {
-                                ...updatedQuotes[index],
-                                status: 'rejected',
-                                statusUpdatedAt: new Date().toISOString()
-                              };
-                              
-                              const updatedMaintenance = {
-                                ...maintenance,
-                                quotes: updatedQuotes,
-                                updatedAt: new Date().toISOString()
-                              };
-                              
-                              onUpdate(updatedMaintenance);
-                            }
-                            
-                            toast({
-                              title: "Devis refusé",
-                              description: "Le devis a été refusé avec succès"
-                            });
-                          })
-                          .catch(error => {
-                            console.error("Error rejecting quote:", error);
-                            toast({
-                              title: "Erreur",
-                              description: "Une erreur est survenue lors du refus du devis",
-                              variant: "destructive"
-                            });
-                          });
-                      }}
-                    >
-                      <X className="h-3 w-3 mr-1" /> Refuser
+                      <Check className="h-3 w-3 mr-1" /> Examiner
                     </Button>
                   </div>
                 )}
@@ -919,6 +882,7 @@ const MaintenanceDialog: React.FC<MaintenanceDialogProps> = ({
             {(maintenance.quoteUrl || maintenance.estimatedAmount || maintenance.finalAmount || 
               (maintenance.quotes && maintenance.quotes.length > 0)) && (
               <div className="space-y-4">
+                {/* Legacy quote display */}
                 {maintenance.quoteUrl && (
                   <div className="bg-amber-50 border border-amber-200 rounded-md p-4">
                     <div className="space-y-3">
@@ -964,9 +928,10 @@ const MaintenanceDialog: React.FC<MaintenanceDialogProps> = ({
                        maintenance.quoteAccepted !== false && (
                         <div className="flex justify-end">
                           <Button 
-                            size="sm"
+                            size="sm" 
                             onClick={() => {
                               setSelectedMaintenance(maintenance);
+                              setSelectedQuoteIndex(0); // For legacy support, use index 0
                               setQuoteAcceptDialogOpen(true);
                             }}
                             variant="outline"
@@ -995,7 +960,7 @@ const MaintenanceDialog: React.FC<MaintenanceDialogProps> = ({
                 )}
                 
                 {/* Section pour afficher tous les devis reçus */}
-                {maintenance.quotes && maintenance.quotes.length > 0 && renderMultipleQuotes()}
+                {renderMultipleQuotes()}
                 
                 <div className="grid grid-cols-2 gap-4">
                   {maintenance.estimatedAmount && (

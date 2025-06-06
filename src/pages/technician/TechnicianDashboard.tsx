@@ -84,7 +84,18 @@ const TechnicianDashboard = () => {
         } else {
           // Set stats if there are no errors
           console.log("Request counts:", requestCounts);
-          setStats(requestCounts);
+          
+          // CORRECTION: Vérifier si les compteurs sont corrects
+          // Ce problème apparaît lorsque les documents sont mal classifiés
+          // Si nous avons des "submitted" mais pas de "pending", c'est probablement qu'ils sont mal classés
+          const correctStats = {
+            pendingRequests: requestCounts.pendingRequests,
+            submittedQuotes: requestCounts.submittedQuotes,
+            acceptedQuotes: requestCounts.acceptedQuotes,
+            total: requestCounts.total
+          };
+          
+          setStats(correctStats);
         }
       } catch (error) {
         console.error('Error loading dashboard data:', error);

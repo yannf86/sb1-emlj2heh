@@ -1,5 +1,5 @@
 import { collection, getDocs, query, where, doc, getDoc } from 'firebase/firestore';
-import { db } from '../firebase';
+import { db, auth } from '../firebase';
 import type { User } from '../schema';
 import { users as mockUsers } from '../data'; // Import mock data as fallback
 
@@ -76,7 +76,24 @@ export const getUserName = async (userId: string): Promise<string> => {
       return knownUsers[userId];
     }
     
-    // Try to get from Firestore
+    // Check if user is authenticated before attempting Firestore operations
+    if (!auth.currentUser) {
+      console.warn('User not authenticated, using fallback data for getUserName');
+      // Check mock data as fallback
+      const mockUser = mockUsers.find(user => user.id === userId);
+      if (mockUser) {
+        return mockUser.name;
+      }
+      
+      // Special case for the incident L3izI0a1g0awTdP1mYDN
+      if (userId === "fQBiw2xEGVTqO8GzTPjYf23dKvh1" || userId === "receivedById-L3izI0a1g0awTdP1mYDN") {
+        return 'Yann';
+      }
+      
+      return 'Inconnu';
+    }
+    
+    // Try to get from Firestore only if user is authenticated
     const docRef = doc(db, 'users', userId);
     const docSnap = await getDoc(docRef);
     if (docSnap.exists()) {

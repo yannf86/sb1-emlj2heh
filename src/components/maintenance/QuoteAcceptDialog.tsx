@@ -71,6 +71,22 @@ const QuoteAcceptDialog: React.FC<QuoteAcceptDialogProps> = ({
     }
   };
 
+  // Déterminer si nous avons des informations sur le technicien et le devis
+  // Chercher dans les quotes array ou utiliser les anciennes données de legacy
+  let technicianName = "Non spécifié";
+  let quoteAmount = maintenance.quoteAmount ? `${maintenance.quoteAmount} €` : "Non spécifié";
+  let quoteDate = maintenance.updatedAt ? formatDate(maintenance.updatedAt) : "Non spécifié";
+
+  // Si nous avons un array quotes, essayons d'obtenir les infos à partir de là
+  if (maintenance.quotes && maintenance.quotes.length > 0) {
+    const quote = maintenance.quotes[0]; // On prend le premier devis pour l'instant
+    if (quote) {
+      quoteAmount = quote.amount ? `${quote.amount} €` : quoteAmount;
+      technicianName = quote.technicianName || technicianName;
+      quoteDate = quote.createdAt ? formatDate(quote.createdAt) : quoteDate;
+    }
+  }
+
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
       <DialogContent className="sm:max-w-[500px]">
@@ -87,17 +103,17 @@ const QuoteAcceptDialog: React.FC<QuoteAcceptDialogProps> = ({
             <div className="space-y-2">
               <div className="flex justify-between">
                 <span className="text-sm font-medium text-slate-600 dark:text-slate-300">Montant:</span>
-                <span className="font-bold">{maintenance.quoteAmount} €</span>
+                <span className="font-bold">{quoteAmount}</span>
               </div>
               {maintenance.technicianId && (
                 <div className="flex justify-between">
                   <span className="text-sm font-medium text-slate-600 dark:text-slate-300">Technicien:</span>
-                  <span>{maintenance.technicianName || 'Non spécifié'}</span>
+                  <span>{technicianName}</span>
                 </div>
               )}
               <div className="flex justify-between">
                 <span className="text-sm font-medium text-slate-600 dark:text-slate-300">Date du devis:</span>
-                <span>{formatDate(maintenance.updatedAt)}</span>
+                <span>{quoteDate}</span>
               </div>
             </div>
           </div>
@@ -141,7 +157,7 @@ const QuoteAcceptDialog: React.FC<QuoteAcceptDialogProps> = ({
               <AlertTriangle className="h-4 w-4" />
               <AlertTitle>Confirmation requise</AlertTitle>
               <AlertDescription>
-                En acceptant ce devis, vous autorisez le technicien à commencer les travaux pour un montant de {maintenance.quoteAmount} €.
+                En acceptant ce devis, vous autorisez le technicien à commencer les travaux pour un montant de {quoteAmount}.
               </AlertDescription>
             </Alert>
           )}

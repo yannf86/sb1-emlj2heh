@@ -3,7 +3,7 @@ import { FileText, ExternalLink, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
 interface QuoteFileDisplayProps {
-  quoteUrl: string;
+  quoteUrl: string | null | undefined;
   onDelete?: () => void;
   isEditable?: boolean;
 }

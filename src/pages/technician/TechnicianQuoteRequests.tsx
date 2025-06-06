@@ -107,12 +107,18 @@ const TechnicianQuoteRequests = () => {
     
     if (filterStatus === 'all') return true;
     
+    // CORRECTION: Vérification plus précise du statut des demandes
+    // Une demande sans devis soumis (sans fichier) doit être dans "pending"
+    if (filterStatus === 'pending') return !hasSubmittedQuote(request);
+    
     // Get quote status for this technician
     const quoteStatus = getQuoteStatus(request);
     
-    if (filterStatus === 'pending' && !quoteStatus) return true; // No quote submitted yet
+    // Un devis soumis en attente de réponse est "submitted"
     if (filterStatus === 'submitted' && quoteStatus === 'pending') return true;
+    // Un devis accepté est "accepted"
     if (filterStatus === 'accepted' && quoteStatus === 'accepted') return true;
+    // Un devis refusé est "rejected"
     if (filterStatus === 'rejected' && quoteStatus === 'rejected') return true;
     
     return false;
@@ -243,6 +249,17 @@ const TechnicianQuoteRequests = () => {
         return;
       }
       
+      // MODIFICATION: Vérifier si un fichier est fourni (nouveau ou existant)
+      if (acceptRequest && !quoteFile && !existingFileUrl) {
+        toast({
+          title: "Fichier obligatoire",
+          description: "Un fichier de devis est obligatoire pour soumettre un devis",
+          variant: "destructive"
+        });
+        setSubmitting(false);
+        return;
+      }
+      
       // Prepare submission data
       const quoteData = {
         amount: acceptRequest ? parseFloat(quoteAmount) : 0,
@@ -299,21 +316,48 @@ const TechnicianQuoteRequests = () => {
     }
   };
 
+  // CORRECTION: Fonction plus précise pour vérifier si un technicien a soumis un devis
+  const hasSubmittedQuote = (request: any) => {
+    const technician = getCurrentTechnician();
+    if (!technician) return false;
+    
+    // Vérifier si la demande a un tableau quotes avec des fichiers
+    if (request.quotes && Array.isArray(request.quotes)) {
+      // Vérifier s'il y a un devis de ce technicien dans le tableau avec un fichier
+      return request.quotes.some((q: any) => 
+        q.technicianId === technician.id && q.url && q.url.trim() !== ''
+      );
+    }
+    
+    // Format legacy - vérifier si le technicien a explicitement soumis un devis avec fichier
+    if (request.technicianId === technician.id) {
+      // Vérifier que quoteSubmitted est explicitement à true ET qu'un URL de fichier existe
+      return request.quoteSubmitted === true && 
+             request.quoteUrl && 
+             request.quoteUrl.trim() !== '';
+    }
+    
+    // Par défaut, considérer qu'aucun devis n'a été soumis
+    return false;
+  };
+  
   // Get current quote status for a technician in a request
   const getQuoteStatus = (request: any) => {
     const technician = getCurrentTechnician();
     if (!technician) return null;
     
-    // Check if request has quotes array
+    // Check if request has quotes array with files
     if (request.quotes && Array.isArray(request.quotes)) {
-      const technicianQuote = request.quotes.find((q: any) => q.technicianId === technician.id);
+      const technicianQuote = request.quotes.find((q: any) => 
+        q.technicianId === technician.id && q.url && q.url.trim() !== ''
+      );
       if (technicianQuote) {
         return technicianQuote.status;
       }
     } 
     
-    // Legacy format - only if this technician is the assigned one
-    if (request.technicianId === technician.id) {
+    // Legacy format - only if this technician is the assigned one and a file exists
+    if (request.technicianId === technician.id && request.quoteUrl && request.quoteUrl.trim() !== '') {
       // IMPROVED: Check explicitly for status values in the correct order
       if (request.quoteStatus) {
         return request.quoteStatus; 
@@ -328,20 +372,6 @@ const TechnicianQuoteRequests = () => {
     
     // No quote submitted yet
     return null;
-  };
-  
-  // Check if technician has submitted a quote for this request
-  const hasSubmittedQuote = (request: any) => {
-    const technician = getCurrentTechnician();
-    if (!technician) return false;
-    
-    // Check if request has quotes array
-    if (request.quotes && Array.isArray(request.quotes)) {
-      return request.quotes.some((q: any) => q.technicianId === technician.id);
-    }
-    
-    // Legacy format - only if this technician is the assigned one
-    return request.technicianId === technician.id && request.quoteSubmitted;
   };
   
   if (loading) {
@@ -617,12 +647,27 @@ const TechnicianQuoteRequests = () => {
                 const technician = getCurrentTechnician();
                 if (!technician) return null;
                 
+                // Vérifier si un devis a été soumis avec un fichier
+                const hasQuote = hasSubmittedQuote(selectedRequest);
+                if (!hasQuote) return null;
+                
                 let technicianQuote = null;
+                let quoteAmount = '';
+                let quoteComments = '';
+                let quoteUrl = null;
+                let actualStatus = 'pending';
+                
+                // Check if there are quotes in the new format
                 if (selectedRequest.quotes && Array.isArray(selectedRequest.quotes)) {
-                  technicianQuote = selectedRequest.quotes.find(q => q.technicianId === technician.id);
+                  technicianQuote = selectedRequest.quotes.find(q => 
+                    q.technicianId === technician.id && q.url && q.url.trim() !== ''
+                  );
                   if (technicianQuote) {
                     // Get actual quote status
-                    const actualStatus = technicianQuote.status || 'pending';
+                    actualStatus = technicianQuote.status || 'pending';
+                    quoteAmount = technicianQuote.amount;
+                    quoteComments = technicianQuote.comments || '';
+                    quoteUrl = technicianQuote.url;
                     
                     return (
                       <div className={`p-4 rounded-md border ${
@@ -652,7 +697,7 @@ const TechnicianQuoteRequests = () => {
                         <div className="grid grid-cols-2 gap-4 mt-2">
                           <div>
                             <p className="text-sm text-muted-foreground">Montant</p>
-                            <p className="font-bold">{technicianQuote.amount} €</p>
+                            <p className="font-bold">{quoteAmount} €</p>
                           </div>
                           <div>
                             <p className="text-sm text-muted-foreground">Statut</p>
@@ -675,11 +720,11 @@ const TechnicianQuoteRequests = () => {
                         </div>
                         
                         {/* Display file link if exists */}
-                        {technicianQuote.url && (
+                        {quoteUrl && (
                           <div className="mt-2">
                             <p className="text-sm text-muted-foreground">Document</p>
                             <a 
-                              href={technicianQuote.url} 
+                              href={quoteUrl} 
                               target="_blank" 
                               rel="noreferrer" 
                               className="text-sm text-brand-600 hover:text-brand-800 flex items-center mt-1"
@@ -690,10 +735,10 @@ const TechnicianQuoteRequests = () => {
                           </div>
                         )}
                         
-                        {technicianQuote.comments && (
+                        {quoteComments && (
                           <div className="mt-2">
                             <p className="text-sm text-muted-foreground">Commentaires</p>
-                            <p className="text-sm">{technicianQuote.comments}</p>
+                            <p className="text-sm">{quoteComments}</p>
                           </div>
                         )}
                       </div>
@@ -701,10 +746,13 @@ const TechnicianQuoteRequests = () => {
                   }
                 } 
                 
-                // Legacy format - create an artificial quote object if this technician is the assigned one
-                if (selectedRequest.technicianId === technician.id) {
+                // Legacy format - create an artificial quote object if this technician is the assigned one and has a file
+                if (selectedRequest.technicianId === technician.id && 
+                    selectedRequest.quoteSubmitted && 
+                    selectedRequest.quoteUrl && 
+                    selectedRequest.quoteUrl.trim() !== '') {
+                  
                   // Determine the real status based on the priority of fields
-                  let actualStatus;
                   if (selectedRequest.quoteStatus) {
                     actualStatus = selectedRequest.quoteStatus;
                   } else if (selectedRequest.quoteAccepted === true) {
@@ -888,7 +936,7 @@ const TechnicianQuoteRequests = () => {
                 </div>
                 
                 <div className="space-y-2">
-                  <Label htmlFor="quote-file">
+                  <Label htmlFor="quote-file" className="after:content-['*'] after:ml-0.5 after:text-red-500">
                     Document du devis (PDF, DOC, DOCX)
                   </Label>
                   
@@ -980,7 +1028,9 @@ const TechnicianQuoteRequests = () => {
             
             <Button
               onClick={handleSubmitQuoteForm}
-              disabled={submitting || (acceptRequest && (!quoteAmount || parseFloat(quoteAmount) <= 0))}
+              disabled={submitting || 
+                (acceptRequest && (!quoteAmount || parseFloat(quoteAmount) <= 0)) || 
+                (acceptRequest && !existingFileUrl && !quoteFile)}
               variant={isEditing ? 'default' : acceptRequest ? 'default' : 'destructive'}
             >
               {submitting ? (
