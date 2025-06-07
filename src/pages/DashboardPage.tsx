@@ -186,31 +186,78 @@ const DashboardPage = () => {
   
   // Get statistics
   const getStats = () => {
-    // Count open incidents with exact status "En cours"
+    // Count open incidents - specifically those with status "En cours" (stat2)
     const openIncidents = filteredIncidents.filter(inc => {
-      // Le statut peut être "En cours" ou l'ID spécifique "CZa3iy84r8pVqjVOQHNL"
-      return inc.statusId === "En cours" || inc.statusId === "CZa3iy84r8pVqjVOQHNL";
+      const status = inc.statusId;
+      return status === 'stat2' || // En cours
+             status === 'CZa3iy84r8pVqjVOQHNL' || // ID spécifique pour En cours
+             status === 'En cours' || 
+             status === 'en cours' ||
+             status === 'in_progress' ||
+             (typeof status === 'string' && (
+               status.toLowerCase() === 'en cours' ||
+               status.toLowerCase() === 'in progress' ||
+               status.toLowerCase() === 'in_progress'
+             ));
     }).length;
     
-    // Count resolved incidents
+    // Count resolved incidents - specifically those with statuses like "Clôturé", "Résolu"
     const resolvedIncidents = filteredIncidents.filter(inc => {
       const status = inc.statusId;
-      return status === 'Clôturé' || status === 'Résolu' || 
-             (typeof status === 'string' && (status.toLowerCase() === 'clôturé' || status.toLowerCase() === 'résolu'));
+      return status === 'stat3' || // Résolu
+             status === 'stat4' || // Fermé/Clôturé
+             status === 'JyK8HpAF5qwg39QbQeS1' || // ID spécifique pour Résolu
+             status === '3ElZmcduy3R8NUd1kuzn' || // ID spécifique pour Clôturé
+             status === 'Clôturé' || 
+             status === 'Fermé' || 
+             status === 'Résolu' ||
+             status === 'closed' ||
+             status === 'resolved' ||
+             (typeof status === 'string' && (
+               status.toLowerCase() === 'clôturé' || 
+               status.toLowerCase() === 'cloture' ||
+               status.toLowerCase() === 'fermé' || 
+               status.toLowerCase() === 'résolu' ||
+               status.toLowerCase() === 'closed' ||
+               status.toLowerCase() === 'resolved'
+             ));
     }).length;
     
-    // Count open maintenance requests
+    // Count open maintenance requests - specifically those with status "En cours"
     const openMaintenance = filteredMaintenance.filter(req => {
       const status = req.statusId;
-      return status === 'En cours' || 
-             (typeof status === 'string' && status.toLowerCase() === 'en cours');
+      return status === 'stat2' || // En cours
+             status === 'CZa3iy84r8pVqjVOQHNL' || // ID spécifique pour En cours
+             status === 'En cours' || 
+             status === 'en cours' ||
+             status === 'in_progress' ||
+             (typeof status === 'string' && (
+               status.toLowerCase() === 'en cours' ||
+               status.toLowerCase() === 'in progress' ||
+               status.toLowerCase() === 'in_progress'
+             ));
     }).length;
     
     // Count completed maintenance requests
     const completedMaintenance = filteredMaintenance.filter(req => {
       const status = req.statusId;
-      return status === 'Clôturé' || status === 'Résolu' ||
-             (typeof status === 'string' && (status.toLowerCase() === 'clôturé' || status.toLowerCase() === 'résolu'));
+      return status === 'stat3' || // Résolu
+             status === 'stat4' || // Fermé/Clôturé
+             status === '3ElZmcduy3R8NUd1kuzn' || // ID spécifique pour Clôturé
+             status === 'JyK8HpAF5qwg39QbQeS1' || // ID spécifique pour Résolu
+             status === 'Clôturé' || 
+             status === 'Fermé' || 
+             status === 'Résolu' ||
+             status === 'closed' ||
+             status === 'resolved' ||
+             (typeof status === 'string' && (
+               status.toLowerCase() === 'clôturé' || 
+               status.toLowerCase() === 'cloture' ||
+               status.toLowerCase() === 'fermé' || 
+               status.toLowerCase() === 'résolu' ||
+               status.toLowerCase() === 'closed' ||
+               status.toLowerCase() === 'resolved'
+             ));
     }).length;
     
     // Calculate average quality score

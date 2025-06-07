@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { 
   Users, 
   UserPlus, 
@@ -16,7 +17,10 @@ import {
   Edit,
   Trash2,
   AlertCircle,
-  Send
+  Send,
+  SlidersHorizontal,
+  Building,
+  UserCheck
 } from 'lucide-react';
 import { modules } from '@/lib/data';
 import { useToast } from '@/hooks/use-toast';
@@ -30,6 +34,9 @@ import UserFormContent from './components/UserFormContent';
 
 const UsersPage = () => {
   const [searchQuery, setSearchQuery] = useState('');
+  const [filterHotel, setFilterHotel] = useState('all');
+  const [filterRole, setFilterRole] = useState('all');
+  const [filtersExpanded, setFiltersExpanded] = useState(false);
   const [newUserDialogOpen, setNewUserDialogOpen] = useState(false);
   const [editUserDialogOpen, setEditUserDialogOpen] = useState(false);
   const [deleteUserDialogOpen, setDeleteUserDialogOpen] = useState(false);
@@ -144,16 +151,29 @@ const UsersPage = () => {
     }
   }, [editUserDialogOpen, selectedUser]);
 
-  // Filter users based on search query
+  // Filter users based on search query, hotel, and role
   const filteredUsers = users.filter(user => {
-    if (!searchQuery) return true;
+    // Filter by search query
+    if (searchQuery) {
+      const query = searchQuery.toLowerCase();
+      const matchesName = user.name?.toLowerCase().includes(query);
+      const matchesEmail = user.email?.toLowerCase().includes(query);
+      const matchesRole = user.role?.toLowerCase().includes(query);
+      
+      if (!matchesName && !matchesEmail && !matchesRole) return false;
+    }
     
-    const query = searchQuery.toLowerCase();
-    return (
-      user.name?.toLowerCase().includes(query) ||
-      user.email?.toLowerCase().includes(query) ||
-      user.role?.toLowerCase().includes(query)
-    );
+    // Filter by hotel
+    if (filterHotel !== 'all') {
+      if (!user.hotels || !user.hotels.includes(filterHotel)) return false;
+    }
+    
+    // Filter by role
+    if (filterRole !== 'all') {
+      if (user.role !== filterRole) return false;
+    }
+    
+    return true;
   });
 
   // Check if current user can create users
@@ -276,6 +296,14 @@ const UsersPage = () => {
 
   const handleModulesChange = useCallback((modules: string[]) => {
     setSelectedModules(modules);
+  }, []);
+
+  // Reset all filters
+  const resetFilters = useCallback(() => {
+    setSearchQuery('');
+    setFilterHotel('all');
+    setFilterRole('all');
+    setFiltersExpanded(false);
   }, []);
 
   // Validate form
@@ -770,17 +798,61 @@ const UsersPage = () => {
         </Alert>
       )}
       
-      <div className="flex">
-        <div className="relative flex-1">
-          <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-          <Input
-            type="search"
-            placeholder="Rechercher un utilisateur..."
-            className="pl-8 w-full"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-          />
+      <div className="flex flex-col space-y-2">
+        <div className="flex flex-col sm:flex-row space-y-2 sm:space-y-0 sm:space-x-2">
+          <div className="relative flex-1">
+            <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+            <Input
+              type="search"
+              placeholder="Rechercher un utilisateur..."
+              className="pl-8 w-full"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+            />
+          </div>
+          
+          <Select value={filterHotel} onValueChange={setFilterHotel}>
+            <SelectTrigger className="w-full sm:w-[180px]">
+              <Building className="mr-2 h-4 w-4" />
+              <SelectValue placeholder="Tous les hôtels" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Tous les hôtels</SelectItem>
+              {hotels.map(hotel => (
+                <SelectItem key={hotel.id} value={hotel.id}>{hotel.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          
+          <Select value={filterRole} onValueChange={setFilterRole}>
+            <SelectTrigger className="w-full sm:w-[180px]">
+              <UserCheck className="mr-2 h-4 w-4" />
+              <SelectValue placeholder="Tous les types" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Tous les types</SelectItem>
+              <SelectItem value="admin">Administrateur Système</SelectItem>
+              <SelectItem value="hotel_admin">Administrateur Hôtel</SelectItem>
+              <SelectItem value="standard">Utilisateur Standard</SelectItem>
+            </SelectContent>
+          </Select>
+          
+          <Button variant="outline" size="icon" onClick={() => setFiltersExpanded(!filtersExpanded)}>
+            <SlidersHorizontal className="h-4 w-4" />
+          </Button>
+          
+          <Button variant="outline" size="icon" onClick={resetFilters}>
+            <RefreshCw className="h-4 w-4" />
+          </Button>
         </div>
+        
+        {filtersExpanded && (
+          <div className="p-4 border rounded-md">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* Filtres supplémentaires si nécessaire */}
+            </div>
+          </div>
+        )}
       </div>
       
       <Card>
@@ -806,10 +878,10 @@ const UsersPage = () => {
                         <AlertCircle className="h-8 w-8 text-muted-foreground mb-2" />
                         <p>Impossible de charger les utilisateurs</p>
                       </div>
-                    ) : searchQuery ? (
+                    ) : searchQuery || filterHotel !== 'all' || filterRole !== 'all' ? (
                       <div className="flex flex-col items-center">
                         <Search className="h-8 w-8 text-muted-foreground mb-2" />
-                        <p>Aucun utilisateur trouvé pour cette recherche</p>
+                        <p>Aucun utilisateur trouvé avec ces critères</p>
                       </div>
                     ) : (
                       <div className="flex flex-col items-center">
