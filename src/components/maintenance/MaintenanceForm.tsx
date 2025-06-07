@@ -4,46 +4,36 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Switch } from '@/components/ui/switch';
-import { Image, X, FileUp, Loader2, User, ChevronDown, ChevronRight, Plus } from 'lucide-react';
-import { Maintenance, MaintenanceFormData } from './types/maintenance.types';
+import { DateTimePicker } from '@/components/ui/date-time-picker';
 import { getHotels } from '@/lib/db/hotels';
 import { getHotelLocations } from '@/lib/db/parameters-locations';
 import { getInterventionTypeParameters } from '@/lib/db/parameters-intervention-type';
 import { getStatusParameters } from '@/lib/db/parameters-status';
 import { getCurrentUser } from '@/lib/auth';
-import { getUsers, getUsersByHotel } from '@/lib/db/users';
+import { getUsersByHotel, getUsers } from '@/lib/db/users';
+import { getTechniciansByHotel, getTechnicians } from '@/lib/db/technicians';
 import { useDate } from '@/hooks/use-date';
 import { useToast } from '@/hooks/use-toast';
 import { findStatusIdByCode } from '@/lib/db/parameters-status';
-import { deleteFromSupabase } from '@/lib/supabase';
-import { getTechniciansByHotel } from '@/lib/db/technicians';
-import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
-import QuoteFileDisplay from './QuoteFileDisplay';
-import PhotoDisplay from './PhotoDisplay';
+import { Loader2, Image, X } from 'lucide-react';
+import { Switch } from '@/components/ui/switch';
+import { uploadToSupabase, isDataUrl, dataUrlToFile, deleteFromSupabase } from '@/lib/supabase';
+import PhotoDisplay from '@/components/maintenance/PhotoDisplay';
 
 interface MaintenanceFormProps {
   isOpen: boolean;
   onClose: () => void;
+  maintenance?: any; // Optional maintenance data for edit mode
   onSubmit: (formData: any) => void;
   isEditing?: boolean;
-  maintenance?: Maintenance;
-}
-
-interface QuoteRequestData {
-  technicianId: string | null;
-  quoteFile: File | null;
-  quoteAmount: string;
-  quoteComments?: string;
-  expanded: boolean;
 }
 
 const MaintenanceForm: React.FC<MaintenanceFormProps> = ({
   isOpen,
   onClose,
+  maintenance,
   onSubmit,
-  isEditing = false,
-  maintenance
+  isEditing = false
 }) => {
   const currentUser = getCurrentUser();
   const { toast } = useToast();
@@ -54,7 +44,8 @@ const MaintenanceForm: React.FC<MaintenanceFormProps> = ({
       return {
         ...maintenance,
         photoBeforePreview: maintenance.photoBefore || '',
-        photoAfterPreview: maintenance.photoAfter || ''
+        photoAfterPreview: maintenance.photoAfter || '',
+        hasQuote: !!maintenance.quoteUrl
       };
     } else {
       return {
@@ -64,110 +55,56 @@ const MaintenanceForm: React.FC<MaintenanceFormProps> = ({
         locationId: '',
         interventionTypeId: '',
         description: '',
-        statusId: '',
-        receivedById: currentUser?.id || '',
+        photoBeforePreview: '',
+        photoBefore: null,
+        photoAfterPreview: '',
+        photoAfter: null,
+        hasQuote: false,
+        quoteFile: null,
         assignedUserId: '',
         technicianIds: [],
+        statusId: '',
         estimatedAmount: '',
         finalAmount: '',
         startDate: '',
         endDate: '',
         comments: '',
-        quoteStatus: 'pending'
+        receivedById: currentUser?.id || ''
       };
     }
   });
-  
-  // Gestion des demandes de devis multiples
-  const [quoteRequests, setQuoteRequests] = useState<QuoteRequestData[]>([
-    { technicianId: null, quoteFile: null, quoteAmount: '', expanded: false, quoteComments: '' },
-    { technicianId: null, quoteFile: null, quoteAmount: '', expanded: false, quoteComments: '' },
-    { technicianId: null, quoteFile: null, quoteAmount: '', expanded: false, quoteComments: '' }
-  ]);
-  
-  // Gestion de l'affichage des sections de devis
-  const [showQuoteRequest, setShowQuoteRequest] = useState(false);
-  const [activeQuoteCount, setActiveQuoteCount] = useState(0);
   
   const [hotels, setHotels] = useState<any[]>([]);
   const [locations, setLocations] = useState<any[]>([]);
   const [interventionTypes, setInterventionTypes] = useState<any[]>([]);
   const [statusParams, setStatusParams] = useState<any[]>([]);
-  const [technicians, setTechnicians] = useState<any[]>([]);
-  const [internalUsers, setInternalUsers] = useState<any[]>([]);
+  const [users, setUsers] = useState<any[]>([]);
+  const [filteredUsers, setFilteredUsers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingLocations, setLoadingLocations] = useState(false);
+  const [technicians, setTechnicians] = useState<any[]>([]);
   const [loadingTechnicians, setLoadingTechnicians] = useState(false);
-  const [loadingUsers, setLoadingUsers] = useState(false);
-  const [saving, setSaving] = useState(false);
   const [photoBeforeUploading, setPhotoBeforeUploading] = useState(false);
   const [photoAfterUploading, setPhotoAfterUploading] = useState(false);
+  const [quoteFileUploading, setQuoteFileUploading] = useState(false);
+  const [inProgressStatusId, setInProgressStatusId] = useState<string | null>(null);
 
-  // Initialize the quote status from legacy data if needed
+  // Charger les paramètres et les statuts nécessaires
   useEffect(() => {
-    if (!formData.quoteStatus && formData.quoteAccepted !== undefined) {
-      setFormData(prev => ({
-        ...prev,
-        quoteStatus: formData.quoteAccepted ? 'accepted' : 'rejected'
-      }));
-    } else if (!formData.quoteStatus && formData.quoteUrl) {
-      setFormData(prev => ({
-        ...prev,
-        quoteStatus: 'pending'
-      }));
-    } else if (!formData.quoteStatus) {
-      setFormData(prev => ({
-        ...prev,
-        quoteStatus: 'pending'
-      }));
-    }
-  }, [formData.quoteStatus, formData.quoteAccepted, formData.quoteUrl]);
-  
-  // Initialiser les demandes de devis à partir des données existantes
-  useEffect(() => {
-    if (isEditing && maintenance) {
-      if (maintenance.quotes && maintenance.quotes.length > 0) {
-        const updatedQuoteRequests = [...quoteRequests];
-        
-        // Remplir avec les données des devis existants
-        maintenance.quotes.forEach((quote, index) => {
-          if (index < updatedQuoteRequests.length) {
-            updatedQuoteRequests[index] = {
-              technicianId: quote.technicianId || null,
-              quoteFile: null,
-              quoteAmount: quote.amount?.toString() || '',
-              quoteComments: quote.comments || '',
-              expanded: true
-            };
-          }
-        });
-        
-        setQuoteRequests(updatedQuoteRequests);
-        setShowQuoteRequest(true);
-        setActiveQuoteCount(Math.min(maintenance.quotes.length, 3));
-      } else if (maintenance.technicianIds && maintenance.technicianIds.length > 0) {
-        // Ancienne structure avec technicianIds
-        const updatedQuoteRequests = [...quoteRequests];
-        
-        // Mettre à jour les demandes de devis avec les technicienIds existants
-        maintenance.technicianIds.forEach((techId, index) => {
-          if (index < updatedQuoteRequests.length) {
-            updatedQuoteRequests[index] = {
-              ...updatedQuoteRequests[index],
-              technicianId: techId,
-              expanded: true
-            };
-          }
-        });
-        
-        setQuoteRequests(updatedQuoteRequests);
-        setShowQuoteRequest(true);
-        setActiveQuoteCount(Math.min(maintenance.technicianIds.length, 3));
+    const loadStatus = async () => {
+      try {
+        // Trouver l'ID du statut "En cours"
+        const inProgressId = await findStatusIdByCode('in_progress');
+        setInProgressStatusId(inProgressId);
+      } catch (error) {
+        console.error("Erreur lors du chargement du statut 'En cours':", error);
       }
-    }
-  }, [isEditing, maintenance]);
+    };
+    
+    loadStatus();
+  }, []);
 
-  // Load data on mount
+  // Load all data on mount
   useEffect(() => {
     const loadData = async () => {
       try {
@@ -185,20 +122,17 @@ const MaintenanceForm: React.FC<MaintenanceFormProps> = ({
         const statusesData = await getStatusParameters();
         setStatusParams(statusesData);
         
-        // Initialize technicians if we have a hotel selected
-        if (formData.hotelId) {
-          loadTechniciansForHotel(formData.hotelId);
-        }
+        // Load all users initially
+        const allUsers = await getUsers();
+        setUsers(allUsers);
         
-        // Initialize internal users if we have a hotel selected
-        if (formData.hotelId) {
-          loadInternalUsersForHotel(formData.hotelId);
-        }
+        // Load technicians
+        const allTechnicians = await getTechnicians();
+        setTechnicians(allTechnicians);
         
-        // Load locations for the current hotel
-        if (formData.hotelId) {
-          const locationsData = await getHotelLocations(formData.hotelId);
-          setLocations(locationsData);
+        // Load locations for the current hotel if editing
+        if (isEditing && maintenance?.hotelId) {
+          await loadLocationsForHotel(maintenance.hotelId);
         }
       } catch (error) {
         console.error('Error loading data:', error);
@@ -213,7 +147,75 @@ const MaintenanceForm: React.FC<MaintenanceFormProps> = ({
     };
     
     loadData();
-  }, [formData.hotelId, toast]);
+  }, [maintenance?.hotelId, toast]);
+
+  // Set default values for edit mode when a devis has been accepted
+  useEffect(() => {
+    if (isEditing && maintenance) {
+      // Déterminer si le devis a été accepté
+      const isQuoteAccepted = 
+        (maintenance.quoteStatus === 'accepted') || 
+        (maintenance.quoteAccepted === true);
+      
+      if (isQuoteAccepted) {
+        // Mettre à jour le statut par défaut à "En cours"
+        if (inProgressStatusId) {
+          setFormData(prev => ({
+            ...prev,
+            statusId: inProgressStatusId
+          }));
+        }
+        
+        // Définir la date de début comme date d'acceptation du devis
+        if (maintenance.quoteAcceptedDate && !maintenance.startDate) {
+          const acceptedDate = new Date(maintenance.quoteAcceptedDate);
+          setFormData(prev => ({
+            ...prev,
+            startDate: acceptedDate.toISOString().split('T')[0]
+          }));
+        }
+        
+        // Définir le montant estimé comme montant du devis accepté
+        if (maintenance.quoteAmount && !maintenance.estimatedAmount) {
+          setFormData(prev => ({
+            ...prev,
+            estimatedAmount: maintenance.quoteAmount.toString()
+          }));
+        }
+      }
+      
+      // Si on a des quotes dans le nouveau format
+      if (maintenance.quotes && Array.isArray(maintenance.quotes) && maintenance.quotes.length > 0) {
+        const acceptedQuote = maintenance.quotes.find(q => q.status === 'accepted');
+        if (acceptedQuote) {
+          // Mettre à jour le statut par défaut à "En cours"
+          if (inProgressStatusId) {
+            setFormData(prev => ({
+              ...prev,
+              statusId: inProgressStatusId
+            }));
+          }
+          
+          // Définir la date de début comme date d'acceptation du devis
+          if (acceptedQuote.statusUpdatedAt && !maintenance.startDate) {
+            const acceptedDate = new Date(acceptedQuote.statusUpdatedAt);
+            setFormData(prev => ({
+              ...prev,
+              startDate: acceptedDate.toISOString().split('T')[0]
+            }));
+          }
+          
+          // Définir le montant estimé comme montant du devis accepté
+          if (acceptedQuote.amount && !maintenance.estimatedAmount) {
+            setFormData(prev => ({
+              ...prev,
+              estimatedAmount: acceptedQuote.amount.toString()
+            }));
+          }
+        }
+      }
+    }
+  }, [isEditing, maintenance, inProgressStatusId]);
 
   // Load locations when hotel changes
   const loadLocationsForHotel = async (hotelId: string) => {
@@ -247,8 +249,8 @@ const MaintenanceForm: React.FC<MaintenanceFormProps> = ({
 
     try {
       setLoadingTechnicians(true);
-      const technicianData = await getTechniciansByHotel(hotelId);
-      setTechnicians(technicianData);
+      const techniciansData = await getTechniciansByHotel(hotelId);
+      setTechnicians(techniciansData);
     } catch (error) {
       console.error('Error loading technicians:', error);
       toast({
@@ -261,36 +263,59 @@ const MaintenanceForm: React.FC<MaintenanceFormProps> = ({
     }
   };
   
-  // Load internal users when hotel changes
-  const loadInternalUsersForHotel = async (hotelId: string) => {
-    if (!hotelId) {
-      setInternalUsers([]);
-      return;
-    }
-
-    try {
-      setLoadingUsers(true);
-      const usersData = await getUsersByHotel(hotelId);
-      setInternalUsers(usersData);
-    } catch (error) {
-      console.error('Error loading users:', error);
-      toast({
-        title: "Erreur",
-        description: "Impossible de charger les utilisateurs pour cet hôtel",
-        variant: "destructive",
-      });
-    } finally {
-      setLoadingUsers(false);
-    }
-  };
-  
   useEffect(() => {
     if (formData.hotelId) {
       loadLocationsForHotel(formData.hotelId);
       loadTechniciansForHotel(formData.hotelId);
-      loadInternalUsersForHotel(formData.hotelId);
     }
   }, [formData.hotelId]);
+  
+  // Load users filtered by hotel when hotel selection changes
+  useEffect(() => {
+    const loadFilteredUsers = async () => {
+      if (!formData.hotelId) {
+        // If no hotel selected, show all users
+        setFilteredUsers(users);
+        return;
+      }
+
+      try {
+        // Get users with access to the selected hotel
+        const hotelUsers = await getUsersByHotel(formData.hotelId);
+        setFilteredUsers(hotelUsers);
+      } catch (error) {
+        console.error('Error loading users by hotel:', error);
+        toast({
+          title: "Erreur",
+          description: "Impossible de charger les utilisateurs pour cet hôtel",
+          variant: "destructive",
+        });
+        // Fallback to all users
+        setFilteredUsers(users);
+      }
+    };
+
+    loadFilteredUsers();
+  }, [formData.hotelId, users, toast]);
+
+  // Use the date hook for maintenance date
+  const maintenanceDate = useDate({
+    defaultDate: formData.date,
+    defaultTime: formData.time,
+    required: true
+  });
+  
+  // Use the date hook for start/end dates
+  const startDate = useDate({
+    defaultDate: formData.startDate,
+    required: false
+  });
+  
+  const endDate = useDate({
+    defaultDate: formData.endDate,
+    minDate: formData.startDate,
+    required: false
+  });
 
   // Handle form input changes
   const handleFormChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
@@ -304,19 +329,32 @@ const MaintenanceForm: React.FC<MaintenanceFormProps> = ({
   // Handle select changes
   const handleSelectChange = (name: string, value: string | null) => {
     if (name === 'hotelId') {
-      // When hotel changes, reset locationId and technicianIds
+      // When hotel changes, reset locationId and assignedUserId
       setFormData(prev => ({
         ...prev,
         [name]: value,
         locationId: '',
-        technicianIds: []
+        assignedUserId: ''
       }));
-      setQuoteRequests([
-        { technicianId: null, quoteFile: null, quoteAmount: '', expanded: false, quoteComments: '' },
-        { technicianId: null, quoteFile: null, quoteAmount: '', expanded: false, quoteComments: '' },
-        { technicianId: null, quoteFile: null, quoteAmount: '', expanded: false, quoteComments: '' }
-      ]);
-      setActiveQuoteCount(0);
+    } else if (name === 'technicianIds') {
+      // Handle multiple technicians selection
+      let updatedTechnicianIds = [...(formData.technicianIds || [])];
+      
+      if (value === 'none') {
+        // "None" selected - clear all technicians
+        updatedTechnicianIds = [];
+      } else if (updatedTechnicianIds.includes(value)) {
+        // Technician already selected - remove it
+        updatedTechnicianIds = updatedTechnicianIds.filter(id => id !== value);
+      } else if (value) {
+        // Add new technician
+        updatedTechnicianIds.push(value);
+      }
+      
+      setFormData(prev => ({
+        ...prev,
+        technicianIds: updatedTechnicianIds
+      }));
     } else {
       setFormData(prev => ({
         ...prev,
@@ -326,117 +364,62 @@ const MaintenanceForm: React.FC<MaintenanceFormProps> = ({
   };
 
   // Handle switch changes
-  const handleSwitchChange = (name: string, value: boolean) => {
+  const handleSwitchChange = (name: string, checked: boolean) => {
     setFormData(prev => ({
       ...prev,
-      [name]: value
+      [name]: checked
     }));
   };
 
-  // Handle quote request changes
-  const handleQuoteRequestChange = (index: number, field: keyof QuoteRequestData, value: any) => {
-    const updatedQuoteRequests = [...quoteRequests];
-    updatedQuoteRequests[index] = {
-      ...updatedQuoteRequests[index],
-      [field]: value
-    };
-    setQuoteRequests(updatedQuoteRequests);
-  };
-  
-  // Ajouter une demande de devis
-  const addQuoteRequest = () => {
-    if (activeQuoteCount < 3) {
-      setActiveQuoteCount(prev => prev + 1);
-      
-      // Expand the newly added quote request
-      const updatedQuoteRequests = [...quoteRequests];
-      updatedQuoteRequests[activeQuoteCount].expanded = true;
-      setQuoteRequests(updatedQuoteRequests);
-    }
-  };
-
-  // Handle file uploads
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>, fileType: 'photoBefore' | 'photoAfter' | 'quoteFile', quoteIndex?: number) => {
+  // Handle file upload - photoBefore
+  const handlePhotoBeforeUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
     try {
-      if (fileType === 'photoBefore' || fileType === 'photoAfter') {
-        // Set uploading state
-        if (fileType === 'photoBefore') setPhotoBeforeUploading(true);
-        else setPhotoAfterUploading(true);
-        
-        // Validate file size and type
-        if (file.size > 2 * 1024 * 1024) {
-          toast({
-            title: "Fichier trop volumineux",
-            description: "La taille du fichier ne doit pas dépasser 2MB",
-            variant: "destructive",
-          });
-          if (fileType === 'photoBefore') setPhotoBeforeUploading(false);
-          else setPhotoAfterUploading(false);
-          return;
-        }
-        
-        if (!file.type.startsWith('image/')) {
-          toast({
-            title: "Format de fichier incorrect",
-            description: "Veuillez sélectionner un fichier image (JPG, PNG, etc.)",
-            variant: "destructive",
-          });
-          if (fileType === 'photoBefore') setPhotoBeforeUploading(false);
-          else setPhotoAfterUploading(false);
-          return;
-        }
-        
-        const reader = new FileReader();
-        reader.onloadend = () => {
-          setFormData(prev => ({
-            ...prev,
-            [fileType]: file,
-            [`${fileType}Preview`]: reader.result as string
-          }));
-          if (fileType === 'photoBefore') setPhotoBeforeUploading(false);
-          else setPhotoAfterUploading(false);
-        };
-        reader.onerror = () => {
-          if (fileType === 'photoBefore') setPhotoBeforeUploading(false);
-          else setPhotoAfterUploading(false);
-          toast({
-            title: "Erreur de lecture",
-            description: "Impossible de lire le fichier sélectionné",
-            variant: "destructive",
-          });
-        };
-        reader.readAsDataURL(file);
-      } else if (fileType === 'quoteFile' && typeof quoteIndex === 'number') {
-        // Validate file size (5MB max for documents)
-        if (file.size > 5 * 1024 * 1024) {
-          toast({
-            title: "Fichier trop volumineux",
-            description: "La taille maximum autorisée est de 5MB",
-            variant: "destructive",
-          });
-          return;
-        }
-        
-        // Accept common document formats
-        const allowedTypes = ['application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'];
-        if (!allowedTypes.includes(file.type) && !file.name.endsWith('.pdf') && !file.name.endsWith('.doc') && !file.name.endsWith('.docx')) {
-          toast({
-            title: "Format de fichier incorrect",
-            description: "Veuillez sélectionner un fichier de type PDF, DOC ou DOCX",
-            variant: "destructive",
-          });
-          return;
-        }
-        
-        // Update the specific quote request
-        handleQuoteRequestChange(quoteIndex, 'quoteFile', file);
+      setPhotoBeforeUploading(true);
+      
+      // Validate file size (2MB max)
+      if (file.size > 2 * 1024 * 1024) {
+        toast({
+          title: "Fichier trop volumineux",
+          description: "La taille du fichier ne doit pas dépasser 2MB",
+          variant: "destructive",
+        });
+        return;
       }
+
+      // Validate file type
+      if (!file.type.startsWith('image/')) {
+        toast({
+          title: "Format de fichier incorrect",
+          description: "Veuillez sélectionner un fichier image (JPG, PNG, etc.)",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      // Read file and create preview
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setFormData(prev => ({
+          ...prev,
+          photoBefore: file,
+          photoBeforePreview: reader.result as string
+        }));
+        setPhotoBeforeUploading(false);
+      };
+      reader.onerror = () => {
+        setPhotoBeforeUploading(false);
+        toast({
+          title: "Erreur de lecture",
+          description: "Impossible de lire le fichier sélectionné",
+          variant: "destructive",
+        });
+      };
+      reader.readAsDataURL(file);
     } catch (error) {
-      if (fileType === 'photoBefore') setPhotoBeforeUploading(false);
-      else if (fileType === 'photoAfter') setPhotoAfterUploading(false);
+      setPhotoBeforeUploading(false);
       console.error('Error handling file upload:', error);
       toast({
         title: "Erreur",
@@ -446,27 +429,114 @@ const MaintenanceForm: React.FC<MaintenanceFormProps> = ({
     }
   };
 
-  // Handle delete photo before
+  // Handle file upload - photoAfter
+  const handlePhotoAfterUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    try {
+      setPhotoAfterUploading(true);
+      
+      // Validate file size (2MB max)
+      if (file.size > 2 * 1024 * 1024) {
+        toast({
+          title: "Fichier trop volumineux",
+          description: "La taille du fichier ne doit pas dépasser 2MB",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      // Validate file type
+      if (!file.type.startsWith('image/')) {
+        toast({
+          title: "Format de fichier incorrect",
+          description: "Veuillez sélectionner un fichier image (JPG, PNG, etc.)",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      // Read file and create preview
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setFormData(prev => ({
+          ...prev,
+          photoAfter: file,
+          photoAfterPreview: reader.result as string
+        }));
+        setPhotoAfterUploading(false);
+      };
+      reader.onerror = () => {
+        setPhotoAfterUploading(false);
+        toast({
+          title: "Erreur de lecture",
+          description: "Impossible de lire le fichier sélectionné",
+          variant: "destructive",
+        });
+      };
+      reader.readAsDataURL(file);
+    } catch (error) {
+      setPhotoAfterUploading(false);
+      console.error('Error handling file upload:', error);
+      toast({
+        title: "Erreur",
+        description: "Une erreur est survenue lors du traitement du fichier",
+        variant: "destructive",
+      });
+    }
+  };
+
+  // Handle file upload - quoteFile
+  const handleQuoteFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    try {
+      setQuoteFileUploading(true);
+      
+      // Validate file size (5MB max)
+      if (file.size > 5 * 1024 * 1024) {
+        toast({
+          title: "Fichier trop volumineux",
+          description: "La taille du fichier ne doit pas dépasser 5MB",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      // Validate file type
+      if (!file.type.match(/pdf|msword|vnd.openxmlformats-officedocument.wordprocessingml.document/)) {
+        toast({
+          title: "Format de fichier incorrect",
+          description: "Veuillez sélectionner un fichier PDF ou DOC/DOCX",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      setFormData(prev => ({
+        ...prev,
+        quoteFile: file
+      }));
+      setQuoteFileUploading(false);
+    } catch (error) {
+      setQuoteFileUploading(false);
+      console.error('Error handling file upload:', error);
+      toast({
+        title: "Erreur",
+        description: "Une erreur est survenue lors du traitement du fichier",
+        variant: "destructive",
+      });
+    }
+  };
+
+  // Handle delete photoBefore
   const handleDeletePhotoBefore = async () => {
     try {
-      // If we have an existing photo URL, delete it from Supabase
+      // If we have an existing photo URL, delete it from storage
       if (maintenance?.photoBefore) {
-        console.log('🗑️ Deleting photoBefore from Supabase:', maintenance.photoBefore);
-        const success = await deleteFromSupabase(maintenance.photoBefore);
-        if (success) {
-          console.log('✅ Photo before deleted successfully from Supabase');
-          toast({
-            title: "Photo supprimée",
-            description: "La photo du problème a été supprimée avec succès",
-          });
-        } else {
-          console.error('❌ Failed to delete photo from Supabase');
-          toast({
-            title: "Avertissement",
-            description: "La photo a été retirée du formulaire mais peut-être pas du stockage",
-            variant: "destructive",
-          });
-        }
+        await deleteFromSupabase(maintenance.photoBefore);
       }
       
       // Update form data
@@ -476,7 +546,7 @@ const MaintenanceForm: React.FC<MaintenanceFormProps> = ({
         photoBeforePreview: ''
       }));
     } catch (error) {
-      console.error('Error deleting photo before:', error);
+      console.error('Error deleting photo:', error);
       toast({
         title: "Erreur",
         description: "Une erreur est survenue lors de la suppression de la photo",
@@ -485,27 +555,12 @@ const MaintenanceForm: React.FC<MaintenanceFormProps> = ({
     }
   };
 
-  // Handle delete photo after
+  // Handle delete photoAfter
   const handleDeletePhotoAfter = async () => {
     try {
-      // If we have an existing photo URL, delete it from Supabase
+      // If we have an existing photo URL, delete it from storage
       if (maintenance?.photoAfter) {
-        console.log('🗑️ Deleting photoAfter from Supabase:', maintenance.photoAfter);
-        const success = await deleteFromSupabase(maintenance.photoAfter);
-        if (success) {
-          console.log('✅ Photo after deleted successfully from Supabase');
-          toast({
-            title: "Photo supprimée",
-            description: "La photo après résolution a été supprimée avec succès",
-          });
-        } else {
-          console.error('❌ Failed to delete photo from Supabase');
-          toast({
-            title: "Avertissement",
-            description: "La photo a été retirée du formulaire mais peut-être pas du stockage",
-            variant: "destructive",
-          });
-        }
+        await deleteFromSupabase(maintenance.photoAfter);
       }
       
       // Update form data
@@ -515,7 +570,7 @@ const MaintenanceForm: React.FC<MaintenanceFormProps> = ({
         photoAfterPreview: ''
       }));
     } catch (error) {
-      console.error('Error deleting photo after:', error);
+      console.error('Error deleting photo:', error);
       toast({
         title: "Erreur",
         description: "Une erreur est survenue lors de la suppression de la photo",
@@ -524,17 +579,29 @@ const MaintenanceForm: React.FC<MaintenanceFormProps> = ({
     }
   };
 
-  // Remove a technician quote file
-  const handleRemoveQuoteFile = (index: number) => {
-    const updatedQuoteRequests = [...quoteRequests];
-    updatedQuoteRequests[index].quoteFile = null;
-    setQuoteRequests(updatedQuoteRequests);
+  // Handle delete quote file
+  const handleDeleteQuoteFile = async () => {
+    try {
+      // If we have an existing quote URL, delete it from storage
+      if (maintenance?.quoteUrl) {
+        await deleteFromSupabase(maintenance.quoteUrl);
+      }
+      
+      // Update form data
+      setFormData(prev => ({
+        ...prev,
+        quoteFile: null,
+        quoteUrl: ''
+      }));
+    } catch (error) {
+      console.error('Error deleting quote file:', error);
+      toast({
+        title: "Erreur",
+        description: "Une erreur est survenue lors de la suppression du fichier",
+        variant: "destructive",
+      });
+    }
   };
-
-  // Filter hotels based on user role
-  const filteredHotels = currentUser?.role === 'admin' 
-    ? hotels 
-    : hotels.filter(hotel => currentUser?.hotels?.includes(hotel.id));
 
   // Validate form before submission
   const validateForm = () => {
@@ -547,36 +614,11 @@ const MaintenanceForm: React.FC<MaintenanceFormProps> = ({
     if (!formData.interventionTypeId) {
       return { valid: false, message: "Veuillez sélectionner un type d'intervention" };
     }
-    if (!formData.description || formData.description.trim().length < 10) {
-      return { valid: false, message: "La description doit contenir au moins 10 caractères" };
+    if (!formData.description || formData.description.trim().length < 5) {
+      return { valid: false, message: "Veuillez fournir une description d'au moins 5 caractères" };
     }
-    
-    // Additional validation for edit mode
-    if (isEditing) {
-      if (!formData.statusId) {
-        return { valid: false, message: "Veuillez sélectionner un statut" };
-      }
-    }
-    
-    // Validate active quote requests
-    const activeTechnicianIds: string[] = [];
-    for (let i = 0; i < activeQuoteCount; i++) {
-      const quoteRequest = quoteRequests[i];
-      if (!quoteRequest.technicianId) {
-        return { valid: false, message: `Veuillez sélectionner un technicien pour la demande de devis ${i+1}` };
-      }
-      
-      // Check for duplicate technicians
-      if (activeTechnicianIds.includes(quoteRequest.technicianId)) {
-        return { valid: false, message: "Vous avez sélectionné le même technicien pour plusieurs devis" };
-      }
-      
-      activeTechnicianIds.push(quoteRequest.technicianId);
-    }
-    
-    // If quote requests are active but no technicians are selected, show warning
-    if (showQuoteRequest && activeQuoteCount > 0 && activeTechnicianIds.length === 0) {
-      return { valid: false, message: "Veuillez sélectionner au moins un technicien pour la demande de devis" };
+    if (!formData.statusId) {
+      return { valid: false, message: "Veuillez sélectionner un statut" };
     }
     
     return { valid: true, message: "" };
@@ -594,92 +636,56 @@ const MaintenanceForm: React.FC<MaintenanceFormProps> = ({
       });
       return;
     }
-    
-    try {
-      setSaving(true);
-      
-      // For new interventions, set default status if not specified
-      if (!isEditing && !formData.statusId) {
-        // Find the "open" status
-        const openStatus = await findStatusIdByCode('open');
-        formData.statusId = openStatus || statusParams[0]?.id;
-      }
-      
-      // Collect technician IDs from active quote requests
-      const technicianIds: string[] = [];
-      for (let i = 0; i < activeQuoteCount; i++) {
-        if (quoteRequests[i].technicianId) {
-          technicianIds.push(quoteRequests[i].technicianId);
-        }
-      }
-      
-      // Add to formData
-      formData.technicianIds = technicianIds;
-      
-      // If we have a single technician, set technicianId for backwards compatibility
-      if (technicianIds.length === 1) {
-        formData.technicianId = technicianIds[0];
-      } else if (technicianIds.length > 0) {
-        // Just use the first one for backwards compatibility
-        formData.technicianId = technicianIds[0];
-      } else {
-        formData.technicianId = null;
-      }
-      
-      // Process quote files and data if needed
-      if (showQuoteRequest && activeQuoteCount > 0) {
-        // Initialize quotes array if it doesn't exist
-        if (!formData.quotes) {
-          formData.quotes = [];
-        }
-        
-        // Add quote data for each active quote request
-        for (let i = 0; i < activeQuoteCount; i++) {
-          const quoteRequest = quoteRequests[i];
-          
-          if (quoteRequest.technicianId) {
-            formData.quotes.push({
-              technicianId: quoteRequest.technicianId,
-              amount: quoteRequest.quoteAmount ? parseFloat(quoteRequest.quoteAmount) : null,
-              comments: quoteRequest.quoteComments || null,
-              status: 'pending',
-              createdAt: new Date().toISOString(),
-              createdBy: currentUser?.id || 'system'
-            });
-            
-            // We'll handle the files separately during submission in the actual function
-            // that calls the API, since we need to upload each file individually
-            if (quoteRequest.quoteFile) {
-              formData[`quoteFile_${i}`] = quoteRequest.quoteFile;
-            }
-          }
-        }
-      }
-      
-      await onSubmit(formData);
-      
-    } catch (error) {
-      console.error('Error submitting form:', error);
-      toast({
-        title: "Erreur",
-        description: "Une erreur est survenue lors de la soumission du formulaire",
-        variant: "destructive"
-      });
-    } finally {
-      setSaving(false);
-    }
+
+    // Update form data with dates from hooks
+    const updatedFormData = {
+      ...formData,
+      date: maintenanceDate.date,
+      time: maintenanceDate.time,
+      startDate: startDate.date,
+      endDate: endDate.date
+    };
+
+    onSubmit(updatedFormData);
   };
+
+  // Update form data when dates change
+  useEffect(() => {
+    setFormData(prev => ({ 
+      ...prev, 
+      date: maintenanceDate.date,
+      time: maintenanceDate.time
+    }));
+  }, [maintenanceDate.date, maintenanceDate.time]);
+
+  useEffect(() => {
+    if (startDate.date) {
+      setFormData(prev => ({ 
+        ...prev, 
+        startDate: startDate.date 
+      }));
+    }
+  }, [startDate.date]);
+
+  useEffect(() => {
+    if (endDate.date) {
+      setFormData(prev => ({ 
+        ...prev, 
+        endDate: endDate.date 
+      }));
+    }
+  }, [endDate.date]);
 
   if (loading) {
     return (
       <Dialog open={isOpen} onOpenChange={onClose}>
-        <DialogContent className="sm:max-w-[600px]">
+        <DialogContent className="sm:max-w-[500px]">
           <DialogHeader>
             <DialogTitle>Chargement...</DialogTitle>
           </DialogHeader>
           <div className="py-6 text-center">
             <Loader2 className="h-8 w-8 animate-spin mx-auto mb-2 text-brand-500" />
-            <p>Chargement en cours...</p>
+            <p>Chargement des données en cours...</p>
           </div>
         </DialogContent>
       </Dialog>
@@ -694,83 +700,61 @@ const MaintenanceForm: React.FC<MaintenanceFormProps> = ({
             {isEditing ? 'Modifier l\'intervention' : 'Nouvelle Intervention Technique'}
           </DialogTitle>
           <DialogDescription>
-            {isEditing 
-              ? 'Modifiez les informations de l\'intervention technique' 
+            {isEditing
+              ? 'Modifiez les informations de l\'intervention'
               : 'Créez une nouvelle demande d\'intervention technique'}
           </DialogDescription>
         </DialogHeader>
         
         <div className="grid gap-4 py-4">
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label htmlFor="date">Date</Label>
-              <Input
-                id="date"
-                name="date"
-                type="date"
-                value={formData.date || ''}
-                onChange={handleFormChange}
-                disabled={saving}
-              />
-            </div>
-            
-            <div className="space-y-2">
-              <Label htmlFor="time">Heure</Label>
-              <Input
-                id="time"
-                name="time"
-                type="time"
-                value={formData.time || ''}
-                onChange={handleFormChange}
-                disabled={saving}
-              />
-            </div>
-          </div>
+          <DateTimePicker
+            label="Date et heure de l'intervention"
+            date={maintenanceDate.date}
+            time={maintenanceDate.time}
+            onDateChange={maintenanceDate.setDate}
+            onTimeChange={maintenanceDate.setTime}
+            error={maintenanceDate.error}
+            required
+          />
           
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="hotelId" className="after:content-['*'] after:ml-0.5 after:text-red-500">Hôtel</Label>
+              <Label htmlFor="hotelId">Hôtel</Label>
               <Select 
                 value={formData.hotelId} 
                 onValueChange={(value) => handleSelectChange('hotelId', value)}
-                disabled={currentUser?.role === 'standard' && currentUser?.hotels?.length === 1 || saving}
+                disabled={currentUser?.role === 'standard' && currentUser?.hotels?.length === 1}
               >
                 <SelectTrigger id="hotelId">
                   <SelectValue placeholder="Sélectionnez un hôtel" />
                 </SelectTrigger>
                 <SelectContent>
-                  {filteredHotels.length === 0 ? (
-                    <SelectItem value="none\" disabled>Aucun hôtel disponible</SelectItem>
-                  ) : (
-                    filteredHotels.map(hotel => (
-                      <SelectItem key={hotel.id} value={hotel.id}>{hotel.name}</SelectItem>
-                    ))
-                  )}
+                  {hotels.map(hotel => (
+                    <SelectItem key={hotel.id} value={hotel.id}>{hotel.name}</SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>
             
             <div className="space-y-2">
-              <Label htmlFor="locationId" className="after:content-['*'] after:ml-0.5 after:text-red-500">Lieu</Label>
+              <Label htmlFor="locationId">Lieu</Label>
               <Select 
                 value={formData.locationId} 
                 onValueChange={(value) => handleSelectChange('locationId', value)}
-                disabled={!formData.hotelId || loadingLocations || saving}
+                disabled={!formData.hotelId || loadingLocations}
               >
                 <SelectTrigger id="locationId">
-                  <SelectValue placeholder={!formData.hotelId ? "Sélectionnez d'abord un hôtel" : loadingLocations ? "Chargement..." : "Sélectionnez un lieu"} />
+                  <SelectValue placeholder={!formData.hotelId ? "Sélectionnez d'abord un hôtel" : "Sélectionnez un lieu"} />
                 </SelectTrigger>
                 <SelectContent>
                   {loadingLocations ? (
-                    <SelectItem value="loading\" disabled>Chargement...</SelectItem>
+                    <SelectItem value="loading" disabled>Chargement...</SelectItem>
                   ) : locations.length === 0 ? (
-                    <SelectItem value="none\" disabled>Aucun lieu disponible pour cet hôtel</SelectItem>
+                    <SelectItem value="none" disabled>Aucun lieu disponible</SelectItem>
                   ) : (
-                    locations
-                      .filter(location => location.id && location.id !== '')
-                      .map(location => (
-                        <SelectItem key={location.id} value={location.id}>{location.label}</SelectItem>
-                      ))
+                    locations.map(location => (
+                      <SelectItem key={location.id} value={location.id}>{location.label}</SelectItem>
+                    ))
                   )}
                 </SelectContent>
               </Select>
@@ -778,18 +762,17 @@ const MaintenanceForm: React.FC<MaintenanceFormProps> = ({
           </div>
           
           <div className="space-y-2">
-            <Label htmlFor="interventionTypeId" className="after:content-['*'] after:ml-0.5 after:text-red-500">Type d'intervention</Label>
+            <Label htmlFor="interventionTypeId">Type d'intervention</Label>
             <Select 
               value={formData.interventionTypeId} 
               onValueChange={(value) => handleSelectChange('interventionTypeId', value)}
-              disabled={saving}
             >
               <SelectTrigger id="interventionTypeId">
                 <SelectValue placeholder="Sélectionnez un type d'intervention" />
               </SelectTrigger>
               <SelectContent>
                 {interventionTypes.length === 0 ? (
-                  <SelectItem value="none\" disabled>Aucun type disponible</SelectItem>
+                  <SelectItem value="none" disabled>Aucun type disponible</SelectItem>
                 ) : (
                   interventionTypes.map(type => (
                     <SelectItem key={type.id} value={type.id}>{type.label}</SelectItem>
@@ -799,568 +782,231 @@ const MaintenanceForm: React.FC<MaintenanceFormProps> = ({
             </Select>
           </div>
           
-          {/* Nouveau: utilisateur interne assigné */}
           <div className="space-y-2">
-            <Label htmlFor="assignedUserId" className="flex items-center">
-              <User className="h-4 w-4 mr-2 text-muted-foreground" />
-              Assigné à
-            </Label>
-            <Select 
-              value={formData.assignedUserId || "none"} 
-              onValueChange={(value) => handleSelectChange('assignedUserId', value === "none" ? null : value)}
-              disabled={loadingUsers || !formData.hotelId || saving}
-            >
-              <SelectTrigger id="assignedUserId">
-                <SelectValue placeholder={
-                  !formData.hotelId
-                    ? "Sélectionnez d'abord un hôtel"
-                    : loadingUsers
-                      ? "Chargement..."
-                      : "Sélectionnez un utilisateur"
-                } />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="none">Non assigné</SelectItem>
-                {loadingUsers ? (
-                  <SelectItem value="loading" disabled>Chargement des utilisateurs...</SelectItem>
-                ) : internalUsers.length === 0 ? (
-                  <SelectItem value="no-users" disabled>Aucun utilisateur disponible</SelectItem>
-                ) : (
-                  internalUsers
-                    .filter(user => user.id && user.id !== '')
-                    .map(user => (
-                      <SelectItem key={user.id} value={user.id}>{user.name}</SelectItem>
-                    ))
-                )}
-              </SelectContent>
-            </Select>
-            <p className="text-xs text-muted-foreground">
-              Utilisateur interne responsable du suivi de cette intervention
-            </p>
-          </div>
-          
-          <div className="space-y-2">
-            <Label htmlFor="description" className="after:content-['*'] after:ml-0.5 after:text-red-500">Description du problème</Label>
+            <Label htmlFor="description">Description</Label>
             <textarea
               id="description"
               name="description"
               className="min-h-[100px] w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 resize-y"
-              placeholder="Décrivez le problème technique..."
               value={formData.description}
               onChange={handleFormChange}
-              disabled={saving}
             />
           </div>
           
-          {/* Photo avant */}
           <div className="space-y-2">
-            <Label htmlFor="photoBefore">Photo du problème</Label>
-            {photoBeforeUploading ? (
-              <div className="flex items-center justify-center w-full h-48 bg-slate-100 rounded-md">
-                <div className="text-center">
-                  <Loader2 className="h-8 w-8 animate-spin mx-auto mb-2 text-brand-500" />
-                  <p className="text-sm text-slate-500">Traitement de l'image...</p>
-                </div>
-              </div>
-            ) : formData.photoBeforePreview ? (
-              <PhotoDisplay 
-                photoUrl={formData.photoBeforePreview}
-                type="before"
-                onDelete={handleDeletePhotoBefore}
-                isEditable={true}
-              />
-            ) : (
-              <div className="flex items-center justify-center w-full">
-                <label className={`flex flex-col items-center justify-center w-full h-36 border-2 border-dashed rounded-lg cursor-pointer bg-gray-50 hover:bg-gray-100 ${saving ? 'opacity-50 cursor-not-allowed' : ''}`}>
-                  <div className="flex flex-col items-center justify-center pt-5 pb-6">
-                    <Image className="w-8 h-8 mb-3 text-gray-400" />
-                    <p className="mb-2 text-sm text-gray-500">
-                      <span className="font-semibold">Cliquez pour uploader</span> ou glissez-déposez
-                    </p>
-                    <p className="text-xs text-gray-500">PNG, JPG (MAX. 2MB)</p>
-                  </div>
-                  <input 
-                    type="file" 
-                    className="hidden" 
-                    accept="image/*"
-                    onChange={(e) => handleFileUpload(e, 'photoBefore')}
-                    disabled={saving || photoBeforeUploading}
-                  />
-                </label>
-              </div>
-            )}
-          </div>
-          
-          {/* Photo après */}
-          <div className="space-y-2">
-            <Label htmlFor="photoAfter">Photo après résolution</Label>
-            {photoAfterUploading ? (
-              <div className="flex items-center justify-center w-full h-48 bg-slate-100 rounded-md">
-                <div className="text-center">
-                  <Loader2 className="h-8 w-8 animate-spin mx-auto mb-2 text-brand-500" />
-                  <p className="text-sm text-slate-500">Traitement de l'image...</p>
-                </div>
-              </div>
-            ) : formData.photoAfterPreview ? (
-              <PhotoDisplay 
-                photoUrl={formData.photoAfterPreview}
-                type="after"
-                onDelete={handleDeletePhotoAfter}
-                isEditable={true}
-              />
-            ) : (
-              <div className="flex items-center justify-center w-full">
-                <label className={`flex flex-col items-center justify-center w-full h-36 border-2 border-dashed rounded-lg cursor-pointer bg-gray-50 hover:bg-gray-100 ${saving ? 'opacity-50 cursor-not-allowed' : ''}`}>
-                  <div className="flex flex-col items-center justify-center pt-5 pb-6">
-                    <Image className="w-8 h-8 mb-3 text-gray-400" />
-                    <p className="mb-2 text-sm text-gray-500">
-                      <span className="font-semibold">Cliquez pour uploader</span> ou glissez-déposez
-                    </p>
-                    <p className="text-xs text-gray-500">PNG, JPG (MAX. 2MB)</p>
-                  </div>
-                  <input 
-                    type="file" 
-                    className="hidden" 
-                    accept="image/*"
-                    onChange={(e) => handleFileUpload(e, 'photoAfter')}
-                    disabled={saving || photoAfterUploading}
-                  />
-                </label>
-              </div>
-            )}
-          </div>
-          
-          <div className="space-y-4 border-t pt-4">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center space-x-2">
-                <Switch 
-                  id="hasQuote" 
-                  checked={showQuoteRequest}
-                  onCheckedChange={(checked) => {
-                    setShowQuoteRequest(checked);
-                    if (checked && activeQuoteCount === 0) {
-                      setActiveQuoteCount(1);
-                      
-                      // Expand the first quote request
-                      const updatedQuoteRequests = [...quoteRequests];
-                      updatedQuoteRequests[0].expanded = true;
-                      setQuoteRequests(updatedQuoteRequests);
-                    }
-                  }}
-                  disabled={saving}
-                />
-                <Label htmlFor="hasQuote">Demande de devis</Label>
-              </div>
-            </div>
-            
-            {showQuoteRequest && (
-              <div className="space-y-4">
-                <p className="text-sm text-muted-foreground">
-                  Sélectionnez des techniciens à qui demander un devis pour cette intervention
-                </p>
-                
-                {/* Section dépliable pour chaque demande de devis */}
-                <Accordion type="single" collapsible>
-                  {/* Premier devis */}
-                  {activeQuoteCount >= 1 && (
-                    <AccordionItem value="quote1" className="border p-2 rounded-md">
-                      <AccordionTrigger className="py-2 px-4">
-                        <div className="flex items-center">
-                          <span className="font-medium">Demande de devis 1</span>
-                          {quoteRequests[0].technicianId && (
-                            <span className="ml-2 text-sm text-muted-foreground">
-                              - {technicians.find(t => t.id === quoteRequests[0].technicianId)?.name || 'Technicien'}
-                            </span>
-                          )}
-                        </div>
-                      </AccordionTrigger>
-                      <AccordionContent className="p-4 pt-2">
-                        <div className="space-y-4">
-                          <div className="space-y-2">
-                            <Label htmlFor="technician1" className="after:content-['*'] after:ml-0.5 after:text-red-500">
-                              Technicien à consulter
-                            </Label>
-                            <Select 
-                              value={quoteRequests[0].technicianId || ""} 
-                              onValueChange={(value) => handleQuoteRequestChange(0, 'technicianId', value)}
-                              disabled={loadingTechnicians || !formData.hotelId}
-                            >
-                              <SelectTrigger id="technician1">
-                                <SelectValue placeholder={
-                                  !formData.hotelId
-                                    ? "Sélectionnez d'abord un hôtel"
-                                    : loadingTechnicians
-                                      ? "Chargement..."
-                                      : "Sélectionnez un technicien"
-                                } />
-                              </SelectTrigger>
-                              <SelectContent>
-                                {loadingTechnicians ? (
-                                  <SelectItem value="loading\" disabled>Chargement des techniciens...</SelectItem>
-                                ) : technicians.length === 0 ? (
-                                  <SelectItem value="no-technicians" disabled>Aucun technicien disponible</SelectItem>
-                                ) : (
-                                  technicians
-                                    .filter(tech => tech.id && tech.id !== '')
-                                    .map(tech => (
-                                      <SelectItem key={tech.id} value={tech.id}>
-                                        {tech.name}{tech.company ? ` (${tech.company})` : ''}
-                                      </SelectItem>
-                                    ))
-                                )}
-                              </SelectContent>
-                            </Select>
-                          </div>
-
-                          <div className="space-y-2">
-                            <Label htmlFor="quoteFile1">Fichier du devis (optionnel)</Label>
-                            {quoteRequests[0].quoteFile ? (
-                              <div className="flex justify-between items-center mt-2 p-2 bg-blue-50 rounded">
-                                <p className="text-sm text-blue-600">
-                                  {quoteRequests[0].quoteFile.name} ({(quoteRequests[0].quoteFile.size / 1024).toFixed(0)} KB)
-                                </p>
-                                <Button 
-                                  variant="ghost" 
-                                  size="sm"
-                                  onClick={() => handleRemoveQuoteFile(0)}
-                                  className="h-6 p-1"
-                                >
-                                  <X className="h-4 w-4" />
-                                </Button>
-                              </div>
-                            ) : (
-                              <div className="flex items-center justify-center w-full">
-                                <label className="flex flex-col items-center justify-center w-full h-24 border-2 border-dashed rounded-lg cursor-pointer bg-gray-50 hover:bg-gray-100">
-                                  <div className="flex flex-col items-center justify-center pt-5 pb-6">
-                                    <FileUp className="w-6 h-6 mb-2 text-gray-400" />
-                                    <p className="text-xs text-gray-500">Cliquez pour uploader le devis</p>
-                                    <p className="text-xs text-gray-500">PDF, DOC, DOCX (MAX. 5MB)</p>
-                                  </div>
-                                  <input 
-                                    type="file" 
-                                    className="hidden" 
-                                    accept=".pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-                                    onChange={(e) => handleFileUpload(e, 'quoteFile', 0)}
-                                    disabled={saving}
-                                  />
-                                </label>
-                              </div>
-                            )}
-                          </div>
-                          
-                          <div className="space-y-2">
-                            <Label htmlFor="quoteAmount1">Montant estimé du devis (€)</Label>
-                            <Input
-                              id="quoteAmount1"
-                              value={quoteRequests[0].quoteAmount}
-                              onChange={(e) => handleQuoteRequestChange(0, 'quoteAmount', e.target.value)}
-                              placeholder="0.00"
-                              type="number"
-                              step="0.01"
-                              disabled={saving}
-                            />
-                          </div>
-                          
-                          <div className="space-y-2">
-                            <Label htmlFor="quoteComments1">Commentaires (optionnel)</Label>
-                            <textarea
-                              id="quoteComments1"
-                              className="min-h-[80px] w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 resize-y"
-                              value={quoteRequests[0].quoteComments || ''}
-                              onChange={(e) => handleQuoteRequestChange(0, 'quoteComments', e.target.value)}
-                              placeholder="Informations supplémentaires pour le technicien..."
-                              disabled={saving}
-                            />
-                          </div>
-                        </div>
-                      </AccordionContent>
-                    </AccordionItem>
-                  )}
-                  
-                  {/* Deuxième devis */}
-                  {activeQuoteCount >= 2 && (
-                    <AccordionItem value="quote2" className="border p-2 rounded-md mt-2">
-                      <AccordionTrigger className="py-2 px-4">
-                        <div className="flex items-center">
-                          <span className="font-medium">Demande de devis 2</span>
-                          {quoteRequests[1].technicianId && (
-                            <span className="ml-2 text-sm text-muted-foreground">
-                              - {technicians.find(t => t.id === quoteRequests[1].technicianId)?.name || 'Technicien'}
-                            </span>
-                          )}
-                        </div>
-                      </AccordionTrigger>
-                      <AccordionContent className="p-4 pt-2">
-                        <div className="space-y-4">
-                          <div className="space-y-2">
-                            <Label htmlFor="technician2" className="after:content-['*'] after:ml-0.5 after:text-red-500">
-                              Technicien à consulter
-                            </Label>
-                            <Select 
-                              value={quoteRequests[1].technicianId || ""} 
-                              onValueChange={(value) => handleQuoteRequestChange(1, 'technicianId', value)}
-                              disabled={loadingTechnicians || !formData.hotelId}
-                            >
-                              <SelectTrigger id="technician2">
-                                <SelectValue placeholder={
-                                  !formData.hotelId
-                                    ? "Sélectionnez d'abord un hôtel"
-                                    : loadingTechnicians
-                                      ? "Chargement..."
-                                      : "Sélectionnez un technicien"
-                                } />
-                              </SelectTrigger>
-                              <SelectContent>
-                                {loadingTechnicians ? (
-                                  <SelectItem value="loading\" disabled>Chargement des techniciens...</SelectItem>
-                                ) : technicians.length === 0 ? (
-                                  <SelectItem value="no-technicians" disabled>Aucun technicien disponible</SelectItem>
-                                ) : (
-                                  technicians
-                                    .filter(tech => tech.id && tech.id !== '' && tech.id !== quoteRequests[0].technicianId)
-                                    .map(tech => (
-                                      <SelectItem key={tech.id} value={tech.id}>
-                                        {tech.name}{tech.company ? ` (${tech.company})` : ''}
-                                      </SelectItem>
-                                    ))
-                                )}
-                              </SelectContent>
-                            </Select>
-                          </div>
-
-                          <div className="space-y-2">
-                            <Label htmlFor="quoteFile2">Fichier du devis (optionnel)</Label>
-                            {quoteRequests[1].quoteFile ? (
-                              <div className="flex justify-between items-center mt-2 p-2 bg-blue-50 rounded">
-                                <p className="text-sm text-blue-600">
-                                  {quoteRequests[1].quoteFile.name} ({(quoteRequests[1].quoteFile.size / 1024).toFixed(0)} KB)
-                                </p>
-                                <Button 
-                                  variant="ghost" 
-                                  size="sm"
-                                  onClick={() => handleRemoveQuoteFile(1)}
-                                  className="h-6 p-1"
-                                >
-                                  <X className="h-4 w-4" />
-                                </Button>
-                              </div>
-                            ) : (
-                              <div className="flex items-center justify-center w-full">
-                                <label className="flex flex-col items-center justify-center w-full h-24 border-2 border-dashed rounded-lg cursor-pointer bg-gray-50 hover:bg-gray-100">
-                                  <div className="flex flex-col items-center justify-center pt-5 pb-6">
-                                    <FileUp className="w-6 h-6 mb-2 text-gray-400" />
-                                    <p className="text-xs text-gray-500">Cliquez pour uploader le devis</p>
-                                    <p className="text-xs text-gray-500">PDF, DOC, DOCX (MAX. 5MB)</p>
-                                  </div>
-                                  <input 
-                                    type="file" 
-                                    className="hidden" 
-                                    accept=".pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-                                    onChange={(e) => handleFileUpload(e, 'quoteFile', 1)}
-                                    disabled={saving}
-                                  />
-                                </label>
-                              </div>
-                            )}
-                          </div>
-                          
-                          <div className="space-y-2">
-                            <Label htmlFor="quoteAmount2">Montant estimé du devis (€)</Label>
-                            <Input
-                              id="quoteAmount2"
-                              value={quoteRequests[1].quoteAmount}
-                              onChange={(e) => handleQuoteRequestChange(1, 'quoteAmount', e.target.value)}
-                              placeholder="0.00"
-                              type="number"
-                              step="0.01"
-                              disabled={saving}
-                            />
-                          </div>
-                          
-                          <div className="space-y-2">
-                            <Label htmlFor="quoteComments2">Commentaires (optionnel)</Label>
-                            <textarea
-                              id="quoteComments2"
-                              className="min-h-[80px] w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 resize-y"
-                              value={quoteRequests[1].quoteComments || ''}
-                              onChange={(e) => handleQuoteRequestChange(1, 'quoteComments', e.target.value)}
-                              placeholder="Informations supplémentaires pour le technicien..."
-                              disabled={saving}
-                            />
-                          </div>
-                        </div>
-                      </AccordionContent>
-                    </AccordionItem>
-                  )}
-                  
-                  {/* Troisième devis */}
-                  {activeQuoteCount >= 3 && (
-                    <AccordionItem value="quote3" className="border p-2 rounded-md mt-2">
-                      <AccordionTrigger className="py-2 px-4">
-                        <div className="flex items-center">
-                          <span className="font-medium">Demande de devis 3</span>
-                          {quoteRequests[2].technicianId && (
-                            <span className="ml-2 text-sm text-muted-foreground">
-                              - {technicians.find(t => t.id === quoteRequests[2].technicianId)?.name || 'Technicien'}
-                            </span>
-                          )}
-                        </div>
-                      </AccordionTrigger>
-                      <AccordionContent className="p-4 pt-2">
-                        <div className="space-y-4">
-                          <div className="space-y-2">
-                            <Label htmlFor="technician3" className="after:content-['*'] after:ml-0.5 after:text-red-500">
-                              Technicien à consulter
-                            </Label>
-                            <Select 
-                              value={quoteRequests[2].technicianId || ""} 
-                              onValueChange={(value) => handleQuoteRequestChange(2, 'technicianId', value)}
-                              disabled={loadingTechnicians || !formData.hotelId}
-                            >
-                              <SelectTrigger id="technician3">
-                                <SelectValue placeholder={
-                                  !formData.hotelId
-                                    ? "Sélectionnez d'abord un hôtel"
-                                    : loadingTechnicians
-                                      ? "Chargement..."
-                                      : "Sélectionnez un technicien"
-                                } />
-                              </SelectTrigger>
-                              <SelectContent>
-                                {loadingTechnicians ? (
-                                  <SelectItem value="loading\" disabled>Chargement des techniciens...</SelectItem>
-                                ) : technicians.length === 0 ? (
-                                  <SelectItem value="no-technicians" disabled>Aucun technicien disponible</SelectItem>
-                                ) : (
-                                  technicians
-                                    .filter(tech => 
-                                      tech.id && 
-                                      tech.id !== '' && 
-                                      tech.id !== quoteRequests[0].technicianId &&
-                                      tech.id !== quoteRequests[1].technicianId
-                                    )
-                                    .map(tech => (
-                                      <SelectItem key={tech.id} value={tech.id}>
-                                        {tech.name}{tech.company ? ` (${tech.company})` : ''}
-                                      </SelectItem>
-                                    ))
-                                )}
-                              </SelectContent>
-                            </Select>
-                          </div>
-
-                          <div className="space-y-2">
-                            <Label htmlFor="quoteFile3">Fichier du devis (optionnel)</Label>
-                            {quoteRequests[2].quoteFile ? (
-                              <div className="flex justify-between items-center mt-2 p-2 bg-blue-50 rounded">
-                                <p className="text-sm text-blue-600">
-                                  {quoteRequests[2].quoteFile.name} ({(quoteRequests[2].quoteFile.size / 1024).toFixed(0)} KB)
-                                </p>
-                                <Button 
-                                  variant="ghost" 
-                                  size="sm"
-                                  onClick={() => handleRemoveQuoteFile(2)}
-                                  className="h-6 p-1"
-                                >
-                                  <X className="h-4 w-4" />
-                                </Button>
-                              </div>
-                            ) : (
-                              <div className="flex items-center justify-center w-full">
-                                <label className="flex flex-col items-center justify-center w-full h-24 border-2 border-dashed rounded-lg cursor-pointer bg-gray-50 hover:bg-gray-100">
-                                  <div className="flex flex-col items-center justify-center pt-5 pb-6">
-                                    <FileUp className="w-6 h-6 mb-2 text-gray-400" />
-                                    <p className="text-xs text-gray-500">Cliquez pour uploader le devis</p>
-                                    <p className="text-xs text-gray-500">PDF, DOC, DOCX (MAX. 5MB)</p>
-                                  </div>
-                                  <input 
-                                    type="file" 
-                                    className="hidden" 
-                                    accept=".pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-                                    onChange={(e) => handleFileUpload(e, 'quoteFile', 2)}
-                                    disabled={saving}
-                                  />
-                                </label>
-                              </div>
-                            )}
-                          </div>
-                          
-                          <div className="space-y-2">
-                            <Label htmlFor="quoteAmount3">Montant estimé du devis (€)</Label>
-                            <Input
-                              id="quoteAmount3"
-                              value={quoteRequests[2].quoteAmount}
-                              onChange={(e) => handleQuoteRequestChange(2, 'quoteAmount', e.target.value)}
-                              placeholder="0.00"
-                              type="number"
-                              step="0.01"
-                              disabled={saving}
-                            />
-                          </div>
-                          
-                          <div className="space-y-2">
-                            <Label htmlFor="quoteComments3">Commentaires (optionnel)</Label>
-                            <textarea
-                              id="quoteComments3"
-                              className="min-h-[80px] w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 resize-y"
-                              value={quoteRequests[2].quoteComments || ''}
-                              onChange={(e) => handleQuoteRequestChange(2, 'quoteComments', e.target.value)}
-                              placeholder="Informations supplémentaires pour le technicien..."
-                              disabled={saving}
-                            />
-                          </div>
-                        </div>
-                      </AccordionContent>
-                    </AccordionItem>
-                  )}
-                </Accordion>
-                
-                {/* Boutons pour ajouter des devis supplémentaires */}
-                {showQuoteRequest && activeQuoteCount < 3 && (
-                  <Button 
-                    variant="outline" 
-                    className="mt-2"
-                    onClick={addQuoteRequest}
-                    disabled={saving}
-                  >
-                    <Plus className="h-4 w-4 mr-2" />
-                    Demander un {activeQuoteCount === 0 ? "premier" : activeQuoteCount === 1 ? "deuxième" : "troisième"} devis
-                  </Button>
-                )}
-                
-                <p className="text-xs text-muted-foreground mt-2">
-                  Les techniciens sélectionnés recevront une notification par email pour soumettre un devis.
-                </p>
-              </div>
-            )}
-          </div>
-          
-          <div className="space-y-4 border-t pt-4">
-            <h3 className="font-medium">Assignation & Suivi</h3>
-            
+            <Label>Photos</Label>
             <div className="grid grid-cols-2 gap-4">
+              {/* Photo Avant */}
               <div className="space-y-2">
-                <Label htmlFor="statusId" className="after:content-['*'] after:ml-0.5 after:text-red-500">Statut</Label>
-                <Select 
-                  value={formData.statusId} 
-                  onValueChange={(value) => handleSelectChange('statusId', value)}
-                  disabled={saving}
-                >
-                  <SelectTrigger id="statusId">
-                    <SelectValue placeholder="Sélectionner un statut" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {statusParams.length === 0 ? (
-                      <SelectItem value="none\" disabled>Aucun statut disponible</SelectItem>
-                    ) : (
-                      statusParams.map(status => (
-                        <SelectItem key={status.id} value={status.id}>{status.label}</SelectItem>
-                      ))
-                    )}
-                  </SelectContent>
-                </Select>
+                <Label>Photo avant</Label>
+                {photoBeforeUploading ? (
+                  <div className="flex items-center justify-center w-full h-48 bg-slate-100 rounded-md">
+                    <div className="text-center">
+                      <Loader2 className="h-8 w-8 animate-spin mx-auto mb-2 text-brand-500" />
+                      <p className="text-sm text-slate-500">Traitement de l'image...</p>
+                    </div>
+                  </div>
+                ) : formData.photoBeforePreview ? (
+                  <PhotoDisplay 
+                    photoUrl={formData.photoBeforePreview}
+                    type="before"
+                    onDelete={handleDeletePhotoBefore}
+                    altText="Photo avant intervention"
+                  />
+                ) : (
+                  <div className="flex items-center justify-center w-full">
+                    <label className="flex flex-col items-center justify-center w-full h-36 border-2 border-dashed rounded-lg cursor-pointer bg-gray-50 hover:bg-gray-100">
+                      <div className="flex flex-col items-center justify-center pt-5 pb-6">
+                        <Image className="w-8 h-8 mb-3 text-gray-400" />
+                        <p className="text-xs text-gray-500">Cliquez pour uploader</p>
+                      </div>
+                      <input 
+                        type="file" 
+                        className="hidden" 
+                        accept="image/*"
+                        onChange={handlePhotoBeforeUpload}
+                      />
+                    </label>
+                  </div>
+                )}
+              </div>
+              
+              {/* Photo Après */}
+              <div className="space-y-2">
+                <Label>Photo après</Label>
+                {photoAfterUploading ? (
+                  <div className="flex items-center justify-center w-full h-48 bg-slate-100 rounded-md">
+                    <div className="text-center">
+                      <Loader2 className="h-8 w-8 animate-spin mx-auto mb-2 text-brand-500" />
+                      <p className="text-sm text-slate-500">Traitement de l'image...</p>
+                    </div>
+                  </div>
+                ) : formData.photoAfterPreview ? (
+                  <PhotoDisplay 
+                    photoUrl={formData.photoAfterPreview}
+                    type="after"
+                    onDelete={handleDeletePhotoAfter}
+                    altText="Photo après intervention"
+                  />
+                ) : (
+                  <div className="flex items-center justify-center w-full">
+                    <label className="flex flex-col items-center justify-center w-full h-36 border-2 border-dashed rounded-lg cursor-pointer bg-gray-50 hover:bg-gray-100">
+                      <div className="flex flex-col items-center justify-center pt-5 pb-6">
+                        <Image className="w-8 h-8 mb-3 text-gray-400" />
+                        <p className="text-xs text-gray-500">Cliquez pour uploader</p>
+                      </div>
+                      <input 
+                        type="file" 
+                        className="hidden" 
+                        accept="image/*"
+                        onChange={handlePhotoAfterUpload}
+                      />
+                    </label>
+                  </div>
+                )}
               </div>
             </div>
+          </div>
+          
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label htmlFor="statusId">Statut</Label>
+              <Select 
+                value={formData.statusId} 
+                onValueChange={(value) => handleSelectChange('statusId', value)}
+              >
+                <SelectTrigger id="statusId">
+                  <SelectValue placeholder="Sélectionner un statut" />
+                </SelectTrigger>
+                <SelectContent>
+                  {statusParams.length === 0 ? (
+                    <SelectItem value="none" disabled>Aucun statut disponible</SelectItem>
+                  ) : (
+                    statusParams.map(status => (
+                      <SelectItem key={status.id} value={status.id}>{status.label}</SelectItem>
+                    ))
+                  )}
+                </SelectContent>
+              </Select>
+            </div>
+            
+            <div className="space-y-2">
+              <Label htmlFor="assignedUserId">Assigné à</Label>
+              <Select 
+                value={formData.assignedUserId || "none"} 
+                onValueChange={(value) => handleSelectChange('assignedUserId', value === "none" ? null : value)}
+              >
+                <SelectTrigger id="assignedUserId">
+                  <SelectValue placeholder="Sélectionner un utilisateur" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">Non assigné</SelectItem>
+                  {filteredUsers.map(user => (
+                    <SelectItem key={user.id} value={user.id}>{user.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          
+          <div className="space-y-2">
+            <Label htmlFor="technicianIds">Techniciens</Label>
+            <Select 
+              value={formData.technicianIds && formData.technicianIds.length > 0 ? 'selected' : 'none'} 
+              onValueChange={(value) => handleSelectChange('technicianIds', value)}
+            >
+              <SelectTrigger id="technicianIds">
+                <SelectValue placeholder="Sélectionner des techniciens" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">Aucun technicien</SelectItem>
+                <SelectItem value="selected" disabled>{formData.technicianIds?.length || 0} technicien(s) sélectionné(s)</SelectItem>
+                <div className="border-t my-1"></div>
+                {technicians.map(tech => (
+                  <div key={tech.id} className="p-2 border-b last:border-b-0">
+                    <div className="flex items-center">
+                      <input 
+                        type="checkbox" 
+                        id={`tech-${tech.id}`}
+                        checked={formData.technicianIds?.includes(tech.id) || false}
+                        onChange={() => handleSelectChange('technicianIds', tech.id)}
+                        className="h-4 w-4 rounded border-gray-300 text-brand-600 focus:ring-brand-500"
+                      />
+                      <label htmlFor={`tech-${tech.id}`} className="ml-2 text-sm">
+                        <div className="font-medium">{tech.name}</div>
+                        {tech.company && <div className="text-xs text-muted-foreground">{tech.company}</div>}
+                      </label>
+                    </div>
+                  </div>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          
+          <div className="space-y-4 border-t pt-4">
+            <div className="flex items-center space-x-2">
+              <Switch 
+                id="hasQuote" 
+                checked={formData.hasQuote}
+                onCheckedChange={(checked) => handleSwitchChange('hasQuote', checked)}
+              />
+              <Label htmlFor="hasQuote">Devis disponible</Label>
+            </div>
+            
+            {formData.hasQuote && (
+              <>
+                <div className="space-y-2">
+                  <Label htmlFor="quoteFile">Fichier du devis</Label>
+                  <div className="flex items-center justify-center w-full">
+                    <label className="flex flex-col items-center justify-center w-full h-24 border-2 border-dashed rounded-lg cursor-pointer bg-gray-50 hover:bg-gray-100">
+                      <div className="flex flex-col items-center justify-center pt-5 pb-6">
+                        <Image className="w-6 h-6 mb-2 text-gray-400" />
+                        <p className="text-xs text-gray-500">Cliquez pour uploader le devis</p>
+                        <p className="text-xs text-gray-500">PDF, DOC, DOCX (MAX. 5MB)</p>
+                      </div>
+                      <input 
+                        type="file" 
+                        className="hidden" 
+                        accept=".pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                        onChange={handleQuoteFileUpload}
+                      />
+                    </label>
+                  </div>
+                  {formData.quoteFile && (
+                    <div className="flex justify-between items-center mt-2 p-2 bg-blue-50 rounded">
+                      <p className="text-sm text-blue-600">
+                        Fichier sélectionné: {formData.quoteFile.name} ({(formData.quoteFile.size / 1024).toFixed(0)} KB)
+                      </p>
+                      <Button 
+                        variant="destructive" 
+                        size="sm"
+                        onClick={() => setFormData(prev => ({ ...prev, quoteFile: null }))}
+                      >
+                        <X className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  )}
+                </div>
+                
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="quoteAmount">Montant du devis (€)</Label>
+                    <Input
+                      id="quoteAmount"
+                      name="quoteAmount"
+                      type="number"
+                      placeholder="0.00"
+                      value={formData.quoteAmount || ''}
+                      onChange={handleFormChange}
+                    />
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+          
+          <div className="space-y-4 border-t pt-4">
+            <h3 className="font-medium">Dates et coûts</h3>
             
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
@@ -1369,9 +1015,8 @@ const MaintenanceForm: React.FC<MaintenanceFormProps> = ({
                   id="startDate"
                   name="startDate"
                   type="date"
-                  value={formData.startDate || ''}
+                  value={formData.startDate}
                   onChange={handleFormChange}
-                  disabled={saving}
                 />
               </div>
               
@@ -1381,9 +1026,8 @@ const MaintenanceForm: React.FC<MaintenanceFormProps> = ({
                   id="endDate"
                   name="endDate"
                   type="date"
-                  value={formData.endDate || ''}
+                  value={formData.endDate}
                   onChange={handleFormChange}
-                  disabled={saving}
                 />
               </div>
             </div>
@@ -1396,9 +1040,8 @@ const MaintenanceForm: React.FC<MaintenanceFormProps> = ({
                   name="estimatedAmount"
                   type="number"
                   placeholder="0.00"
-                  value={formData.estimatedAmount || ''}
+                  value={formData.estimatedAmount}
                   onChange={handleFormChange}
-                  disabled={saving}
                 />
               </div>
               
@@ -1409,48 +1052,39 @@ const MaintenanceForm: React.FC<MaintenanceFormProps> = ({
                   name="finalAmount"
                   type="number"
                   placeholder="0.00"
-                  value={formData.finalAmount || ''}
+                  value={formData.finalAmount}
                   onChange={handleFormChange}
-                  disabled={saving}
                 />
               </div>
             </div>
-            
-            <div className="space-y-2">
-              <Label htmlFor="comments">Commentaires</Label>
-              <textarea
-                id="comments"
-                name="comments"
-                className="min-h-[100px] w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 resize-y"
-                placeholder="Commentaires additionnels..."
-                value={formData.comments || ''}
-                onChange={handleFormChange}
-                disabled={saving}
-              />
-            </div>
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="comments">Commentaires</Label>
+            <textarea
+              id="comments"
+              name="comments"
+              className="min-h-[100px] w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 resize-y"
+              value={formData.comments}
+              onChange={handleFormChange}
+              placeholder="Commentaires additionnels..."
+            />
           </div>
         </div>
         
         <DialogFooter>
           <Button 
             variant="outline" 
-            onClick={onClose} 
-            disabled={saving || photoBeforeUploading || photoAfterUploading}
+            onClick={onClose}
+            disabled={photoBeforeUploading || photoAfterUploading || quoteFileUploading}
           >
             Annuler
           </Button>
           <Button 
-            onClick={handleSubmit} 
-            disabled={saving || photoBeforeUploading || photoAfterUploading}
+            onClick={handleSubmit}
+            disabled={photoBeforeUploading || photoAfterUploading || quoteFileUploading}
           >
-            {saving ? (
-              <>
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                Traitement en cours...
-              </>
-            ) : (
-              isEditing ? 'Enregistrer les modifications' : 'Créer l\'intervention'
-            )}
+            {isEditing ? 'Enregistrer les modifications' : 'Créer l\'intervention'}
           </Button>
         </DialogFooter>
       </DialogContent>
