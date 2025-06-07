@@ -24,7 +24,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { getCurrentUser, hasHotelAccess } from '@/lib/auth';
 import { useToast } from '@/hooks/use-toast';
 import { formatDate } from '@/lib/utils';
-import { cn } from '@/lib/utils'; // Correcting the import to fix the 'cn is not defined' error
+import { cn } from '@/lib/utils';
 import { getHotels } from '@/lib/db/hotels';
 import LogbookEntry from '@/components/logbook/LogbookEntry';
 import LogbookEntryForm from '@/components/logbook/LogbookEntryForm';
@@ -32,6 +32,20 @@ import LogbookCalendar from '@/components/logbook/LogbookCalendar';
 import LogbookReminders from '@/components/logbook/LogbookReminders';
 import LogbookDateNavigation from '@/components/logbook/LogbookDateNavigation';
 import LogbookChecklistItem from '@/components/logbook/LogbookChecklistItem';
+import { 
+  LogbookEntry as LogbookEntryType, 
+  LogbookReminder,
+  getLogbookEntriesByDate,
+  createLogbookEntry,
+  updateLogbookEntry,
+  deleteLogbookEntry,
+  markLogbookEntryAsRead,
+  markLogbookEntryAsCompleted,
+  addCommentToLogbookEntry,
+  getActiveLogbookReminders,
+  markLogbookReminderAsCompleted,
+  createLogbookReminder
+} from '@/lib/db/logbook';
 
 // Mock services
 const mockServices = [
@@ -42,11 +56,6 @@ const mockServices = [
   { id: 'technical', name: 'Technique', icon: '🔧' },
   { id: 'direction', name: 'Direction', icon: '👑' }
 ];
-
-// Fonction de génération d'entrées fictives - retournant un tableau vide pour supprimer les consignes de test
-const generateMockEntries = () => {
-  return []; // Retourne un tableau vide pour supprimer les consignes de test
-};
 
 // Exemple de checklist items
 const mockChecklistItems = [
@@ -62,17 +71,17 @@ const LogbookPage = () => {
   const [filterHotel, setFilterHotel] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [showOnlyTasks, setShowOnlyTasks] = useState<boolean>(false);
-  const [entries, setEntries] = useState<any[]>([]);
-  const [filteredEntries, setFilteredEntries] = useState<any[]>([]);
+  const [entries, setEntries] = useState<LogbookEntryType[]>([]);
+  const [filteredEntries, setFilteredEntries] = useState<LogbookEntryType[]>([]);
   const [checklistItems, setChecklistItems] = useState<any[]>([]);
   const [filteredChecklistItems, setFilteredChecklistItems] = useState<any[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   const [newEntryDialogOpen, setNewEntryDialogOpen] = useState<boolean>(false);
   const [editEntryDialogOpen, setEditEntryDialogOpen] = useState<boolean>(false);
-  const [selectedEntry, setSelectedEntry] = useState<any | null>(null);
+  const [selectedEntry, setSelectedEntry] = useState<LogbookEntryType | null>(null);
   const [availableHotels, setAvailableHotels] = useState<any[]>([]);
-  const [reminders, setReminders] = useState<any[]>([]);
+  const [reminders, setReminders] = useState<LogbookReminder[]>([]);
   
   const navigate = useNavigate();
   const { toast } = useToast();
@@ -111,18 +120,21 @@ const LogbookPage = () => {
           return;
         }
         
-        // In a real implementation, this would fetch data from Firestore
-        // For now, generate mock data but return empty array for no test entries
-        const mockData = generateMockEntries();
+        // Charger les entrées depuis Firebase
+        const entriesData = await getLogbookEntriesByDate(
+          selectedDate,
+          filterHotel !== 'all' ? filterHotel : undefined
+        );
         
-        // Set empty checklist items
+        setEntries(entriesData);
+        
+        // Charger les rappels pour la date sélectionnée
+        const activeReminders = await getActiveLogbookReminders(selectedDate);
+        setReminders(activeReminders);
+        
+        // Utiliser des checklist items vides pour l'instant
         setChecklistItems([]);
         
-        // Generate an empty array for reminders as well
-        const mockReminders: any[] = [];
-        
-        setEntries(mockData);
-        setReminders(mockReminders);
       } catch (error) {
         console.error('Error loading entries:', error);
         setError('Impossible de charger les consignes. Veuillez réessayer.');
@@ -137,7 +149,7 @@ const LogbookPage = () => {
     };
     
     loadEntries();
-  }, [selectedDate, toast, navigate, currentUser, availableHotels]);
+  }, [selectedDate, toast, navigate, currentUser, filterHotel, availableHotels]);
   
   // Apply filters whenever entries, filterService, filterHotel, or searchQuery changes
   useEffect(() => {
@@ -159,7 +171,7 @@ const LogbookPage = () => {
         const query = searchQuery.toLowerCase();
         filtered = filtered.filter(
           entry => entry.content.toLowerCase().includes(query) ||
-                   entry.authorName.toLowerCase().includes(query) ||
+                   entry.authorName?.toLowerCase().includes(query) ||
                    (entry.roomNumber && entry.roomNumber.toLowerCase().includes(query))
         );
       }
@@ -168,6 +180,31 @@ const LogbookPage = () => {
       if (showOnlyTasks) {
         filtered = filtered.filter(entry => entry.isTask);
       }
+      
+      // Filter by date or date range
+      filtered = filtered.filter(entry => {
+        const entryDate = new Date(entry.date);
+        
+        // Si l'entrée a une plage de dates
+        if (entry.displayRange && entry.endDate) {
+          const startDate = new Date(entry.date);
+          const endDate = new Date(entry.endDate);
+          startDate.setHours(0, 0, 0, 0);
+          endDate.setHours(23, 59, 59, 999);
+          
+          const selectedDateCopy = new Date(selectedDate);
+          selectedDateCopy.setHours(12, 0, 0, 0);
+          
+          return selectedDateCopy >= startDate && selectedDateCopy <= endDate;
+        }
+        
+        // Pour une date unique
+        return (
+          entryDate.getDate() === selectedDate.getDate() &&
+          entryDate.getMonth() === selectedDate.getMonth() &&
+          entryDate.getFullYear() === selectedDate.getFullYear()
+        );
+      });
       
       // Sort by time and importance (more important first, then by time)
       filtered.sort((a, b) => {
@@ -190,7 +227,7 @@ const LogbookPage = () => {
     };
     
     filterEntries();
-  }, [entries, filterService, filterHotel, searchQuery, showOnlyTasks]);
+  }, [entries, filterService, filterHotel, searchQuery, showOnlyTasks, selectedDate]);
   
   // Apply filters for checklist items
   useEffect(() => {
@@ -212,7 +249,7 @@ const LogbookPage = () => {
   
   // Group entries by service
   const entriesByService = () => {
-    const grouped: Record<string, any[]> = {};
+    const grouped: Record<string, LogbookEntryType[]> = {};
     
     // Initialize with all services (including empty ones)
     mockServices.forEach(service => {
@@ -244,49 +281,49 @@ const LogbookPage = () => {
         return;
       }
       
-      // In a real implementation, this would save to Firestore
-      console.log('Saving entry:', formData);
+      // Find hotel name
+      const hotel = availableHotels.find(h => h.id === formData.hotelId);
+      const hotelName = hotel ? hotel.name : 'Hôtel inconnu';
+      
+      // Find service details
+      const serviceInfo = mockServices.find(s => s.id === formData.serviceId);
       
       if (selectedEntry) {
         // Update existing entry
-        const updatedEntries = entries.map(entry => 
-          entry.id === selectedEntry.id ? { ...entry, ...formData } : entry
-        );
-        setEntries(updatedEntries);
+        await updateLogbookEntry(selectedEntry.id!, {
+          ...formData,
+          serviceName: serviceInfo?.name || '',
+          serviceIcon: serviceInfo?.icon || '',
+          hotelName
+        });
         
         toast({
           title: "Consigne mise à jour",
           description: "La consigne a été mise à jour avec succès.",
         });
       } else {
-        // Find hotel name
-        const hotel = availableHotels.find(h => h.id === formData.hotelId);
-        const hotelName = hotel ? hotel.name : 'Hôtel inconnu';
-        
         // Create new entry
-        const newEntry = {
-          id: `entry-${Date.now()}`,
+        const entryId = await createLogbookEntry({
           ...formData,
-          date: formData.date || new Date().toISOString().split('T')[0],
-          time: formData.time || new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-          authorId: currentUser?.id || 'unknown',
-          authorName: currentUser?.name || 'Utilisateur',
-          serviceName: mockServices.find(s => s.id === formData.serviceId)?.name || '',
-          serviceIcon: mockServices.find(s => s.id === formData.serviceId)?.icon || '',
-          hotelName: hotelName,
-          isRead: true,
-          comments: [],
-          // Historique de création
-          history: [{
-            timestamp: new Date().toISOString(),
-            userId: currentUser?.id || 'unknown',
-            userName: currentUser?.name || 'Utilisateur',
-            action: 'create',
-            details: 'Création de la consigne'
-          }]
-        };
+          serviceName: serviceInfo?.name || '',
+          serviceIcon: serviceInfo?.icon || '',
+          hotelName
+        });
         
-        setEntries(prev => [newEntry, ...prev]);
+        // Si un rappel doit être créé
+        if (formData.hasReminder) {
+          const newReminder = {
+            title: formData.reminderTitle,
+            description: formData.reminderDescription || '',
+            remindAt: formData.date,
+            endDate: formData.endDate || undefined, 
+            displayRange: formData.displayRange || false,
+            entryId,
+            userIds: [currentUser?.id || 'unknown'],
+          };
+          
+          await createLogbookReminder(newReminder);
+        }
         
         toast({
           title: "Consigne créée",
@@ -298,6 +335,17 @@ const LogbookPage = () => {
       setNewEntryDialogOpen(false);
       setEditEntryDialogOpen(false);
       setSelectedEntry(null);
+      
+      // Reload entries
+      const updatedEntries = await getLogbookEntriesByDate(
+        selectedDate,
+        filterHotel !== 'all' ? filterHotel : undefined
+      );
+      setEntries(updatedEntries);
+      
+      // Reload reminders
+      const updatedReminders = await getActiveLogbookReminders(selectedDate);
+      setReminders(updatedReminders);
     } catch (error) {
       console.error('Error saving entry:', error);
       toast({
@@ -309,7 +357,7 @@ const LogbookPage = () => {
   };
   
   // Handle editing an entry
-  const handleEditEntry = (entryId: string) => {
+  const handleEditEntry = async (entryId: string) => {
     const entry = entries.find(e => e.id === entryId);
     if (entry) {
       // Verify the user has access to the hotel of this entry
@@ -328,162 +376,162 @@ const LogbookPage = () => {
   };
   
   // Handle deleting an entry
-  const handleDeleteEntry = (entryId: string) => {
-    const entry = entries.find(e => e.id === entryId);
-    if (!entry) return;
-    
-    // Verify the user has access to the hotel of this entry
-    if (!hasHotelAccess(entry.hotelId)) {
+  const handleDeleteEntry = async (entryId: string) => {
+    try {
+      const entry = entries.find(e => e.id === entryId);
+      if (!entry) return;
+      
+      // Verify the user has access to the hotel of this entry
+      if (!hasHotelAccess(entry.hotelId)) {
+        toast({
+          title: "Accès refusé",
+          description: "Vous n'avez pas accès à cet hôtel.",
+          variant: "destructive",
+        });
+        return;
+      }
+      
+      await deleteLogbookEntry(entryId);
+      
       toast({
-        title: "Accès refusé",
-        description: "Vous n'avez pas accès à cet hôtel.",
+        title: "Consigne supprimée",
+        description: "La consigne a été supprimée avec succès.",
+      });
+      
+      // Refresh entries
+      const updatedEntries = await getLogbookEntriesByDate(
+        selectedDate,
+        filterHotel !== 'all' ? filterHotel : undefined
+      );
+      setEntries(updatedEntries);
+    } catch (error) {
+      console.error('Error deleting entry:', error);
+      toast({
+        title: "Erreur",
+        description: "Une erreur est survenue lors de la suppression de la consigne.",
         variant: "destructive",
       });
-      return;
     }
-    
-    // In a real implementation, this would delete from Firestore
-    const updatedEntries = entries.filter(entry => entry.id !== entryId);
-    setEntries(updatedEntries);
-    
-    toast({
-      title: "Consigne supprimée",
-      description: "La consigne a été supprimée avec succès.",
-    });
   };
   
   // Handle marking an entry as read
-  const handleMarkAsRead = (entryId: string) => {
-    const entry = entries.find(e => e.id === entryId);
-    if (!entry) return;
-    
-    // Verify the user has access to the hotel of this entry
-    if (!hasHotelAccess(entry.hotelId)) {
-      return;
+  const handleMarkAsRead = async (entryId: string) => {
+    try {
+      const entry = entries.find(e => e.id === entryId);
+      if (!entry) return;
+      
+      // Verify the user has access to the hotel of this entry
+      if (!hasHotelAccess(entry.hotelId)) {
+        return;
+      }
+      
+      await markLogbookEntryAsRead(entryId);
+      
+      // Update local state
+      setEntries(prev => 
+        prev.map(entry => 
+          entry.id === entryId ? { ...entry, isRead: true } : entry
+        )
+      );
+    } catch (error) {
+      console.error('Error marking entry as read:', error);
     }
-    
-    // In a real implementation, this would update Firestore
-    const updatedEntries = entries.map(entry => 
-      entry.id === entryId ? { 
-        ...entry, 
-        isRead: true,
-        // Historique de lecture
-        history: [...(entry.history || []), {
-          timestamp: new Date().toISOString(),
-          userId: currentUser?.id || 'unknown',
-          userName: currentUser?.name || 'Utilisateur',
-          action: 'read',
-          details: 'Consigne marquée comme lue'
-        }]
-      } : entry
-    );
-    setEntries(updatedEntries);
   };
   
   // Handle marking an entry as completed
-  const handleMarkAsCompleted = (entryId: string) => {
-    const entry = entries.find(e => e.id === entryId);
-    if (!entry) return;
-    
-    // Verify the user has access to the hotel of this entry
-    if (!hasHotelAccess(entry.hotelId)) {
+  const handleMarkAsCompleted = async (entryId: string) => {
+    try {
+      const entry = entries.find(e => e.id === entryId);
+      if (!entry) return;
+      
+      // Verify the user has access to the hotel of this entry
+      if (!hasHotelAccess(entry.hotelId)) {
+        toast({
+          title: "Accès refusé",
+          description: "Vous n'avez pas accès à cet hôtel.",
+          variant: "destructive",
+        });
+        return;
+      }
+      
+      await markLogbookEntryAsCompleted(entryId);
+      
       toast({
-        title: "Accès refusé",
-        description: "Vous n'avez pas accès à cet hôtel.",
+        title: "Tâche terminée",
+        description: "La tâche a été marquée comme terminée.",
+      });
+      
+      // Refresh entries
+      const updatedEntries = await getLogbookEntriesByDate(
+        selectedDate,
+        filterHotel !== 'all' ? filterHotel : undefined
+      );
+      setEntries(updatedEntries);
+    } catch (error) {
+      console.error('Error marking entry as completed:', error);
+      toast({
+        title: "Erreur",
+        description: "Une erreur est survenue lors du marquage de la tâche.",
         variant: "destructive",
       });
-      return;
     }
-    
-    // In a real implementation, this would update Firestore
-    const updatedEntries = entries.map(entry => 
-      entry.id === entryId ? { 
-        ...entry, 
-        isCompleted: true, 
-        // Historique de résolution
-        history: [...(entry.history || []), {
-          timestamp: new Date().toISOString(),
-          userId: currentUser?.id || 'unknown',
-          userName: currentUser?.name || 'Utilisateur',
-          action: 'complete',
-          details: 'Tâche marquée comme terminée'
-        }],
-        // Ajout d'un champ "resolvedById" pour identifier qui a résolu
-        resolvedById: currentUser?.id || 'unknown',
-        resolvedByName: currentUser?.name || 'Utilisateur',
-        resolvedAt: new Date().toISOString()
-      } : entry
-    );
-    setEntries(updatedEntries);
-    
-    toast({
-      title: "Tâche terminée",
-      description: "La tâche a été marquée comme terminée.",
-    });
   };
   
   // Handle adding a comment
-  const handleAddComment = (entryId: string, commentText: string) => {
-    const entry = entries.find(e => e.id === entryId);
-    if (!entry) return;
-    
-    // Verify the user has access to the hotel of this entry
-    if (!hasHotelAccess(entry.hotelId)) {
+  const handleAddComment = async (entryId: string, commentText: string) => {
+    try {
+      const entry = entries.find(e => e.id === entryId);
+      if (!entry) return;
+      
+      // Verify the user has access to the hotel of this entry
+      if (!hasHotelAccess(entry.hotelId)) {
+        toast({
+          title: "Accès refusé",
+          description: "Vous n'avez pas accès à cet hôtel.",
+          variant: "destructive",
+        });
+        return;
+      }
+      
+      await addCommentToLogbookEntry(entryId, commentText);
+      
+      // Refresh entries
+      const updatedEntries = await getLogbookEntriesByDate(
+        selectedDate,
+        filterHotel !== 'all' ? filterHotel : undefined
+      );
+      setEntries(updatedEntries);
+    } catch (error) {
+      console.error('Error adding comment:', error);
       toast({
-        title: "Accès refusé",
-        description: "Vous n'avez pas accès à cet hôtel.",
+        title: "Erreur",
+        description: "Une erreur est survenue lors de l'ajout du commentaire.",
         variant: "destructive",
       });
-      return;
     }
-    
-    // In a real implementation, this would update Firestore
-    const updatedEntries = entries.map(entry => {
-      if (entry.id === entryId) {
-        const newComment = {
-          id: `comment-${Date.now()}`,
-          authorId: currentUser?.id || 'unknown',
-          authorName: currentUser?.name || 'Utilisateur',
-          content: commentText,
-          createdAt: new Date().toISOString()
-        };
-        
-        return {
-          ...entry,
-          comments: [...(entry.comments || []), newComment],
-          // Historique d'ajout de commentaire
-          history: [...(entry.history || []), {
-            timestamp: new Date().toISOString(),
-            userId: currentUser?.id || 'unknown',
-            userName: currentUser?.name || 'Utilisateur',
-            action: 'comment',
-            details: 'Commentaire ajouté'
-          }]
-        };
-      }
-      return entry;
-    });
-    
-    setEntries(updatedEntries);
   };
   
   // Handle mark reminder as completed
-  const handleMarkReminderAsCompleted = (reminderId: string) => {
-    const updatedReminders = reminders.map(reminder => 
-      reminder.id === reminderId ? { 
-        ...reminder, 
-        isCompleted: true,
-        completedById: currentUser?.id || 'unknown',
-        completedByName: currentUser?.name || 'Utilisateur',
-        completedAt: new Date().toISOString()
-      } : reminder
-    );
-    setReminders(updatedReminders);
-    
-    toast({
-      title: "Rappel terminé",
-      description: "Le rappel a été marqué comme terminé.",
-    });
+  const handleMarkReminderAsCompleted = async (reminderId: string) => {
+    try {
+      await markLogbookReminderAsCompleted(reminderId);
+      
+      toast({
+        title: "Rappel terminé",
+        description: "Le rappel a été marqué comme terminé.",
+      });
+      
+      // Refresh reminders
+      const updatedReminders = await getActiveLogbookReminders(selectedDate);
+      setReminders(updatedReminders);
+    } catch (error) {
+      console.error('Error marking reminder as completed:', error);
+      toast({
+        title: "Erreur",
+        description: "Une erreur est survenue lors du marquage du rappel.",
+        variant: "destructive",
+      });
+    }
   };
   
   // Handle toggling checklist item completion
@@ -717,6 +765,7 @@ const LogbookPage = () => {
               <LogbookReminders 
                 reminders={reminders}
                 onMarkAsCompleted={handleMarkReminderAsCompleted}
+                selectedDate={selectedDate}
               />
               
               <Card>
@@ -965,6 +1014,21 @@ const LogbookPage = () => {
         isOpen={newEntryDialogOpen}
         onClose={() => setNewEntryDialogOpen(false)}
         onSave={handleSaveEntry}
+        initialData={{
+          serviceId: '',
+          content: '',
+          importance: 1,
+          date: selectedDate.toISOString().split('T')[0],
+          time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          hotelId: availableHotels.length === 1 ? availableHotels[0].id : '',
+          isTask: false,
+          // Ajout des nouvelles propriétés
+          endDate: '',
+          displayRange: false,
+          hasReminder: false,
+          reminderTitle: '',
+          reminderDescription: ''
+        }}
       />
       
       {/* Edit Entry Dialog */}

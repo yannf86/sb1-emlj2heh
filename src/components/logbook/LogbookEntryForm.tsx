@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
@@ -30,22 +30,30 @@ const LogbookEntryForm: React.FC<LogbookEntryFormProps> = ({
   const { toast } = useToast();
   const currentUser = getCurrentUser();
   
+  // Initialisation du formulaire selon le mode (création ou édition)
   const [formData, setFormData] = useState({
     serviceId: initialData.serviceId || '',
     content: initialData.content || '',
     importance: initialData.importance || 1,
     date: initialData.date || new Date().toISOString().split('T')[0],
+    endDate: initialData.endDate || '', // Nouvelle prop pour date de fin
+    displayRange: initialData.displayRange || false, // Pour activer/désactiver la plage de date
     time: initialData.time || new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
     hotelId: initialData.hotelId || (currentUser?.hotels?.length === 1 ? currentUser.hotels[0] : ''),
     roomNumber: initialData.roomNumber || '',
     isTask: initialData.isTask || false,
     assignedToIds: initialData.assignedToIds || [],
-    tagIds: initialData.tagIds || []
+    tagIds: initialData.tagIds || [],
+    // Rappels
+    hasReminder: initialData.hasReminder || false,
+    reminderTitle: initialData.reminderTitle || '',
+    reminderDescription: initialData.reminderDescription || '',
+    reminderUserIds: initialData.reminderUserIds || []
   });
   
   const [services, setServices] = useState<any[]>([]);
   const [hotels, setHotels] = useState<any[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   
   // Load services and hotels
@@ -115,6 +123,11 @@ const LogbookEntryForm: React.FC<LogbookEntryFormProps> = ({
   // Handle switch changes
   const handleSwitchChange = (name: string, checked: boolean) => {
     setFormData(prev => ({ ...prev, [name]: checked }));
+
+    // Si on désactive la plage de dates, on vide la date de fin
+    if (name === 'displayRange' && !checked) {
+      setFormData(prev => ({ ...prev, endDate: '' }));
+    }
   };
   
   // Validate form
@@ -132,6 +145,20 @@ const LogbookEntryForm: React.FC<LogbookEntryFormProps> = ({
     // Verify the user has access to the selected hotel
     if (!hasHotelAccess(formData.hotelId)) {
       return { valid: false, message: 'Vous n\'avez pas accès à cet hôtel' };
+    }
+    
+    // Vérifier que la date de fin est après la date de début si plage de dates active
+    if (formData.displayRange && formData.endDate) {
+      if (formData.endDate < formData.date) {
+        return { valid: false, message: 'La date de fin doit être après la date de début' };
+      }
+    }
+    
+    // Valider les données du rappel
+    if (formData.hasReminder) {
+      if (!formData.reminderTitle) {
+        return { valid: false, message: 'Le titre du rappel est requis' };
+      }
     }
     
     return { valid: true, message: '' };
@@ -157,7 +184,7 @@ const LogbookEntryForm: React.FC<LogbookEntryFormProps> = ({
   
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto">
+      <DialogContent className="sm:max-w-[500px] max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>
             {isEditing ? 'Modifier une consigne' : 'Nouvelle consigne'}
@@ -219,44 +246,85 @@ const LogbookEntryForm: React.FC<LogbookEntryFormProps> = ({
             </div>
           </div>
           
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label htmlFor="date">Date</Label>
-              <Input
-                id="date"
-                name="date"
-                type="date"
-                value={formData.date}
-                onChange={handleInputChange}
-              />
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <Label>Période d'affichage</Label>
+              <div className="flex items-center space-x-2">
+                <Switch
+                  id="display-range"
+                  checked={formData.displayRange}
+                  onCheckedChange={(checked) => handleSwitchChange('displayRange', checked)}
+                />
+                <Label htmlFor="display-range" className="text-sm">
+                  Définir une plage de dates
+                </Label>
+              </div>
             </div>
-            
-            <div className="space-y-2">
-              <Label htmlFor="time">Heure</Label>
-              <Input
-                id="time"
-                name="time"
-                type="time"
-                value={formData.time}
-                onChange={handleInputChange}
-              />
-            </div>
+
+            {formData.displayRange ? (
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="date">Date de début</Label>
+                  <Input
+                    id="date"
+                    name="date"
+                    type="date"
+                    value={formData.date}
+                    onChange={handleInputChange}
+                  />
+                </div>
+                
+                <div className="space-y-2">
+                  <Label htmlFor="endDate">Date de fin</Label>
+                  <Input
+                    id="endDate"
+                    name="endDate"
+                    type="date"
+                    value={formData.endDate}
+                    onChange={handleInputChange}
+                    min={formData.date} // La date de fin doit être après la date de début
+                  />
+                </div>
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="date">Date</Label>
+                  <Input
+                    id="date"
+                    name="date"
+                    type="date"
+                    value={formData.date}
+                    onChange={handleInputChange}
+                  />
+                </div>
+                
+                <div className="space-y-2">
+                  <Label htmlFor="time">Heure</Label>
+                  <Input
+                    id="time"
+                    name="time"
+                    type="time"
+                    value={formData.time}
+                    onChange={handleInputChange}
+                  />
+                </div>
+              </div>
+            )}
           </div>
           
           <div className="space-y-2">
             <div className="flex justify-between">
               <Label htmlFor="content">Contenu</Label>
               <div className="flex items-center space-x-2">
-                <div className="flex items-center space-x-2">
-                  <Switch
-                    id="is-task"
-                    checked={formData.isTask}
-                    onCheckedChange={(checked) => handleSwitchChange('isTask', checked)}
-                  />
-                  <Label htmlFor="is-task" className="text-sm">
-                    Tâche à effectuer
-                  </Label>
-                </div>
+                <Switch
+                  id="is-task"
+                  checked={formData.isTask}
+                  onCheckedChange={(checked) => handleSwitchChange('isTask', checked)}
+                />
+                <Label htmlFor="is-task" className="text-sm">
+                  Tâche à effectuer
+                </Label>
               </div>
             </div>
             <Textarea
@@ -297,6 +365,51 @@ const LogbookEntryForm: React.FC<LogbookEntryFormProps> = ({
                 placeholder="ex: 101"
               />
             </div>
+          </div>
+
+          {/* Section Rappel */}
+          <div className="space-y-2 pt-4 border-t mt-4">
+            <div className="flex items-center justify-between">
+              <Label>Créer un rappel</Label>
+              <Switch
+                id="has-reminder"
+                checked={formData.hasReminder}
+                onCheckedChange={(checked) => handleSwitchChange('hasReminder', checked)}
+              />
+            </div>
+            
+            {formData.hasReminder && (
+              <div className="space-y-4 pl-4 border-l-2 border-brand-200 mt-2">
+                <div className="space-y-2">
+                  <Label htmlFor="reminderTitle">Titre du rappel</Label>
+                  <Input
+                    id="reminderTitle"
+                    name="reminderTitle"
+                    value={formData.reminderTitle}
+                    onChange={handleInputChange}
+                    placeholder="Titre du rappel"
+                  />
+                </div>
+                
+                <div className="space-y-2">
+                  <Label htmlFor="reminderDescription">Description (optionnel)</Label>
+                  <Textarea
+                    id="reminderDescription"
+                    name="reminderDescription"
+                    value={formData.reminderDescription}
+                    onChange={handleInputChange}
+                    placeholder="Description du rappel..."
+                  />
+                </div>
+
+                <div className="pt-1 text-xs text-muted-foreground">
+                  Ce rappel sera affiché pendant toute la période définie pour cette consigne.
+                  {formData.displayRange 
+                    ? ' Du ' + formData.date + (formData.endDate ? ' au ' + formData.endDate : '') 
+                    : ' Le ' + formData.date}
+                </div>
+              </div>
+            )}
           </div>
         </div>
         

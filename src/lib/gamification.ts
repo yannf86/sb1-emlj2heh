@@ -6,13 +6,39 @@ import { User } from './data';
 
 // Niveaux d'expérience et leurs seuils
 export const EXPERIENCE_LEVELS = [
-  { level: 1, name: "Débutant", minXP: 0, maxXP: 99, color: "text-slate-600", badge: "🔰" },
-  { level: 2, name: "Apprenti", minXP: 100, maxXP: 299, color: "text-blue-600", badge: "🔹" },
-  { level: 3, name: "Professionnel", minXP: 300, maxXP: 699, color: "text-green-600", badge: "🔷" },
-  { level: 4, name: "Expert", minXP: 700, maxXP: 1499, color: "text-purple-600", badge: "💠" },
-  { level: 5, name: "Maître", minXP: 1500, maxXP: 2999, color: "text-orange-600", badge: "🌟" },
-  { level: 6, name: "Grand Maître", minXP: 3000, maxXP: 5999, color: "text-red-600", badge: "🏆" },
-  { level: 7, name: "Légende", minXP: 6000, maxXP: Infinity, color: "text-brand-600", badge: "👑" }
+  { level: 1, name: "Novice", minXP: 0, maxXP: 99, color: "text-slate-600", badge: "🔰" },
+  { level: 2, name: "Apprenti", minXP: 100, maxXP: 199, color: "text-blue-600", badge: "🔹" },
+  { level: 3, name: "Assistant", minXP: 200, maxXP: 349, color: "text-cyan-600", badge: "🔷" },
+  { level: 4, name: "Débutant", minXP: 350, maxXP: 499, color: "text-teal-600", badge: "💠" },
+  { level: 5, name: "Initié", minXP: 500, maxXP: 699, color: "text-green-600", badge: "🟢" },
+  { level: 6, name: "Compétent", minXP: 700, maxXP: 899, color: "text-lime-600", badge: "🍀" },
+  { level: 7, name: "Qualifié", minXP: 900, maxXP: 1199, color: "text-emerald-600", badge: "🌱" },
+  { level: 8, name: "Professionnel", minXP: 1200, maxXP: 1599, color: "text-green-700", badge: "🌿" },
+  { level: 9, name: "Spécialiste", minXP: 1600, maxXP: 1999, color: "text-purple-600", badge: "🔮" },
+  { level: 10, name: "Expert", minXP: 2000, maxXP: 2499, color: "text-indigo-600", badge: "✨" },
+  { level: 11, name: "Virtuose", minXP: 2500, maxXP: 2999, color: "text-blue-700", badge: "💫" },
+  { level: 12, name: "Maître", minXP: 3000, maxXP: 3599, color: "text-amber-600", badge: "🌟" },
+  { level: 13, name: "Érudit", minXP: 3600, maxXP: 4299, color: "text-orange-600", badge: "🔆" },
+  { level: 14, name: "Savant", minXP: 4300, maxXP: 4999, color: "text-amber-700", badge: "✴️" },
+  { level: 15, name: "Connaisseur", minXP: 5000, maxXP: 5999, color: "text-yellow-600", badge: "⭐" },
+  { level: 16, name: "Éminent", minXP: 6000, maxXP: 6999, color: "text-yellow-700", badge: "🌠" },
+  { level: 17, name: "Distingué", minXP: 7000, maxXP: 8299, color: "text-red-600", badge: "🔥" },
+  { level: 18, name: "Révéré", minXP: 8300, maxXP: 9599, color: "text-rose-600", badge: "💥" },
+  { level: 19, name: "Illustre", minXP: 9600, maxXP: 11199, color: "text-pink-600", badge: "🌸" },
+  { level: 20, name: "Vénérable", minXP: 11200, maxXP: 12999, color: "text-red-700", badge: "🏵️" },
+  { level: 21, name: "Légendaire", minXP: 13000, maxXP: 14999, color: "text-purple-700", badge: "👑" },
+  { level: 22, name: "Mythique", minXP: 15000, maxXP: 17499, color: "text-fuchsia-700", badge: "🎭" },
+  { level: 23, name: "Transcendant", minXP: 17500, maxXP: 19999, color: "text-violet-700", badge: "🌌" },
+  { level: 24, name: "Divin", minXP: 20000, maxXP: 23499, color: "text-indigo-800", badge: "🌠" },
+  { level: 25, name: "Éternel", minXP: 23500, maxXP: 26999, color: "text-blue-800", badge: "⚜️" },
+  { level: 26, name: "Céleste", minXP: 27000, maxXP: 30999, color: "text-sky-800", badge: "🌀" },
+  { level: 27, name: "Cosmique", minXP: 31000, maxXP: 35499, color: "text-cyan-800", badge: "🌊" },
+  { level: 28, name: "Universel", minXP: 35500, maxXP: 39999, color: "text-teal-800", badge: "🌍" },
+  { level: 29, name: "Infini", minXP: 40000, maxXP: 45999, color: "text-emerald-800", badge: "♾️" },
+  { level: 30, name: "Omniscient", minXP: 46000, maxXP: 52999, color: "text-lime-800", badge: "🧠" },
+  { level: 31, name: "Suprême", minXP: 53000, maxXP: 59999, color: "text-amber-800", badge: "🔱" },
+  { level: 32, name: "Ultime", minXP: 60000, maxXP: 74999, color: "text-orange-800", badge: "💎" },
+  { level: 33, name: "Absolu", minXP: 75000, maxXP: Infinity, color: "text-brand-600", badge: "🏆" }
 ];
 
 // Catégories de badges

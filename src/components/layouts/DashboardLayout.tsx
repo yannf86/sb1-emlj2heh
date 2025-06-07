@@ -22,7 +22,6 @@ import {
   Trophy,
   Truck,
   Wrench,
-  Building2, // Added Building2 icon
   BookMarked, // Added BookMarked icon for Logbook
   BookOpen, // Added BookOpen icon for Cahier de Consignes
 } from 'lucide-react';
@@ -127,7 +126,6 @@ const DashboardLayout = () => {
     { icon: <BarChart size={20} />, label: 'Statistiques', path: 'statistics', moduleId: 'mod7' },
     { icon: <Trophy size={20} />, label: 'Gamification', path: 'gamification', moduleId: 'mod10' },
     { icon: <Truck size={20} />, label: 'Fournisseurs', path: 'suppliers', moduleId: 'mod11' },
-    { icon: <Building2 size={20} />, label: 'Groupes', path: 'groups', moduleId: 'mod8' }, 
     { icon: <Settings size={20} />, label: 'Paramètres', path: 'settings', moduleId: 'mod8' },
     { icon: <Users size={20} />, label: 'Utilisateurs', path: 'users', moduleId: 'mod9' },
   ];
@@ -191,7 +189,7 @@ const DashboardLayout = () => {
                 onValueChange={handleGroupChange}
               >
                 <SelectTrigger>
-                  <Building2 className="mr-2 h-4 w-4" />
+                  <Building className="mr-2 h-4 w-4" />
                   <SelectValue placeholder="Tous les groupes" />
                 </SelectTrigger>
                 <SelectContent>
@@ -319,7 +317,7 @@ const DashboardLayout = () => {
                     onValueChange={handleGroupChange}
                   >
                     <SelectTrigger>
-                      <Building2 className="mr-2 h-4 w-4" />
+                      <Building className="mr-2 h-4 w-4" />
                       <SelectValue placeholder="Tous les groupes" />
                     </SelectTrigger>
                     <SelectContent>
@@ -426,7 +424,7 @@ const DashboardLayout = () => {
                   onValueChange={handleGroupChange}
                 >
                   <SelectTrigger className="w-[150px]">
-                    <Building2 className="mr-2 h-4 w-4" />
+                    <Building className="mr-2 h-4 w-4" />
                     <SelectValue placeholder="Groupe" />
                   </SelectTrigger>
                   <SelectContent>

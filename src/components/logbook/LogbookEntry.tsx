@@ -3,7 +3,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { formatDate } from '@/lib/utils';
-import { Check, MessageSquare, Edit, Trash2, Clock, AlertTriangle, User, Home, ChevronDown, ChevronUp } from 'lucide-react';
+import { Check, MessageSquare, Edit, Trash2, Clock, AlertTriangle, User, Home, ChevronDown, ChevronUp, Calendar } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 
@@ -12,6 +12,8 @@ interface LogbookEntryProps {
     id: string;
     date: string;
     time: string;
+    endDate?: string; // Date de fin optionnelle
+    displayRange?: boolean; // Indique si c'est une plage de dates
     serviceId: string;
     serviceName: string;
     serviceIcon: string;
@@ -76,6 +78,25 @@ const LogbookEntry: React.FC<LogbookEntryProps> = ({
       setComment('');
     }
   };
+
+  // Formater l'affichage de la date selon qu'il s'agisse d'une plage ou d'une date unique
+  const getDateDisplay = () => {
+    if (entry.displayRange && entry.endDate) {
+      return (
+        <div className="flex items-center">
+          <Calendar className="h-4 w-4 mr-1" />
+          <span>Du {formatDate(new Date(entry.date))} au {formatDate(new Date(entry.endDate))}</span>
+        </div>
+      );
+    } else {
+      return (
+        <div className="flex items-center">
+          <Clock className="h-4 w-4 mr-1" />
+          <span>{formatDate(new Date(entry.date))} à {entry.time}</span>
+        </div>
+      );
+    }
+  };
   
   return (
     <Card className={cn("mb-3 overflow-hidden", cardClass, {
@@ -111,7 +132,7 @@ const LogbookEntry: React.FC<LogbookEntryProps> = ({
               )}
             </div>
             <div className="text-xs text-muted-foreground">
-              {formatDate(new Date(entry.date))} à {entry.time}
+              {getDateDisplay()}
             </div>
           </div>
         </div>
