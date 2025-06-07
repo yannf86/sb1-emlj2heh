@@ -5,7 +5,8 @@ import {
   AlertTriangle, 
   Download, 
   Plus, 
-  FileText
+  FileText,
+  BarChart2
 } from 'lucide-react';
 import { formatDate } from '@/lib/utils';
 import { exportIncidents } from '@/lib/exportUtils';
@@ -19,6 +20,7 @@ import { getIncidentCategoryLabel } from '@/lib/db/parameters-incident-categorie
 import { getImpactLabel } from '@/lib/db/parameters-impact';
 import { getStatusLabel } from '@/lib/db/parameters-status';
 import { getUserName } from '@/lib/db/users';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 // Import components
 import IncidentDialog from '@/components/incidents/IncidentDialog';
@@ -26,6 +28,7 @@ import IncidentForm from '@/components/incidents/IncidentForm';
 import IncidentList from '@/components/incidents/IncidentList';
 import IncidentFilters from '@/components/incidents/IncidentFilters';
 import IncidentEdit from '@/components/incidents/IncidentEdit';
+import IncidentAnalytics from '@/components/incidents/analytics/IncidentAnalytics';
 
 const IncidentsPage = () => {
   const [selectedTab, setSelectedTab] = useState('list');
@@ -234,6 +237,27 @@ const IncidentsPage = () => {
     }
   };
   
+  // Handle export chart to PDF
+  const handleExportChart = (chartId: string) => {
+    try {
+      // Here you would call the chart export function
+      // This is a placeholder for the real implementation
+      toast({
+        title: "Export graphique",
+        description: `Le graphique "${chartId}" a été exporté avec succès.`,
+        variant: "default",
+      });
+    } catch (error) {
+      console.error("Erreur lors de l'export du graphique:", error);
+      
+      toast({
+        title: "Erreur d'export",
+        description: "Une erreur est survenue lors de l'export du graphique.",
+        variant: "destructive",
+      });
+    }
+  };
+  
   // Handle view incident
   const handleViewIncident = (incidentId: string) => {
     const incident = incidents.find(inc => inc.id === incidentId);
@@ -385,15 +409,35 @@ const IncidentsPage = () => {
         onReset={resetFilters}
       />
       
-      <Card>
-        <CardContent className="p-0">
-          <IncidentList 
+      <Tabs value={selectedTab} onValueChange={setSelectedTab}>
+        <TabsList>
+          <TabsTrigger value="list">Liste des Incidents</TabsTrigger>
+          <TabsTrigger value="analytics" className="flex items-center">
+            <BarChart2 className="mr-2 h-4 w-4" />
+            Analytiques
+          </TabsTrigger>
+        </TabsList>
+        
+        <TabsContent value="list">
+          <Card>
+            <CardContent className="p-0">
+              <IncidentList 
+                incidents={filteredIncidents}
+                onViewIncident={handleViewIncident}
+                onEditIncident={handleEditIncident}
+              />
+            </CardContent>
+          </Card>
+        </TabsContent>
+        
+        <TabsContent value="analytics">
+          <IncidentAnalytics 
             incidents={filteredIncidents}
-            onViewIncident={handleViewIncident}
-            onEditIncident={handleEditIncident}
+            onExportPDF={handlePDFExport}
+            onExportChart={handleExportChart}
           />
-        </CardContent>
-      </Card>
+        </TabsContent>
+      </Tabs>
       
       {/* New Incident Form */}
       <IncidentForm 

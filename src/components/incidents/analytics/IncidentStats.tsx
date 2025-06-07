@@ -9,11 +9,32 @@ interface IncidentStatsProps {
 
 const IncidentStats: React.FC<IncidentStatsProps> = ({ incidents }) => {
   // Calculate statistics
-  const openIncidents = incidents.filter(inc => ['stat1', 'stat2'].includes(inc.statusId)).length;
-  const resolvedIncidents = incidents.filter(inc => ['stat3', 'stat4'].includes(inc.statusId)).length;
-  const criticalIncidents = incidents.filter(inc => inc.impactId === 'imp4').length;
+  const openIncidents = incidents.filter(inc => 
+    inc.statusId === 'stat1' || 
+    inc.statusId === 'stat2' || 
+    inc.statusId === 'CZa3iy84r8pVqjVOQHNL'
+  ).length;
+  
+  const resolvedIncidents = incidents.filter(inc => 
+    inc.statusId === 'stat3' || 
+    inc.statusId === 'stat4' || 
+    inc.statusId === '3ElZmcduy3R8NUd1kuzn' ||
+    inc.statusId === 'JyK8HpAF5qwg39QbQeS1'
+  ).length;
+  
+  const criticalIncidents = incidents.filter(inc => 
+    inc.impactId === 'imp4' || 
+    inc.impactId === 'oqk3A0VC1Y2KxB3h0ba9' || // Très élevé
+    inc.impactId === 'KexNZn1snytEiVmv2kBH'    // Élevé
+  ).length;
+  
   const avgResolutionTime = incidents
-    .filter(inc => inc.statusId === 'stat3' || inc.statusId === 'stat4')
+    .filter(inc => 
+      inc.statusId === 'stat3' || 
+      inc.statusId === 'stat4' || 
+      inc.statusId === '3ElZmcduy3R8NUd1kuzn' || 
+      inc.statusId === 'JyK8HpAF5qwg39QbQeS1'
+    )
     .reduce((acc, inc) => {
       const createdDate = new Date(inc.createdAt);
       const updatedDate = new Date(inc.updatedAt);
@@ -28,7 +49,7 @@ const IncidentStats: React.FC<IncidentStatsProps> = ({ incidents }) => {
         </CardHeader>
         <CardContent>
           <div className="text-2xl font-bold">{openIncidents}</div>
-          <div className="flex items-center pt-1 text-xs text-muted-foreground">
+          <div className="flex items-center pt-1 text-xs text-charcoal-500 dark:text-cream-400">
             <span className="text-green-500 inline-flex items-center">
               {resolvedIncidents} résolus
               <ArrowUpRight className="ml-1 h-3 w-3" />
@@ -43,7 +64,7 @@ const IncidentStats: React.FC<IncidentStatsProps> = ({ incidents }) => {
         </CardHeader>
         <CardContent>
           <div className="text-2xl font-bold">{criticalIncidents}</div>
-          <div className="flex items-center pt-1 text-xs text-muted-foreground">
+          <div className="flex items-center pt-1 text-xs text-charcoal-500 dark:text-cream-400">
             <span className={criticalIncidents > 0 ? "text-red-500" : "text-green-500"}>
               {criticalIncidents > 0 ? "Nécessite attention" : "Aucun incident critique"}
             </span>
@@ -59,7 +80,7 @@ const IncidentStats: React.FC<IncidentStatsProps> = ({ incidents }) => {
           <div className="text-2xl font-bold">
             {((resolvedIncidents / (incidents.length || 1)) * 100).toFixed(1)}%
           </div>
-          <div className="flex items-center pt-1 text-xs text-muted-foreground">
+          <div className="flex items-center pt-1 text-xs text-charcoal-500 dark:text-cream-400">
             {resolvedIncidents} incidents résolus sur {incidents.length}
           </div>
         </CardContent>
@@ -71,7 +92,7 @@ const IncidentStats: React.FC<IncidentStatsProps> = ({ incidents }) => {
         </CardHeader>
         <CardContent>
           <div className="text-2xl font-bold">{avgResolutionTime.toFixed(1)}h</div>
-          <div className="flex items-center pt-1 text-xs text-muted-foreground">
+          <div className="flex items-center pt-1 text-xs text-charcoal-500 dark:text-cream-400">
             Moyenne sur {resolvedIncidents} incidents résolus
           </div>
         </CardContent>
