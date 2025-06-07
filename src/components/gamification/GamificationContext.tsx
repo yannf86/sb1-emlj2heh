@@ -1,14 +1,23 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { 
-  GamificationService, 
-  UserStats, 
   GamificationAction, 
   Badge, 
   Challenge,
-  BadgeCategory
+  BadgeCategory,
+  UserStats
 } from '@/lib/gamification';
 import { getCurrentUser } from '@/lib/auth';
 import { useToast } from '@/hooks/use-toast';
+import { 
+  FirebaseGamificationService,
+  getUserStats,
+  initializeOrGetUserStats,
+  updateUserStats,
+  getUserBadges,
+  getUserLevel,
+  getUserRank,
+  getUserChallenges
+} from '@/lib/firebase-gamification';
 
 type GamificationContextType = {
   userStats: UserStats | null;
@@ -19,11 +28,12 @@ type GamificationContextType = {
   challengeProgress: { [id: string]: number };
   recentBadges: Badge[];
   enabled: boolean;
+  loading: boolean;
   
-  performAction: (action: GamificationAction) => void;
+  performAction: (action: GamificationAction) => Promise<void>;
   clearRecentBadges: () => void;
   getBadgesByCategory: (category: BadgeCategory) => Badge[];
-  refreshStats: () => void;
+  refreshStats: () => Promise<void>;
 };
 
 const GamificationContext = createContext<GamificationContextType | undefined>(undefined);
@@ -37,6 +47,7 @@ export const GamificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
   const [challengeProgress, setChallengeProgress] = useState<{ [id: string]: number }>({});
   const [recentBadges, setRecentBadges] = useState<Badge[]>([]);
   const [enabled, setEnabled] = useState<boolean>(true);
+  const [loading, setLoading] = useState<boolean>(true);
   
   const { toast } = useToast();
   
@@ -53,22 +64,41 @@ export const GamificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
     }
   }, []);
   
-  // Initialise les statistiques de l'utilisateur
-  const refreshStats = () => {
+  // Initialize user stats when component mounts
+  const refreshStats = async () => {
     const currentUser = getCurrentUser();
-    if (currentUser) {
-      const stats = GamificationService.getStats(currentUser.id);
-      const userLevel = GamificationService.getLevel(currentUser.id);
-      const userRank = GamificationService.getRank(currentUser.id);
-      const userBadges = GamificationService.getBadges(currentUser.id);
-      const { challenges: userChallenges, progress } = GamificationService.getChallenges(currentUser.id);
+    if (!currentUser) {
+      setLoading(false);
+      return;
+    }
+
+    try {
+      setLoading(true);
       
+      // Get or initialize user stats
+      const stats = await initializeOrGetUserStats(currentUser.id);
       setUserStats(stats);
+      
+      // Get user level
+      const userLevel = await getUserLevel(currentUser.id);
       setLevel(userLevel);
+      
+      // Get user rank
+      const userRank = await getUserRank(currentUser.id);
       setRank(userRank);
+      
+      // Get user badges
+      const userBadges = await getUserBadges(currentUser.id);
       setBadges(userBadges);
+      
+      // Get user challenges
+      const { challenges: userChallenges, progress } = await getUserChallenges(currentUser.id);
       setChallenges(userChallenges);
       setChallengeProgress(progress);
+    } catch (error) {
+      console.error('Error initializing gamification stats:', error);
+    } finally {
+      setLoading(false);
     }
   };
   
@@ -76,62 +106,69 @@ export const GamificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
     refreshStats();
   }, []);
   
-  const performAction = (action: GamificationAction) => {
+  // Function to perform gamification actions
+  const performAction = async (action: GamificationAction) => {
     // If gamification is disabled, do nothing
     if (!enabled) return;
     
     const currentUser = getCurrentUser();
     if (!currentUser) return;
     
-    const userId = currentUser.id;
-    const { newStats, xpGained, newBadges } = GamificationService.updateStats(userId, action);
-    
-    // Mettre à jour l'état
-    setUserStats(newStats);
-    setLevel(GamificationService.getLevel(userId));
-    setRank(GamificationService.getRank(userId));
-    setBadges(GamificationService.getBadges(userId));
-    
-    const { challenges: userChallenges, progress } = GamificationService.getChallenges(userId);
-    setChallenges(userChallenges);
-    setChallengeProgress(progress);
-    
-    // Gérer les nouveaux badges
-    if (newBadges.length > 0) {
-      setRecentBadges(newBadges);
+    try {
+      const userId = currentUser.id;
+      const { newStats, xpGained, newBadges } = await updateUserStats(userId, action);
       
-      // Afficher un toast pour chaque nouveau badge
-      newBadges.forEach(badge => {
-        toast({
-          title: `Nouveau badge débloqué: ${badge.icon} ${badge.name}`,
-          description: badge.description,
-          variant: "default",
-        });
-      });
-    }
-    
-    // Afficher les points XP gagnés
-    if (xpGained > 0) {
-      toast({
-        title: `+${xpGained} points XP`,
-        description: `Tu as gagné ${xpGained} points d'expérience !`,
-        variant: "default",
-      });
-    }
-    
-    // Vérifier les défis complétés
-    userChallenges.forEach(challenge => {
-      if (challenge.condition(newStats) && !challenge.condition(userStats!)) {
-        toast({
-          title: `Défi complété: ${challenge.icon} ${challenge.title}`,
-          description: `Tu as gagné ${challenge.xpReward} points XP !`,
-          variant: "default",
-        });
+      // Update the state with new values
+      setUserStats(newStats);
+      setLevel(await getUserLevel(userId));
+      setRank(await getUserRank(userId));
+      setBadges(await getUserBadges(userId));
+      
+      // Update challenges
+      const { challenges: userChallenges, progress } = await getUserChallenges(userId);
+      setChallenges(userChallenges);
+      setChallengeProgress(progress);
+      
+      // Handle new badges
+      if (newBadges.length > 0) {
+        setRecentBadges(newBadges);
         
-        // Ajouter les points XP du défi
-        performAction({ type: 'COMPLETE_WEEKLY_GOAL' });
+        // Show toast for each new badge
+        newBadges.forEach(badge => {
+          toast({
+            title: `Nouveau badge débloqué: ${badge.icon} ${badge.name}`,
+            description: badge.description,
+            variant: "default",
+          });
+        });
       }
-    });
+      
+      // Show XP gained toast if there are points earned
+      if (xpGained > 0) {
+        toast({
+          title: `+${xpGained} points XP`,
+          description: `Tu as gagné ${xpGained} points d'expérience !`,
+          variant: "default",
+        });
+      }
+      
+      // Check for completed challenges
+      userChallenges.forEach(challenge => {
+        if (challenge.condition(newStats) && 
+            (!userStats || !challenge.condition(userStats))) {
+          toast({
+            title: `Défi complété: ${challenge.icon} ${challenge.title}`,
+            description: `Tu as gagné ${challenge.xpReward} points XP !`,
+            variant: "default",
+          });
+          
+          // Add the points from the challenge
+          performAction({ type: 'COMPLETE_WEEKLY_GOAL' });
+        }
+      });
+    } catch (error) {
+      console.error('Error performing gamification action:', error);
+    }
   };
   
   const clearRecentBadges = () => {
@@ -142,23 +179,25 @@ export const GamificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
     return badges.filter(badge => badge.category === category);
   };
   
+  const contextValue = {
+    userStats,
+    level,
+    rank,
+    badges,
+    challenges,
+    challengeProgress,
+    recentBadges,
+    enabled,
+    loading,
+    
+    performAction,
+    clearRecentBadges,
+    getBadgesByCategory,
+    refreshStats
+  };
+  
   return (
-    <GamificationContext.Provider
-      value={{
-        userStats,
-        level,
-        rank,
-        badges,
-        challenges,
-        challengeProgress,
-        recentBadges,
-        enabled,
-        performAction,
-        clearRecentBadges,
-        getBadgesByCategory,
-        refreshStats
-      }}
-    >
+    <GamificationContext.Provider value={contextValue}>
       {children}
     </GamificationContext.Provider>
   );

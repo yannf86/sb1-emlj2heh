@@ -21,10 +21,15 @@ import {
   Sun,
   Trophy,
   Truck,
-  Wrench
+  Wrench,
+  Building2, // Added Building2 icon
+  BookMarked, // Added BookMarked icon for Logbook
+  BookOpen, // Added BookOpen icon for Cahier de Consignes
 } from 'lucide-react';
 import { getCurrentUser, logout, resetInactivityTimer } from '@/lib/auth';
 import { modules, hotels } from '@/lib/data';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { getGroups } from '@/lib/db/groups';
 
 // Gamification
 import { GamificationProvider } from '@/components/gamification/GamificationContext';
@@ -51,6 +56,8 @@ const DashboardLayout = () => {
   const [darkMode, setDarkMode] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [gamificationOpen, setGamificationOpen] = useState(false);
+  const [selectedGroup, setSelectedGroup] = useState<string | null>(null);
+  const [availableGroups, setAvailableGroups] = useState<any[]>([]);
   const location = useLocation();
   const navigate = useNavigate();
   const currentUser = getCurrentUser();
@@ -83,12 +90,34 @@ const DashboardLayout = () => {
     }
   }, [darkMode]);
   
+  // Load available groups
+  useEffect(() => {
+    const loadGroups = async () => {
+      try {
+        const groups = await getGroups();
+        setAvailableGroups(groups);
+        
+        // Set default group if user has access to exactly one group
+        if (groups.length === 1) {
+          setSelectedGroup(groups[0].id);
+        }
+      } catch (error) {
+        console.error('Error loading groups:', error);
+      }
+    };
+    
+    if (currentUser) {
+      loadGroups();
+    }
+  }, [currentUser]);
+  
   // Get current path without leading slash
   const currentPath = location.pathname.substring(1);
   
   // Array of navigation items
   const navItems = [
     { icon: <LayoutDashboard size={20} />, label: 'Tableau de Bord', path: 'dashboard', moduleId: 'mod1' },
+    { icon: <BookOpen size={20} />, label: 'Cahier de Consignes', path: 'logbook', moduleId: 'mod12' }, // Module Cahier de Consignes
     { icon: <AlertTriangle size={20} />, label: 'Suivi Incidents', path: 'incidents', moduleId: 'mod2' },
     { icon: <Tool size={20} />, label: 'Suivi Technique', path: 'maintenance', moduleId: 'mod3' },
     { icon: <Wrench size={20} />, label: 'Techniciens', path: 'technicians', moduleId: 'mod9' },
@@ -98,6 +127,7 @@ const DashboardLayout = () => {
     { icon: <BarChart size={20} />, label: 'Statistiques', path: 'statistics', moduleId: 'mod7' },
     { icon: <Trophy size={20} />, label: 'Gamification', path: 'gamification', moduleId: 'mod10' },
     { icon: <Truck size={20} />, label: 'Fournisseurs', path: 'suppliers', moduleId: 'mod11' },
+    { icon: <Building2 size={20} />, label: 'Groupes', path: 'groups', moduleId: 'mod8' }, 
     { icon: <Settings size={20} />, label: 'Paramètres', path: 'settings', moduleId: 'mod8' },
     { icon: <Users size={20} />, label: 'Utilisateurs', path: 'users', moduleId: 'mod9' },
   ];
@@ -126,6 +156,12 @@ const DashboardLayout = () => {
     
     return (nameParts[0].charAt(0) + nameParts[1].charAt(0)).toUpperCase();
   };
+
+  // Handle group change
+  const handleGroupChange = (groupId: string) => {
+    setSelectedGroup(groupId === 'all' ? null : groupId);
+    // You might want to refresh data based on selected group
+  };
   
   return (
     <GamificationProvider>
@@ -147,6 +183,27 @@ const DashboardLayout = () => {
             </Button>
           </div>
           
+          {/* Group Selector (when not collapsed) */}
+          {!collapsed && availableGroups.length > 0 && (
+            <div className="p-4 border-b border-cream-200 dark:border-charcoal-700">
+              <Select 
+                value={selectedGroup || 'all'}
+                onValueChange={handleGroupChange}
+              >
+                <SelectTrigger>
+                  <Building2 className="mr-2 h-4 w-4" />
+                  <SelectValue placeholder="Tous les groupes" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Tous les groupes</SelectItem>
+                  {availableGroups.map(group => (
+                    <SelectItem key={group.id} value={group.id}>{group.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+          
           {/* User Info */}
           <div className={cn(
             "p-4 border-b border-cream-200 dark:border-charcoal-700",
@@ -165,7 +222,10 @@ const DashboardLayout = () => {
               <div className="flex flex-col">
                 <span className="font-medium dark:text-white">{currentUser?.name}</span>
                 <span className="text-xs text-charcoal-500 dark:text-cream-300">
-                  {currentUser?.role === 'admin' ? 'Administrateur' : 'Utilisateur'}
+                  {currentUser?.role === 'admin' ? 'Administrateur' : 
+                   currentUser?.role === 'group_admin' ? 'Admin de Groupe' :
+                   currentUser?.role === 'hotel_admin' ? 'Admin d\'Hôtel' :
+                   'Utilisateur'}
                 </span>
                 {!collapsed && (
                   <Button 
@@ -251,21 +311,48 @@ const DashboardLayout = () => {
                 </Button>
               </div>
               
+              {/* Group Selector (Mobile) */}
+              {availableGroups.length > 0 && (
+                <div className="mb-4">
+                  <Select 
+                    value={selectedGroup || 'all'}
+                    onValueChange={handleGroupChange}
+                  >
+                    <SelectTrigger>
+                      <Building2 className="mr-2 h-4 w-4" />
+                      <SelectValue placeholder="Tous les groupes" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">Tous les groupes</SelectItem>
+                      {availableGroups.map(group => (
+                        <SelectItem key={group.id} value={group.id}>{group.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+              
               {/* User Info */}
-              <div className="p-4 border-b border-cream-200 dark:border-charcoal-700 flex items-center space-x-3 mb-4">
+              <div className="flex items-center px-4 py-6 border-b border-cream-200 dark:border-charcoal-700">
                 <div className="relative">
-                  <Avatar onClick={() => setGamificationOpen(true)} className="cursor-pointer hover:ring-2 hover:ring-brand-300 transition-all">
+                  <Avatar onClick={() => {
+                    setMobileMenuOpen(false);
+                    setGamificationOpen(true);
+                  }} className="cursor-pointer">
                     <AvatarFallback className="bg-brand-500 text-white">
                       {getUserInitials()}
                     </AvatarFallback>
                   </Avatar>
                   <UserLevelBadge />
                 </div>
-                <div className="flex flex-col">
-                  <span className="font-medium dark:text-white">{currentUser?.name}</span>
-                  <span className="text-xs text-charcoal-500 dark:text-cream-300">
-                    {currentUser?.role === 'admin' ? 'Administrateur' : 'Utilisateur'}
-                  </span>
+                <div className="ml-3">
+                  <div className="font-medium">{currentUser?.name}</div>
+                  <div className="text-xs text-brand-500 dark:text-brand-300">
+                    {currentUser?.role === 'admin' ? 'Administrateur' : 
+                     currentUser?.role === 'group_admin' ? 'Admin de Groupe' :
+                     currentUser?.role === 'hotel_admin' ? 'Admin d\'Hôtel' :
+                     'Utilisateur'}
+                  </div>
                   <Button
                     variant="ghost"
                     size="sm"
@@ -281,54 +368,31 @@ const DashboardLayout = () => {
               </div>
               
               {/* Mobile Navigation */}
-              <nav className="flex-1 overflow-y-auto">
-                <ul className="space-y-2">
+              <nav className="mt-5 flex-1 overflow-y-auto">
+                <ul className="space-y-1">
                   {filteredNavItems.map((item) => (
-                    <li key={item.path}>
-                      <Link 
-                        to={`/${item.path}`} 
-                        className={cn(
-                          "flex items-center rounded-md px-3 py-2 text-sm font-medium transition-colors",
-                          currentPath === item.path ? 
-                            "bg-brand-100 text-brand-600 dark:bg-charcoal-800 dark:text-brand-400" : 
-                            "text-charcoal-700 hover:bg-cream-100 hover:text-brand-600 dark:text-cream-300 dark:hover:bg-charcoal-800 dark:hover:text-brand-400"
-                        )}
-                        onClick={() => setMobileMenuOpen(false)}
-                      >
-                        <span className="flex-none">{item.icon}</span>
-                        <span className="ml-3">{item.label}</span>
-                      </Link>
-                    </li>
+                    <Link 
+                      key={item.path} 
+                      to={`/${item.path}`}
+                      className={cn(
+                        "group flex items-center px-2 py-2 text-base font-medium rounded-md hover:bg-cream-100 hover:text-brand-600 dark:hover:bg-charcoal-800 dark:hover:text-brand-400",
+                        currentPath === item.path ? 
+                          "bg-brand-100 text-brand-600 dark:bg-charcoal-800 dark:text-brand-400" : 
+                          "text-charcoal-700 dark:text-cream-300"
+                      )}
+                      onClick={() => setMobileMenuOpen(false)}
+                    >
+                      {item.icon}
+                      <span className="ml-3">{item.label}</span>
+                    </Link>
                   ))}
                 </ul>
               </nav>
               
               {/* Mobile Menu Footer */}
-              <div className="mt-auto pt-4 border-t border-cream-200 dark:border-charcoal-700 space-y-2">
-                {/* Dark Mode Toggle */}
-                <Button
-                  variant="outline"
-                  size="default"
-                  onClick={() => setDarkMode(!darkMode)}
-                  className="w-full"
-                >
-                  {darkMode ? (
-                    <>
-                      <Sun size={18} className="mr-2" />
-                      Mode Clair
-                    </>
-                  ) : (
-                    <>
-                      <Moon size={18} className="mr-2" />
-                      Mode Sombre
-                    </>
-                  )}
-                </Button>
-                
-                {/* Logout Button */}
+              <div className="p-4 border-t border-cream-200 dark:border-charcoal-700">
                 <Button
                   variant="ghost"
-                  size="default"
                   onClick={handleLogout}
                   className="w-full text-red-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950 dark:hover:text-red-400"
                 >
@@ -353,6 +417,27 @@ const DashboardLayout = () => {
             >
               <Menu className="h-5 w-5" />
             </Button>
+            
+            {/* Group Selector (Mobile Compact) */}
+            {availableGroups.length > 0 && (
+              <div className="md:hidden">
+                <Select 
+                  value={selectedGroup || 'all'}
+                  onValueChange={handleGroupChange}
+                >
+                  <SelectTrigger className="w-[150px]">
+                    <Building2 className="mr-2 h-4 w-4" />
+                    <SelectValue placeholder="Groupe" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Tous les groupes</SelectItem>
+                    {availableGroups.map(group => (
+                      <SelectItem key={group.id} value={group.id}>{group.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
             
             {/* Trophy Button (Mobile) */}
             <Button

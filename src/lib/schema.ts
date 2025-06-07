@@ -22,13 +22,28 @@ interface AuditLog extends BaseDocument {
   timestamp: string;
 }
 
+// Group related types
+interface Group extends BaseDocument {
+  name: string;
+  description?: string;
+  userIds: string[];  // Users who have access to this group
+  logoUrl?: string;
+  contactInfo?: {
+    name?: string;
+    email?: string;
+    phone?: string;
+  };
+  metadata?: Record<string, any>;
+}
+
 // User related types
 interface User extends BaseDocument {
   name: string;
   email: string;
-  role: 'admin' | 'standard';
+  role: 'admin' | 'group_admin' | 'hotel_admin' | 'standard'; // Added group_admin role
   hotels: string[];
   modules: string[];
+  groupIds: string[]; // Groups the user belongs to
   active: boolean;
   lastLogin?: string;
   preferences?: {
@@ -56,6 +71,7 @@ interface Hotel extends BaseDocument {
   city: string;
   country: string;
   imageUrl: string;
+  groupId: string; // The group this hotel belongs to
   availableLocations?: string[];
   availableRoomTypes?: string[];
   settings?: {
@@ -86,6 +102,7 @@ interface Incident extends BaseDocument {
   date: string;
   time: string;
   hotelId: string;
+  groupId: string; // The group this incident belongs to
   locationId: string;
   roomType?: string;
   clientName?: string;
@@ -127,11 +144,13 @@ interface Maintenance extends BaseDocument {
   date: string;
   time: string;
   hotelId: string;
+  groupId: string; // The group this maintenance belongs to
   locationId: string;
   interventionTypeId: string;
   description: string;
   receivedById: string;
   technicianId?: string;
+  technicianIds?: string[];
   statusId: string;
   estimatedAmount?: number;
   finalAmount?: number;
@@ -146,6 +165,14 @@ interface Maintenance extends BaseDocument {
     acceptedDate?: string;
     acceptedById?: string;
   };
+  quoteUrl?: string;
+  quoteAmount?: number;
+  quoteStatus?: 'pending' | 'accepted' | 'rejected';
+  quoteAccepted?: boolean;
+  quoteAcceptedDate?: string;
+  quoteAcceptedById?: string;
+  quoteSubmitted?: boolean;
+  quotes?: MaintenanceQuote[];
   parts?: {
     name: string;
     quantity: number;
@@ -158,6 +185,26 @@ interface Maintenance extends BaseDocument {
     action: string;
     details: any;
   }[];
+  emailsSent?: { [key: string]: boolean };
+}
+
+interface MaintenanceQuote {
+  technicianId: string;
+  amount: number;
+  url: string;
+  status: 'pending' | 'accepted' | 'rejected' | 'negotiating';
+  comments?: string;
+  statusComments?: string;
+  createdAt: string;
+  createdBy: string;
+  statusUpdatedAt?: string;
+  statusUpdatedBy?: string;
+  negotiationHistory?: {
+    timestamp: string;
+    userId: string;
+    message: string;
+    amount?: number;
+  }[];
 }
 
 // Quality related types
@@ -166,6 +213,7 @@ interface QualityVisit extends BaseDocument {
   startTime: string;
   endTime: string;
   hotelId: string;
+  groupId: string; // The group this quality visit belongs to
   visitorId: string;
   localReferentId?: string;
   visitTypeId: string;
@@ -197,6 +245,7 @@ interface LostItem extends BaseDocument {
   date: string;
   time: string;
   hotelId: string;
+  groupId: string; // The group this lost item belongs to
   locationId: string;
   description: string;
   itemTypeId: string;
@@ -221,6 +270,7 @@ interface Procedure extends BaseDocument {
   fileUrl: string;
   moduleId: string;
   hotelIds: string[];
+  groupIds: string[]; // The groups this procedure belongs to
   typeId: string;
   serviceId: string;
   assignedUserIds: string[];
@@ -259,6 +309,7 @@ interface Supplier extends BaseDocument {
   website?: string;
   active: boolean;
   hotelIds: string[];
+  groupIds: string[]; // The groups this supplier belongs to
   contacts?: {
     name: string;
     role: string;
@@ -357,21 +408,43 @@ interface Challenge extends BaseDocument {
   }[];
 }
 
+// Technician related types
+interface Technician {
+  id: string;
+  name: string;
+  email: string;
+  phone: string;
+  company?: string;
+  specialties: string[];
+  hourlyRate?: number;
+  hotels: string[];
+  groupIds: string[]; // The groups this technician belongs to
+  available: boolean;
+  active: boolean;
+  rating?: number;
+  completedJobs?: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
 // Export all types
 export type {
   BaseDocument,
   AuditLog,
+  Group,
   User,
   UserActivity,
   Hotel,
   Parameter,
   Incident,
   Maintenance,
+  MaintenanceQuote,
   QualityVisit,
   LostItem,
   Procedure,
   Supplier,
   UserStats,
   Badge,
-  Challenge
+  Challenge,
+  Technician
 };

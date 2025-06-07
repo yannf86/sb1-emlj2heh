@@ -1,0 +1,15 @@
+{
+  "$schema": "https://unpkg.com/knip@5/schema.json",
+  "entry": ["src/main.tsx", "src/index.html"],
+  "project": ["src/**/*.{ts,tsx}"],
+  "ignore": ["**/*.d.ts", "node_modules", "dist"],
+  "ignoreExportsUsedInFile": true,
+  "ignoreDependencies": [
+    "jspdf-autotable",
+    "@uploadthing/react",
+    "@sendgrid/mail",
+    "vaul",
+    "archiver",
+    "uploadthing"
+  ]
+}

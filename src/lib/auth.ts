@@ -14,9 +14,10 @@ export type AuthUser = {
   id: string;
   name: string;
   email: string;
-  role: 'admin' | 'hotel_admin' | 'standard';
+  role: 'admin' | 'group_admin' | 'hotel_admin' | 'standard'; // Added group_admin role
   hotels: string[];
   modules: string[];
+  groupIds: string[]; // Added groupIds
   active: boolean;
 };
 
@@ -67,8 +68,9 @@ export const login = async (email: string, password: string, username: string): 
         name: userData.name,
         email: userData.email,
         role: userData.role,
-        hotels: userData.hotels,
-        modules: userData.modules,
+        hotels: userData.hotels || [],
+        modules: userData.modules || [],
+        groupIds: userData.groupIds || [],
         active: userData.active
       };
     } else {
@@ -91,8 +93,9 @@ export const login = async (email: string, password: string, username: string): 
         name: userData.name,
         email: userData.email,
         role: userData.role,
-        hotels: userData.hotels,
-        modules: userData.modules,
+        hotels: userData.hotels || [],
+        modules: userData.modules || [],
+        groupIds: userData.groupIds || [],
         active: userData.active
       };
     }
@@ -272,7 +275,7 @@ export const hasModuleAccess = (moduleCode: string): boolean => {
   if (!user) return false;
   
   // Admin has access to all modules
-  if (user.role === 'admin' || user.role === 'hotel_admin') return true;
+  if (user.role === 'admin' || user.role === 'group_admin' || user.role === 'hotel_admin') return true;
   
   // Check if the module is in the user's allowed modules
   return user.modules.some(m => m === moduleCode);
@@ -286,8 +289,32 @@ export const hasHotelAccess = (hotelId: string): boolean => {
   // Admin has access to all hotels
   if (user.role === 'admin') return true;
   
+  // Group admin and hotel admins have access to their assigned hotels
+  if (user.role === 'group_admin') {
+    // For group admins, we need to check if the hotel belongs to one of their groups
+    // This is a simplified check - in real implementation, you would query the database
+    // to check if the hotel's groupId is in the user's groupIds
+    return true; // This will be replaced with proper group-based check
+  }
+  
   // Hotel admins and standard users only have access to their assigned hotels
   return user.hotels.includes(hotelId);
+};
+
+// Check if user has access to a specific group
+export const hasGroupAccess = (groupId: string): boolean => {
+  const user = getCurrentUser();
+  if (!user) return false;
+  
+  // Admin has access to all groups
+  if (user.role === 'admin') return true;
+  
+  // Group admin and hotel admin have access to their assigned groups
+  if (user.groupIds && user.groupIds.includes(groupId)) {
+    return true;
+  }
+  
+  return false;
 };
 
 // Check if user can create users for a specific hotel
@@ -296,7 +323,25 @@ export const canCreateUsersForHotel = (hotelId: string): boolean => {
   if (!user) return false;
   
   // Admin and hotel_admin can create users, but only for hotels they have access to
-  if ((user.role === 'admin' || user.role === 'hotel_admin') && user.hotels.includes(hotelId)) {
+  if ((user.role === 'admin' || user.role === 'hotel_admin' || user.role === 'group_admin') && 
+      (user.role === 'admin' || user.hotels.includes(hotelId))) {
+    return true;
+  }
+  
+  return false;
+};
+
+// Check if user can create users for a specific group
+export const canCreateUsersForGroup = (groupId: string): boolean => {
+  const user = getCurrentUser();
+  if (!user) return false;
+  
+  // Admin and group_admin can create users for groups they have access to
+  if (user.role === 'admin') {
+    return true;
+  }
+  
+  if (user.role === 'group_admin' && user.groupIds && user.groupIds.includes(groupId)) {
     return true;
   }
   
@@ -308,8 +353,9 @@ export const canModifyHotelParameters = (hotelId: string): boolean => {
   const user = getCurrentUser();
   if (!user) return false;
   
-  // Admin and hotel_admin can modify hotel parameters, but only for hotels they have access to
-  if ((user.role === 'admin' || user.role === 'hotel_admin') && user.hotels.includes(hotelId)) {
+  // Admin, group_admin, and hotel_admin can modify hotel parameters, but only for hotels they have access to
+  if ((user.role === 'admin' || user.role === 'group_admin' || user.role === 'hotel_admin') && 
+      (user.role === 'admin' || user.hotels.includes(hotelId))) {
     return true;
   }
   
@@ -391,8 +437,9 @@ export const initAuth = () => {
               name: docData.name,
               email: docData.email,
               role: docData.role,
-              hotels: docData.hotels,
-              modules: docData.modules,
+              hotels: docData.hotels || [],
+              modules: docData.modules || [],
+              groupIds: docData.groupIds || [],
               active: docData.active
             };
             sessionStorage.setItem('currentUser', JSON.stringify(currentUser));

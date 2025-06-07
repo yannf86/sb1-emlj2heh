@@ -11,7 +11,7 @@ import { getHotelIncidentCategories } from '@/lib/db/hotel-incident-categories';
 import { getIncidentCategoryParameters } from '@/lib/db/parameters-incident-categories';
 import { getImpactParameters } from '@/lib/db/parameters-impact';
 import { getStatusParameters } from '@/lib/db/parameters-status';
-import { getBookingOriginParameters } from '@/lib/db/parameters-booking-origin';
+import { getBookingOriginParameters } from '@/lib/db/parameters-booking-origins';
 import { getResolutionTypeParameters } from '@/lib/db/parameters-resolution-type';
 import { getClientSatisfactionParameters } from '@/lib/db/parameters-client-satisfaction';
 import { getCurrentUser } from '@/lib/auth';
@@ -638,7 +638,7 @@ const IncidentForm: React.FC<IncidentFormProps> = ({
                   {loadingLocations ? (
                     <SelectItem value="loading\" disabled>Chargement...</SelectItem>
                   ) : locations.length === 0 ? (
-                    <SelectItem value="none" disabled>Aucun lieu disponible pour cet hôtel</SelectItem>
+                    <SelectItem value="none\" disabled>Aucun lieu disponible pour cet hôtel</SelectItem>
                   ) : (
                     locations
                       .filter(location => location.id && location.id !== '')
@@ -671,7 +671,7 @@ const IncidentForm: React.FC<IncidentFormProps> = ({
                   {loadingCategories ? (
                     <SelectItem value="loading\" disabled>Chargement des catégories...</SelectItem>
                   ) : categories.length === 0 ? (
-                    <SelectItem value="none" disabled>Aucune catégorie disponible</SelectItem>
+                    <SelectItem value="none\" disabled>Aucune catégorie disponible</SelectItem>
                   ) : (
                     categories
                       .filter(category => category.id && category.id !== '')
@@ -854,7 +854,7 @@ const IncidentForm: React.FC<IncidentFormProps> = ({
                   {loadingUsers ? (
                     <SelectItem value="loading\" disabled>Chargement des utilisateurs...</SelectItem>
                   ) : filteredUsers.length === 0 ? (
-                    <SelectItem value="none" disabled>Aucun utilisateur disponible</SelectItem>
+                    <SelectItem value="none\" disabled>Aucun utilisateur disponible</SelectItem>
                   ) : (
                     filteredUsers
                       .filter(user => user.id && user.id !== '')

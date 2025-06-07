@@ -21,6 +21,7 @@ import GamificationPage from './pages/GamificationPage';
 import GamificationConfigPage from './pages/GamificationConfigPage';
 import SuppliersPage from './pages/SuppliersPage';
 import TechniciansPage from './pages/TechniciansPage';
+import LogbookPage from './pages/LogbookPage'; 
 
 // Technician pages
 import TechnicianDashboard from './pages/technician/TechnicianDashboard';
@@ -82,7 +83,7 @@ const ProtectedRoute = ({ moduleCode, children }: ProtectedRouteProps) => {
   }
   
   if (moduleCode && !hasModuleAccess(moduleCode)) {
-    return <Navigate to="/dashboard" replace />;
+    return <Navigate to="/dashboard\" replace />;
   }
   
   return <>{children}</>;
@@ -138,7 +139,7 @@ function App() {
     <QueryClientProvider client={queryClient}>
       <ToastProvider>
         {!isOnline && (
-          <Alert variant="destructive" className="fixed top-0 left-0 right-0 z-50 flex justify-center">
+          <Alert variant="destructive\" className="fixed top-0 left-0 right-0 z-50 flex justify-center">
             <WifiOff className="h-4 w-4 mr-2" />
             <AlertDescription>
               Connexion internet perdue. Application en mode hors ligne.
@@ -155,12 +156,12 @@ function App() {
                 <TechnicianLayout />
               </TechnicianProtectedRoute>
             }>
-              <Route index element={<Navigate to="/technician/dashboard" replace />} />
+              <Route index element={<Navigate to="/technician/dashboard\" replace />} />
               <Route path="dashboard" element={<TechnicianDashboard />} />
               <Route path="quote-requests" element={<TechnicianQuoteRequests />} />
               <Route path="settings" element={<TechnicianSettings />} />
               {/* Add other technician pages here */}
-              <Route path="*" element={<Navigate to="/technician/dashboard" replace />} />
+              <Route path="*" element={<Navigate to="/technician/dashboard\" replace />} />
             </Route>
             
             <Route path="/" element={
@@ -168,11 +169,17 @@ function App() {
                 <DashboardLayout />
               </ProtectedRoute>
             }>
-              <Route index element={<Navigate to="/dashboard" replace />} />
+              <Route index element={<Navigate to="/dashboard\" replace />} />
               
               <Route path="dashboard" element={
                 <ProtectedRoute moduleCode="mod1">
                   <DashboardPage />
+                </ProtectedRoute>
+              } />
+              
+              <Route path="logbook" element={
+                <ProtectedRoute moduleCode="mod12">
+                  <LogbookPage />
                 </ProtectedRoute>
               } />
               

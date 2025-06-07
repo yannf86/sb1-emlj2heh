@@ -8,7 +8,7 @@ import { getIncidentCategoryLabel } from '@/lib/db/parameters-incident-categorie
 import { getImpactLabel } from '@/lib/db/parameters-impact';
 import { getStatusLabel } from '@/lib/db/parameters-status';
 import { getUserName } from '@/lib/db/users';
-import { getBookingOriginLabel } from '@/lib/db/parameters-booking-origin';
+import { getBookingOriginLabel } from '@/lib/db/parameters-booking-origins';
 import { getResolutionTypeLabel } from '@/lib/db/parameters-resolution-type';
 import { getClientSatisfactionLabel } from '@/lib/db/parameters-client-satisfaction';
 import { getCurrentUser } from '@/lib/auth';

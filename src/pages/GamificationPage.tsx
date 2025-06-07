@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Award, BarChart, BadgeCheck, Crown, Target } from 'lucide-react';
@@ -9,15 +9,37 @@ import WeeklyChallenges from '@/components/gamification/WeeklyChallenges';
 import Leaderboard from '@/components/gamification/Leaderboard';
 import BadgesGallery from '@/components/gamification/BadgesGallery';
 import RecentBadgeToast from '@/components/gamification/RecentBadgeToast';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Loader2 } from 'lucide-react';
 
 // Wrapper component to use hooks
 const GamificationContent = () => {
-  const { performAction } = useGamification();
+  const { performAction, loading } = useGamification();
+  const [hasTriggeredLogin, setHasTriggeredLogin] = useState(false);
   
-  // Déclencher l'action de login uniquement dans la page Gamification
+  // Déclencher l'action de login une seule fois par session
   useEffect(() => {
-    performAction({ type: 'LOGIN' });
-  }, [performAction]);
+    const hasLoggedToday = sessionStorage.getItem('gamification_logged_today');
+    
+    if (!hasLoggedToday && !hasTriggeredLogin) {
+      performAction({ type: 'LOGIN' });
+      // Marquer comme connecté aujourd'hui dans la session
+      sessionStorage.setItem('gamification_logged_today', new Date().toISOString());
+      setHasTriggeredLogin(true);
+    }
+  }, [performAction, hasTriggeredLogin]);
+  
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <div className="text-center">
+          <Loader2 className="h-8 w-8 animate-spin mx-auto mb-4 text-brand-500" />
+          <p className="text-lg font-medium">Chargement de vos données de gamification...</p>
+          <p className="text-sm text-muted-foreground mt-2">Veuillez patienter pendant que nous récupérons vos statistiques et badges.</p>
+        </div>
+      </div>
+    );
+  }
   
   return (
     <div className="space-y-6">

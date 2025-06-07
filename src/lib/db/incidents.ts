@@ -1,12 +1,13 @@
 import { collection, addDoc, getDocs, query, where, orderBy, deleteDoc, doc, getDoc, updateDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import type { Incident } from '../schema';
-import { getCurrentUser } from '../auth';
+import { getCurrentUser, hasHotelAccess, hasGroupAccess } from '../auth';
 import { deleteFile } from './file-upload';
 import { uploadToSupabase, isDataUrl, dataUrlToFile, deleteFromSupabase } from '../supabase';
+import { getGroupIdForHotel } from './hotels';
 
 // Get all incidents
-export const getIncidents = async (hotelId?: string) => {
+export const getIncidents = async (hotelId?: string, groupId?: string) => {
   try {
     const currentUser = getCurrentUser();
     
@@ -25,14 +26,42 @@ export const getIncidents = async (hotelId?: string) => {
     let q;
     
     // Build query based on user role and filter parameters
+    if (groupId && currentUser.role !== 'admin' && !hasGroupAccess(groupId)) {
+      console.warn(`User ${currentUser.id} does not have access to group ${groupId}`);
+      return []; // Return empty array for unauthorized group access
+    }
+    
     if (hotelId) {
       // If hotelId is provided, filter by it
       // Check if user has access to this hotel
-      if (!currentUser.hotels.includes(hotelId)) {
+      if (!hasHotelAccess(hotelId)) {
         console.warn(`User ${currentUser.id} does not have access to hotel ${hotelId}`);
         return []; // Return empty array for unauthorized hotel access
       }
       q = query(collection(db, 'incidents'), where('hotelId', '==', hotelId));
+    } else if (groupId) {
+      // If groupId is provided, filter by it
+      q = query(collection(db, 'incidents'), where('groupId', '==', groupId));
+    } else if (currentUser.role === 'admin') {
+      // Admin gets all incidents
+      q = query(collection(db, 'incidents'));
+    } else if (currentUser.role === 'group_admin' && currentUser.groupIds && currentUser.groupIds.length > 0) {
+      // Group admins get incidents from their groups
+      if (currentUser.groupIds.length === 1) {
+        q = query(collection(db, 'incidents'), where('groupId', '==', currentUser.groupIds[0]));
+      } else {
+        // For multiple groups, we need separate queries
+        const results = [];
+        for (const groupId of currentUser.groupIds) {
+          const groupQuery = query(collection(db, 'incidents'), where('groupId', '==', groupId));
+          const querySnapshot = await getDocs(groupQuery);
+          results.push(...querySnapshot.docs.map(doc => ({
+            id: doc.id,
+            ...doc.data()
+          })));
+        }
+        return results as Incident[];
+      }
     } else if (currentUser.hotels.length === 1) {
       // If user has only one hotel, filter by it
       q = query(collection(db, 'incidents'), where('hotelId', '==', currentUser.hotels[0]));
@@ -102,6 +131,17 @@ export const getIncident = async (id: string) => {
     const currentUser = getCurrentUser();
     if (!currentUser) return null;
     
+    if (currentUser.role === 'admin') {
+      return incidentData;
+    }
+    
+    if (currentUser.role === 'group_admin' && 
+        currentUser.groupIds && 
+        incidentData.groupId && 
+        currentUser.groupIds.includes(incidentData.groupId)) {
+      return incidentData;
+    }
+    
     if (!currentUser.hotels.includes(incidentData.hotelId)) {
       console.error('User does not have access to this incident');
       return null;
@@ -127,13 +167,17 @@ export const createIncident = async (data: any) => {
     }
     
     // Verify user has access to the hotel
-    if (!currentUser.hotels.includes(incidentData.hotelId)) {
+    if (!hasHotelAccess(incidentData.hotelId)) {
       throw new Error('You do not have permission to create incidents for this hotel');
     }
+    
+    // Get the group ID for this hotel
+    const groupId = await getGroupIdForHotel(incidentData.hotelId);
     
     // Create the incident payload
     const incidentPayload: any = {
       ...incidentData,
+      groupId, // Add the group ID to the incident
       concludedById: incidentData.concludedById || null,
       resolutionDescription: incidentData.resolutionDescription || null,
       concludedAt: incidentData.concludedById ? new Date().toISOString() : null,
@@ -259,8 +303,16 @@ export const updateIncident = async (id: string, data: Partial<Incident>) => {
     if (!currentUser) throw new Error('Not authenticated');
     
     const incidentData = docSnap.data();
-    if (!currentUser.hotels.includes(incidentData.hotelId)) {
-      throw new Error('You do not have permission to update this incident');
+    
+    if (currentUser.role !== 'admin') {
+      if (currentUser.role === 'group_admin') {
+        const groupId = incidentData.groupId;
+        if (!groupId || !currentUser.groupIds || !currentUser.groupIds.includes(groupId)) {
+          throw new Error('You do not have permission to update this incident');
+        }
+      } else if (!hasHotelAccess(incidentData.hotelId)) {
+        throw new Error('You do not have permission to update this incident');
+      }
     }
     
     const oldData = docSnap.data();
@@ -394,8 +446,15 @@ export const deleteIncident = async (id: string) => {
     const oldData = docSnap.data();
     
     // Verify user has access to this incident
-    if (!currentUser.hotels.includes(oldData.hotelId)) {
-      throw new Error('You do not have permission to delete this incident');
+    if (currentUser.role !== 'admin') {
+      if (currentUser.role === 'group_admin') {
+        const groupId = oldData.groupId;
+        if (!groupId || !currentUser.groupIds || !currentUser.groupIds.includes(groupId)) {
+          throw new Error('You do not have permission to delete this incident');
+        }
+      } else if (!hasHotelAccess(oldData.hotelId)) {
+        throw new Error('You do not have permission to delete this incident');
+      }
     }
     
     // Delete associated files (photo and document)
@@ -454,6 +513,34 @@ export const clearConcludedBy = async (id: string) => {
     });
   } catch (error) {
     console.error('Error clearing concludedBy field:', error);
+    throw error;
+  }
+};
+
+// Get incidents by group
+export const getIncidentsByGroup = async (groupId: string) => {
+  try {
+    // Check if user has access to this group
+    const currentUser = getCurrentUser();
+    if (!currentUser) throw new Error('User not authenticated');
+    
+    if (!hasGroupAccess(groupId)) {
+      throw new Error('You do not have permission to access incidents for this group');
+    }
+    
+    // Get incidents for this group
+    const q = query(
+      collection(db, 'incidents'),
+      where('groupId', '==', groupId)
+    );
+    
+    const querySnapshot = await getDocs(q);
+    return querySnapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data()
+    })) as Incident[];
+  } catch (error) {
+    console.error('Error getting incidents by group:', error);
     throw error;
   }
 };
