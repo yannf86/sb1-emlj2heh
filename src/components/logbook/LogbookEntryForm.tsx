@@ -1,15 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
-import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
-import { Textarea } from '@/components/ui/textarea';
+import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
-import { AlertCircle } from 'lucide-react';
+import { AlertTriangle } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { getCurrentUser, hasHotelAccess } from '@/lib/auth';
+import { getCurrentUser } from '@/lib/auth';
 import { getHotels } from '@/lib/db/hotels';
 
 interface LogbookEntryFormProps {
@@ -80,7 +79,7 @@ const LogbookEntryForm: React.FC<LogbookEntryFormProps> = ({
         // Filter hotels based on user's access rights
         const accessibleHotels = currentUser?.role === 'admin' 
           ? allHotels 
-          : allHotels.filter(hotel => hasHotelAccess(hotel.id));
+          : allHotels.filter(hotel => currentUser?.hotels.includes(hotel.id));
         
         setHotels(accessibleHotels);
         
@@ -143,7 +142,7 @@ const LogbookEntryForm: React.FC<LogbookEntryFormProps> = ({
     }
     
     // Verify the user has access to the selected hotel
-    if (!hasHotelAccess(formData.hotelId)) {
+    if (!currentUser?.hotels.includes(formData.hotelId) && currentUser?.role !== 'admin') {
       return { valid: false, message: 'Vous n\'avez pas accès à cet hôtel' };
     }
     
@@ -198,7 +197,7 @@ const LogbookEntryForm: React.FC<LogbookEntryFormProps> = ({
         
         {error && (
           <Alert variant="destructive">
-            <AlertCircle className="h-4 w-4" />
+            <AlertTriangle className="h-4 w-4" />
             <AlertDescription>{error}</AlertDescription>
           </Alert>
         )}
@@ -327,13 +326,13 @@ const LogbookEntryForm: React.FC<LogbookEntryFormProps> = ({
                 </Label>
               </div>
             </div>
-            <Textarea
+            <textarea
               id="content"
               name="content"
               value={formData.content}
               onChange={handleInputChange}
               placeholder="Saisissez votre consigne ici..."
-              className="min-h-[150px]"
+              className="min-h-[150px] w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 resize-y"
             />
           </div>
           
@@ -393,12 +392,13 @@ const LogbookEntryForm: React.FC<LogbookEntryFormProps> = ({
                 
                 <div className="space-y-2">
                   <Label htmlFor="reminderDescription">Description (optionnel)</Label>
-                  <Textarea
+                  <textarea
                     id="reminderDescription"
                     name="reminderDescription"
                     value={formData.reminderDescription}
                     onChange={handleInputChange}
                     placeholder="Description du rappel..."
+                    className="min-h-[60px] w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 resize-y"
                   />
                 </div>
 
