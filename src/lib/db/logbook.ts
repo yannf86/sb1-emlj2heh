@@ -1,4 +1,4 @@
-import { collection, addDoc, getDoc, getDocs, updateDoc, deleteDoc, doc, query, where, orderBy, Timestamp, serverTimestamp } from 'firebase/firestore';
+import { collection, addDoc, getDoc, getDocs, updateDoc, deleteDoc, doc, query, where, Timestamp, serverTimestamp } from 'firebase/firestore';
 import { db } from '../firebase';
 import { getCurrentUser } from '../auth';
 
@@ -118,7 +118,7 @@ export const getLogbookEntriesByDate = async (date: Date, hotelId?: string): Pro
         const startDate = new Date(entry.date);
         startDate.setHours(0, 0, 0, 0);
         
-        const endDate = new Date(entry.endDate);
+        const endDate = entry.endDate ? new Date(entry.endDate) : new Date(entry.date);
         endDate.setHours(23, 59, 59, 999);
         
         const selectedDateCopy = new Date(date);
@@ -211,19 +211,6 @@ export const createLogbookEntry = async (entry: Omit<LogbookEntry, 'id' | 'creat
     // Créer l'entrée dans Firestore
     const docRef = await addDoc(collection(db, 'logbook_entries'), entryToCreate);
     
-    // Si cette entrée a un rappel, créer également un rappel
-    if (entry.hasReminder && entry.reminderTitle) {
-      await createLogbookReminder({
-        entryId: docRef.id,
-        title: entry.reminderTitle,
-        description: entry.reminderDescription,
-        remindAt: entry.date,
-        endDate: entry.displayRange ? entry.endDate : undefined,
-        displayRange: entry.displayRange,
-        userIds: entry.reminderUserIds || [currentUser.id]
-      });
-    }
-
     return docRef.id;
   } catch (error) {
     console.error('Error creating logbook entry:', error);
@@ -270,46 +257,6 @@ export const updateLogbookEntry = async (id: string, entry: Partial<LogbookEntry
       updatedAt: new Date().toISOString(),
       updatedBy: currentUser.id
     });
-
-    // Mettre à jour le rappel associé si nécessaire
-    if (entry.hasReminder !== undefined || entry.reminderTitle || entry.reminderDescription || 
-        entry.displayRange !== undefined || entry.date || entry.endDate) {
-      
-      // Récupérer les rappels associés à cette entrée
-      const remindersQuery = query(
-        collection(db, 'logbook_reminders'),
-        where('entryId', '==', id)
-      );
-      const reminderSnap = await getDocs(remindersQuery);
-      
-      if (!reminderSnap.empty) {
-        // Mettre à jour le rappel existant
-        const reminderId = reminderSnap.docs[0].id;
-        
-        const reminderUpdate: Partial<LogbookReminder> = {};
-        
-        if (entry.reminderTitle) reminderUpdate.title = entry.reminderTitle;
-        if (entry.reminderDescription) reminderUpdate.description = entry.reminderDescription;
-        if (entry.date) reminderUpdate.remindAt = entry.date;
-        if (entry.endDate) reminderUpdate.endDate = entry.endDate;
-        if (entry.displayRange !== undefined) reminderUpdate.displayRange = entry.displayRange;
-        
-        if (Object.keys(reminderUpdate).length > 0) {
-          await updateLogbookReminder(reminderId, reminderUpdate);
-        }
-      } else if (entry.hasReminder && entry.reminderTitle) {
-        // Créer un nouveau rappel
-        await createLogbookReminder({
-          entryId: id,
-          title: entry.reminderTitle,
-          description: entry.reminderDescription,
-          remindAt: entry.date || existingEntry.date,
-          endDate: entry.displayRange ? entry.endDate : undefined,
-          displayRange: entry.displayRange,
-          userIds: entry.reminderUserIds || [currentUser.id]
-        });
-      }
-    }
   } catch (error) {
     console.error('Error updating logbook entry:', error);
     throw error;

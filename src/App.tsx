@@ -50,30 +50,42 @@ type ProtectedRouteProps = {
 
 const ProtectedRoute = ({ moduleCode, children }: ProtectedRouteProps) => {
   const [loading, setLoading] = useState(true);
+  const [authenticated, setAuthenticated] = useState(false);
+  const [hasAccess, setHasAccess] = useState(false);
 
   // Check authentication status with a loading state
   useEffect(() => {
     const checkAuth = () => {
+      const isAuth = isAuthenticated();
+      setAuthenticated(isAuth);
+      
+      if (isAuth && moduleCode) {
+        setHasAccess(hasModuleAccess(moduleCode));
+      } else if (isAuth) {
+        setHasAccess(true);
+      }
+      
       setLoading(false);
     };
+    
     // Give a short delay to ensure auth state is ready
     const timer = setTimeout(checkAuth, 300);
     return () => clearTimeout(timer);
-  }, []);
+  }, [moduleCode]);
 
   if (loading) {
     return (
       <div className="flex items-center justify-center h-screen">
-        <Loader2 className="h-8 w-8 animate-spin text-brand-500" />
+        <Loader2 className="h-8 w-8 animate-spin mx-auto mb-2 text-brand-500" />
       </div>
     );
   }
   
-  if (!isAuthenticated()) {
+  if (!authenticated) {
     return <Navigate to="/login" replace />;
   }
   
-  if (moduleCode && !hasModuleAccess(moduleCode)) {
+  if (moduleCode && !hasAccess) {
     return <Navigate to="/dashboard" replace />;
   }
   
@@ -82,10 +94,12 @@ const ProtectedRoute = ({ moduleCode, children }: ProtectedRouteProps) => {
 
 function App() {
   const [isOnline, setIsOnline] = useState<boolean>(navigator.onLine);
+  const [authInitialized, setAuthInitialized] = useState<boolean>(false);
 
   // Initialize auth on app load
   useEffect(() => {
     initAuth();
+    setAuthInitialized(true);
   }, []);
 
   // Monitor online/offline status
@@ -104,27 +118,29 @@ function App() {
 
   // Activity monitoring to reset inactivity timer
   useEffect(() => {
+    resetInactivityTimer();
+    
+    // Add event listeners to reset timer on user activity
     const events = ['mousedown', 'mousemove', 'keydown', 'scroll', 'touchstart', 'click'];
+    const handleActivity = () => resetInactivityTimer();
     
-    // Handler to reset the inactivity timer
-    const handleUserActivity = () => {
-      if (isAuthenticated()) {
-        resetInactivityTimer();
-      }
-    };
-    
-    // Add event listeners
     events.forEach(event => {
-      window.addEventListener(event, handleUserActivity);
+      window.addEventListener(event, handleActivity);
     });
     
-    // Clean up
     return () => {
       events.forEach(event => {
-        window.removeEventListener(event, handleUserActivity);
+        window.removeEventListener(event, handleActivity);
       });
     };
   }, []);
+
+  // Redirect to login if not authenticated
+  useEffect(() => {
+    if (authInitialized && !isAuthenticated() && window.location.pathname !== '/login') {
+      window.location.href = '/login';
+    }
+  }, [authInitialized]);
 
   return (
     <QueryClientProvider client={queryClient}>
@@ -230,7 +246,7 @@ function App() {
               element={
                 window.location.pathname.startsWith("/dev")
                   ? <div style={{ padding: "2rem", textAlign: "center" }}><h2>Page non trouvée</h2></div>
-                  : <Navigate to="/dashboard" replace />
+                  : <Navigate to="/login" replace />
               } 
             />
           </Routes>

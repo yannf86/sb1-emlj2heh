@@ -460,6 +460,11 @@ export const initAuth = () => {
         clearTimeout(inactivityTimer);
         inactivityTimer = null;
       }
+      
+      // Redirect to login page if not already there
+      if (window.location.pathname !== '/login') {
+        window.location.href = '/login';
+      }
     }
   });
 };
