@@ -86,7 +86,7 @@ const ProtectedRoute = ({ moduleCode, children }: ProtectedRouteProps) => {
   }
   
   if (moduleCode && !hasAccess) {
-    return <Navigate to="/dashboard" replace />;
+    return <Navigate to="/dashboard\" replace />;
   }
   
   return <>{children}</>;
@@ -146,7 +146,7 @@ function App() {
     <QueryClientProvider client={queryClient}>
       <ToastProvider>
         {!isOnline && (
-          <Alert variant="destructive" className="fixed top-0 left-0 right-0 z-50 flex justify-center">
+          <Alert variant="destructive\" className="fixed top-0 left-0 right-0 z-50 flex justify-center">
             <WifiOff className="h-4 w-4 mr-2" />
             <AlertDescription>
               Connexion internet perdue. Application en mode hors ligne.
@@ -164,7 +164,7 @@ function App() {
                 <DashboardLayout />
               </ProtectedRoute>
             }>
-              <Route index element={<Navigate to="/dashboard" replace />} />
+              <Route index element={<Navigate to="/dashboard\" replace />} />
               
               <Route path="dashboard" element={
                 <ProtectedRoute moduleCode="mod1">
