@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -6,12 +6,8 @@ import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { 
-  CalendarDays, 
   Search, 
   Plus, 
-  ChevronLeft, 
-  ChevronRight, 
-  Calendar,
   AlertTriangle,
   ClipboardList,
   Filter,
@@ -23,7 +19,6 @@ import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { getCurrentUser, hasHotelAccess } from '@/lib/auth';
 import { useToast } from '@/hooks/use-toast';
-import { formatDate } from '@/lib/utils';
 import { cn } from '@/lib/utils';
 import { getHotels } from '@/lib/db/hotels';
 import LogbookEntry from '@/components/logbook/LogbookEntry';
@@ -47,6 +42,50 @@ import {
   createLogbookReminder
 } from '@/lib/db/logbook';
 
+// Type pour les éléments de la check-list
+type ChecklistItem = {
+  id: string;
+  serviceId: string;
+  title: string;
+  completed: boolean;
+  dueDate: string;
+  completedById?: string | null;
+  completedByName?: string | null;
+  completedAt?: string | null;
+};
+
+// Type pour les rappels
+type Reminder = {
+  id: string;
+  title: string;
+  description: string;
+  date: string;
+  completed: boolean;
+  createdById: string;
+  createdByName: string;
+};
+
+// Type pour les entrées du cahier de consignes (pour résoudre les erreurs TypeScript)
+type EntryType = {
+  id: string;
+  date: string;
+  time: string;
+  endDate?: string;
+  displayRange?: boolean;
+  serviceId: string;
+  serviceName: string;
+  serviceIcon: string;
+  content: string;
+  authorId: string;
+  authorName: string;
+  hotelId: string;
+  hotelName: string;
+  isTask: boolean;
+  isCompleted?: boolean;
+  comments?: any[];
+  isRead?: boolean;
+};
+
 // Mock services
 const mockServices = [
   { id: 'important', name: 'Important', icon: '⚠️' },
@@ -58,30 +97,31 @@ const mockServices = [
 ];
 
 // Exemple de checklist items
-const mockChecklistItems = [
+const mockChecklistItems: ChecklistItem[] = [
   { id: 'check1', serviceId: 'reception', title: 'Vérifier la caisse', completed: false, dueDate: new Date().toISOString() },
   { id: 'check2', serviceId: 'housekeeping', title: 'Contrôle des stocks de linge', completed: false, dueDate: new Date().toISOString() },
-  { id: 'check3', serviceId: 'reception', title: 'Transmission des VIP', completed: true, dueDate: new Date().toISOString() }
+  { id: 'check3', serviceId: 'reception', title: 'Transmission des VIP', completed: true, dueDate: new Date().toISOString(), completedById: 'user1', completedByName: 'Jean Dupont', completedAt: new Date().toISOString() }
 ];
 
 const LogbookPage = () => {
   const [selectedTab, setSelectedTab] = useState<string>('entries');
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
+  const [selectedChecklistDate, setSelectedChecklistDate] = useState<Date>(new Date());
   const [filterService, setFilterService] = useState<string>('all');
   const [filterHotel, setFilterHotel] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [showOnlyTasks, setShowOnlyTasks] = useState<boolean>(false);
   const [entries, setEntries] = useState<LogbookEntryType[]>([]);
   const [filteredEntries, setFilteredEntries] = useState<LogbookEntryType[]>([]);
-  const [checklistItems, setChecklistItems] = useState<any[]>([]);
-  const [filteredChecklistItems, setFilteredChecklistItems] = useState<any[]>([]);
+  const [checklistItems, setChecklistItems] = useState<ChecklistItem[]>([]);
+  const [filteredChecklistItems, setFilteredChecklistItems] = useState<ChecklistItem[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   const [newEntryDialogOpen, setNewEntryDialogOpen] = useState<boolean>(false);
   const [editEntryDialogOpen, setEditEntryDialogOpen] = useState<boolean>(false);
   const [selectedEntry, setSelectedEntry] = useState<LogbookEntryType | null>(null);
   const [availableHotels, setAvailableHotels] = useState<any[]>([]);
-  const [reminders, setReminders] = useState<LogbookReminder[]>([]);
+  const [reminders, setReminders] = useState<Reminder[]>([]);
   
   const navigate = useNavigate();
   const { toast } = useToast();
@@ -108,7 +148,7 @@ const LogbookPage = () => {
     loadAvailableHotels();
   }, []);
   
-  // Load entries when date or filters change
+  // Load entries for the selected date
   useEffect(() => {
     const loadEntries = async () => {
       try {
@@ -120,36 +160,37 @@ const LogbookPage = () => {
           return;
         }
         
-        // Charger les entrées depuis Firebase
+        // Load entries for the selected date
         const entriesData = await getLogbookEntriesByDate(
           selectedDate,
           filterHotel !== 'all' ? filterHotel : undefined
         );
+        // S'assurer que chaque entrée a un ID valide
+        const validatedEntries = entriesData.map(entry => ({
+          ...entry,
+          id: entry.id || `entry-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+        }));
+        setEntries(validatedEntries);
         
-        setEntries(entriesData);
-        
-        // Charger les rappels pour la date sélectionnée
-        const activeReminders = await getActiveLogbookReminders(selectedDate);
-        setReminders(activeReminders);
-        
-        // Utiliser des checklist items vides pour l'instant
-        setChecklistItems([]);
+        // Load reminders
+        const remindersData = await getActiveLogbookReminders(selectedDate);
+        // S'assurer que chaque rappel a un ID valide
+        const validatedReminders = remindersData.map(reminder => ({
+          ...reminder,
+          id: reminder.id || `reminder-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+        })) as Reminder[];
+        setReminders(validatedReminders);
         
       } catch (error) {
         console.error('Error loading entries:', error);
-        setError('Impossible de charger les consignes. Veuillez réessayer.');
-        toast({
-          title: "Erreur",
-          description: "Impossible de charger les consignes.",
-          variant: "destructive",
-        });
+        setError('Une erreur est survenue lors du chargement des consignes.');
       } finally {
         setLoading(false);
       }
     };
     
     loadEntries();
-  }, [selectedDate, toast, navigate, currentUser, filterHotel, availableHotels]);
+  }, [selectedDate, filterHotel, currentUser, navigate]);
   
   // Apply filters whenever entries, filterService, filterHotel, or searchQuery changes
   useEffect(() => {
@@ -229,9 +270,55 @@ const LogbookPage = () => {
     filterEntries();
   }, [entries, filterService, filterHotel, searchQuery, showOnlyTasks, selectedDate]);
   
+  // Load checklist items when selectedChecklistDate changes
+  useEffect(() => {
+    const loadChecklistItems = async () => {
+      try {
+        setLoading(true);
+        setError(null);
+        
+        if (!currentUser) {
+          navigate('/login');
+          return;
+        }
+        
+        // Dans une version réelle, nous chargerions les éléments de la check-list depuis Firebase
+        // pour la date sélectionnée
+        // Exemple: const checklistData = await getDailyChecklistItems(selectedChecklistDate, filterHotel);
+        
+        // Pour l'instant, nous utilisons les données mockées
+        // Filtrer les éléments de la check-list par date si nécessaire
+        const filteredItems = mockChecklistItems.filter(item => {
+          const itemDate = new Date(item.dueDate);
+          return (
+            itemDate.getDate() === selectedChecklistDate.getDate() &&
+            itemDate.getMonth() === selectedChecklistDate.getMonth() &&
+            itemDate.getFullYear() === selectedChecklistDate.getFullYear()
+          );
+        });
+        
+        setChecklistItems(filteredItems);
+        // Mettre à jour également les éléments filtrés
+        setFilteredChecklistItems(filteredItems);
+        
+      } catch (error) {
+        console.error('Error loading checklist items:', error);
+        toast({
+          title: "Erreur",
+          description: "Impossible de charger les éléments de la check-list.",
+          variant: "destructive",
+        });
+      } finally {
+        setLoading(false);
+      }
+    };
+    
+    loadChecklistItems();
+  }, [selectedChecklistDate, toast, navigate, currentUser, filterHotel]);
+  
   // Apply filters for checklist items
   useEffect(() => {
-    let filtered = [...mockChecklistItems];
+    let filtered = [...checklistItems];
     
     // Filter by service
     if (filterService !== 'all') {
@@ -245,7 +332,7 @@ const LogbookPage = () => {
     }
     
     setFilteredChecklistItems(filtered);
-  }, [filterService, searchQuery]);
+  }, [filterService, searchQuery, checklistItems]);
   
   // Group entries by service
   const entriesByService = () => {
@@ -551,13 +638,16 @@ const LogbookPage = () => {
   };
   
   // Create a new checklist item
-  const handleAddChecklistItem = (data: any) => {
-    const newItem = {
+  const handleAddChecklistItem = (data: Partial<ChecklistItem>) => {
+    const newItem: ChecklistItem = {
       id: `check-${Date.now()}`,
-      ...data,
-      createdAt: new Date().toISOString(),
-      createdById: currentUser?.id || 'unknown',
-      createdByName: currentUser?.name || 'Utilisateur'
+      serviceId: data.serviceId || 'reception',
+      title: data.title || 'Nouvelle tâche',
+      completed: data.completed || false,
+      dueDate: data.dueDate || new Date().toISOString(),
+      completedById: null,
+      completedByName: null,
+      completedAt: null
     };
     
     setChecklistItems(prev => [...prev, newItem]);
@@ -661,7 +751,15 @@ const LogbookPage = () => {
                 
                 <Button
                   variant="default"
-                  onClick={() => setNewEntryDialogOpen(true)}
+                  onClick={() => {
+                    // Handle adding a new checklist item
+                    handleAddChecklistItem({
+                      serviceId: filterService === 'all' ? 'reception' : filterService,
+                      title: "Nouvelle tâche",
+                      completed: false,
+                      dueDate: new Date().toISOString()
+                    });
+                  }}
                 >
                   <Plus className="mr-2 h-4 w-4" />
                   Nouvelle
@@ -724,8 +822,8 @@ const LogbookPage = () => {
                           
                           {serviceEntries.map(entry => (
                             <LogbookEntry
-                              key={entry.id}
-                              entry={entry}
+                              key={entry.id || ''}
+                              entry={entry as EntryType}
                               onEdit={handleEditEntry}
                               onDelete={handleDeleteEntry}
                               onMarkAsRead={handleMarkAsRead}
@@ -740,8 +838,8 @@ const LogbookPage = () => {
                     <div className="space-y-2">
                       {filteredEntries.map(entry => (
                         <LogbookEntry
-                          key={entry.id}
-                          entry={entry}
+                          key={entry.id || ''}
+                          entry={entry as EntryType}
                           onEdit={handleEditEntry}
                           onDelete={handleDeleteEntry}
                           onMarkAsRead={handleMarkAsRead}
@@ -942,6 +1040,10 @@ const LogbookPage = () => {
             
             {/* Sidebar for checklist */}
             <div className="col-span-1 md:col-span-4 space-y-4">
+              <LogbookCalendar 
+                selectedDate={selectedChecklistDate}
+                onDateChange={setSelectedChecklistDate}
+              />
               <Card>
                 <CardHeader>
                   <CardTitle className="text-lg flex items-center">
@@ -949,7 +1051,7 @@ const LogbookPage = () => {
                     Check-list du jour
                   </CardTitle>
                   <CardDescription>
-                    {new Date().toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
+                    {selectedChecklistDate.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
