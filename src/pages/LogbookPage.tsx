@@ -1,743 +1,432 @@
-import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import React, { useState, useEffect } from 'react';
+import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { Label } from '@/components/ui/label';
 import { 
+  Dialog, 
+  DialogContent, 
+  DialogDescription, 
+  DialogFooter, 
+  DialogHeader, 
+  DialogTitle 
+} from '@/components/ui/dialog';
+import { Label } from '@/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Switch } from '@/components/ui/switch';
+import { 
+  BookOpen, 
   Search, 
   Plus, 
-  AlertTriangle,
-  ClipboardList,
+  RefreshCw, 
+  SlidersHorizontal,
+  Calendar as CalendarIcon,
   Filter,
-  RefreshCw,
-  Loader2,
   CheckSquare,
-  Calendar,
   Building
 } from 'lucide-react';
-import { Badge } from '@/components/ui/badge';
-import { Alert, AlertDescription } from '@/components/ui/alert';
-import { getCurrentUser, hasHotelAccess } from '@/lib/auth';
 import { useToast } from '@/hooks/use-toast';
-import { cn } from '@/lib/utils';
+import { getCurrentUser } from '@/lib/auth';
 import { getHotels } from '@/lib/db/hotels';
+
+// Import components
+import LogbookDateNavigation from '@/components/logbook/LogbookDateNavigation';
+import LogbookCalendar from '@/components/logbook/LogbookCalendar';
 import LogbookEntry from '@/components/logbook/LogbookEntry';
 import LogbookEntryForm from '@/components/logbook/LogbookEntryForm';
-import LogbookCalendar from '@/components/logbook/LogbookCalendar';
 import LogbookReminders from '@/components/logbook/LogbookReminders';
-import LogbookDateNavigation from '@/components/logbook/LogbookDateNavigation';
 import LogbookChecklistItem from '@/components/logbook/LogbookChecklistItem';
+
+// Import functions from logbook.ts
 import { 
-  LogbookEntry as LogbookEntryType, 
-  LogbookReminder,
-  getLogbookEntriesByDate,
-  createLogbookEntry,
-  updateLogbookEntry,
+  getLogbookEntriesByDate, 
+  createLogbookEntry, 
+  updateLogbookEntry, 
   deleteLogbookEntry,
   markLogbookEntryAsRead,
   markLogbookEntryAsCompleted,
   addCommentToLogbookEntry,
   getActiveLogbookReminders,
-  markLogbookReminderAsCompleted,
-  createLogbookReminder
+  markLogbookReminderAsCompleted
 } from '@/lib/db/logbook';
 
-// Type pour les éléments de la check-list
-type ChecklistItem = {
-  id: string;
-  serviceId: string;
-  title: string;
-  description?: string;
-  completed: boolean;
-  dueDate: string;
-  endDate?: string;
-  isPermanent?: boolean;
-  hotelId: string;
-  hotelName?: string;
-  completedById?: string | null;
-  completedByName?: string | null;
-  completedAt?: string | null;
-};
-
-// Type pour les rappels
-type Reminder = {
-  id: string;
-  title: string;
-  description: string;
-  date: string;
-  completed: boolean;
-  createdById: string;
-  createdByName: string;
-};
-
-// Type pour les entrées du cahier de consignes (pour résoudre les erreurs TypeScript)
-type EntryType = {
-  id: string;
-  date: string;
-  time: string;
-  endDate?: string;
-  displayRange?: boolean;
-  serviceId: string;
-  serviceName: string;
-  serviceIcon: string;
-  content: string;
-  authorId: string;
-  authorName: string;
-  hotelId: string;
-  hotelName: string;
-  isTask: boolean;
-  isCompleted?: boolean;
-  comments?: any[];
-  isRead?: boolean;
-  roomNumber?: string;
-};
-
-// Mock services
-const mockServices = [
-  { id: 'important', name: 'Important', icon: '⚠️' },
-  { id: 'reception', name: 'Réception', icon: '👥' },
-  { id: 'housekeeping', name: 'Housekeeping', icon: '🛏️' },
-  { id: 'restaurant', name: 'Restaurant', icon: '🍽️' },
-  { id: 'technical', name: 'Technique', icon: '🔧' },
-  { id: 'direction', name: 'Direction', icon: '👑' }
-];
-
-// Exemple de checklist items
-const mockChecklistItems: ChecklistItem[] = [
-  { 
-    id: 'check1', 
-    serviceId: 'reception', 
-    title: 'Vérifier la caisse', 
-    completed: false, 
-    dueDate: new Date().toISOString(),
-    hotelId: 'hotel1'
-  },
-  { 
-    id: 'check2', 
-    serviceId: 'housekeeping', 
-    title: 'Contrôle des stocks de linge', 
-    completed: false, 
-    dueDate: new Date().toISOString(),
-    hotelId: 'hotel1'
-  },
-  { 
-    id: 'check3', 
-    serviceId: 'reception', 
-    title: 'Transmission des VIP', 
-    completed: true, 
-    dueDate: new Date().toISOString(), 
-    completedById: 'user1', 
-    completedByName: 'Jean Dupont', 
-    completedAt: new Date().toISOString(),
-    hotelId: 'hotel1'
-  },
-  { 
-    id: 'check4', 
-    serviceId: 'housekeeping', 
-    title: 'Vérification quotidienne des chambres', 
-    description: 'Vérifier que toutes les chambres sont propres et prêtes',
-    completed: false, 
-    dueDate: new Date().toISOString(),
-    isPermanent: true,
-    hotelId: 'hotel2'
-  },
-  { 
-    id: 'check5', 
-    serviceId: 'reception', 
-    title: 'Contrôle des arrivées VIP', 
-    description: 'Vérifier les arrivées VIP de la semaine',
-    completed: false, 
-    dueDate: new Date().toISOString(),
-    endDate: new Date(new Date().setDate(new Date().getDate() + 7)).toISOString(),
-    hotelId: 'hotel2'
-  }
-];
-
 const LogbookPage = () => {
-  const [selectedTab, setSelectedTab] = useState<string>('entries');
-  const [selectedDate, setSelectedDate] = useState<Date>(new Date());
-  const [selectedChecklistDate, setSelectedChecklistDate] = useState<Date>(new Date());
-  const [filterService, setFilterService] = useState<string>('all');
-  const [filterHotel, setFilterHotel] = useState<string>('all');
-  const [searchQuery, setSearchQuery] = useState<string>('');
-  const [showOnlyTasks, setShowOnlyTasks] = useState<boolean>(false);
-  const [entries, setEntries] = useState<LogbookEntryType[]>([]);
-  const [filteredEntries, setFilteredEntries] = useState<LogbookEntryType[]>([]);
-  const [checklistItems, setChecklistItems] = useState<ChecklistItem[]>([]);
-  const [filteredChecklistItems, setFilteredChecklistItems] = useState<ChecklistItem[]>([]);
-  const [loading, setLoading] = useState<boolean>(true);
-  const [error, setError] = useState<string | null>(null);
-  const [newEntryDialogOpen, setNewEntryDialogOpen] = useState<boolean>(false);
-  const [newChecklistItemDialogOpen, setNewChecklistItemDialogOpen] = useState<boolean>(false);
-  const [editEntryDialogOpen, setEditEntryDialogOpen] = useState<boolean>(false);
-  const [selectedEntry, setSelectedEntry] = useState<LogbookEntryType | null>(null);
-  const [availableHotels, setAvailableHotels] = useState<any[]>([]);
-  const [reminders, setReminders] = useState<Reminder[]>([]);
-  
-  const navigate = useNavigate();
+  const [selectedDate, setSelectedDate] = useState(new Date());
+  const [activeTab, setActiveTab] = useState('consignes');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [filterHotel, setFilterHotel] = useState('all');
+  const [filterService, setFilterService] = useState('all');
+  const [filtersExpanded, setFiltersExpanded] = useState(false);
+  const [entries, setEntries] = useState<any[]>([]);
+  const [reminders, setReminders] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [hotels, setHotels] = useState<any[]>([]);
   const { toast } = useToast();
   const currentUser = getCurrentUser();
   
-  // Check if user is hotel admin or system admin
-  const isAdmin = currentUser?.role === 'admin' || currentUser?.role === 'hotel_admin';
+  // New entry dialog
+  const [newEntryDialogOpen, setNewEntryDialogOpen] = useState(false);
   
-  // Load hotels the user has access to
-  useEffect(() => {
-    const loadAvailableHotels = async () => {
-      try {
-        // Load hotels from database with permissions filtering
-        const hotelsData = await getHotels();
-        setAvailableHotels(hotelsData);
-        
-        // Automatically set filterHotel if user has only one hotel
-        if (hotelsData.length === 1) {
-          setFilterHotel(hotelsData[0].id);
-        }
-      } catch (error) {
-        console.error('Error loading hotels:', error);
-        setError('Impossible de charger les hôtels. Veuillez réessayer.');
-      }
-    };
-    
-    loadAvailableHotels();
-  }, []);
+  // Checklist items
+  const [checklistItems, setChecklistItems] = useState<any[]>([]);
+  const [newChecklistDialogOpen, setNewChecklistDialogOpen] = useState(false);
+  const [checklistFormData, setChecklistFormData] = useState({
+    title: '',
+    description: '',
+    serviceId: '',
+    dueDate: new Date().toISOString().split('T')[0],
+    endDate: '',
+    displayRange: false,
+    isPermanent: false,
+    hotelId: currentUser?.hotels?.length === 1 ? currentUser.hotels[0] : ''
+  });
   
   // Load entries for the selected date
   useEffect(() => {
     const loadEntries = async () => {
       try {
         setLoading(true);
-        setError(null);
         
-        if (!currentUser) {
-          navigate('/login');
-          return;
-        }
+        // Get entries for the selected date
+        const entriesData = await getLogbookEntriesByDate(selectedDate, filterHotel !== 'all' ? filterHotel : undefined);
         
-        // Load entries for the selected date
-        const entriesData = await getLogbookEntriesByDate(
-          selectedDate,
-          filterHotel !== 'all' ? filterHotel : undefined
-        );
-        // S'assurer que chaque entrée a un ID valide
-        const validatedEntries = entriesData.map(entry => ({
-          ...entry,
-          id: entry.id || `entry-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
-        }));
-        setEntries(validatedEntries);
+        // Sort entries by importance (descending) and time (descending)
+        const sortedEntries = entriesData.sort((a, b) => {
+          // First by importance (higher first)
+          if (a.importance !== b.importance) {
+            return b.importance - a.importance;
+          }
+          
+          // Then by time (newer first)
+          const timeA = a.time.split(':').map(Number);
+          const timeB = b.time.split(':').map(Number);
+          
+          if (timeA[0] !== timeB[0]) {
+            return timeB[0] - timeA[0];
+          }
+          
+          return timeB[1] - timeA[1];
+        });
         
-        // Load reminders
+        setEntries(sortedEntries);
+        
+        // Get active reminders
         const remindersData = await getActiveLogbookReminders(selectedDate);
-        // S'assurer que chaque rappel a un ID valide
-        const validatedReminders = remindersData.map(reminder => ({
-          ...reminder,
-          id: reminder.id || `reminder-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
-        })) as Reminder[];
-        setReminders(validatedReminders);
+        setReminders(remindersData);
         
+        // Load checklist items (this would be replaced with actual API call)
+        // For now, we'll use a mock implementation
+        loadChecklistItems();
       } catch (error) {
-        console.error('Error loading entries:', error);
-        setError('Une erreur est survenue lors du chargement des consignes.');
+        console.error('Error loading logbook entries:', error);
+        toast({
+          title: "Erreur",
+          description: "Impossible de charger les consignes",
+          variant: "destructive",
+        });
       } finally {
         setLoading(false);
       }
     };
     
     loadEntries();
-  }, [selectedDate, filterHotel, currentUser, navigate]);
+  }, [selectedDate, filterHotel, toast]);
   
-  // Apply filters whenever entries, filterService, filterHotel, or searchQuery changes
+  // Load available hotels
   useEffect(() => {
-    const filterEntries = () => {
-      let filtered = [...entries];
-      
-      // Filter by service
-      if (filterService !== 'all') {
-        filtered = filtered.filter(entry => entry.serviceId === filterService);
-      }
-      
-      // Filter by hotel
-      if (filterHotel !== 'all') {
-        filtered = filtered.filter(entry => entry.hotelId === filterHotel);
-      }
-      
-      // Filter by search query
-      if (searchQuery) {
-        const query = searchQuery.toLowerCase();
-        filtered = filtered.filter(
-          entry => entry.content.toLowerCase().includes(query) ||
-                   entry.authorName?.toLowerCase().includes(query) ||
-                   (entry.roomNumber && entry.roomNumber.toLowerCase().includes(query))
-        );
-      }
-      
-      // Filter by tasks
-      if (showOnlyTasks) {
-        filtered = filtered.filter(entry => entry.isTask);
-      }
-      
-      // Filter by date or date range
-      filtered = filtered.filter(entry => {
-        const entryDate = new Date(entry.date);
-        
-        // Si l'entrée a une plage de dates
-        if (entry.displayRange && entry.endDate) {
-          const startDate = new Date(entry.date);
-          const endDate = new Date(entry.endDate);
-          startDate.setHours(0, 0, 0, 0);
-          endDate.setHours(23, 59, 59, 999);
-          
-          const selectedDateCopy = new Date(selectedDate);
-          selectedDateCopy.setHours(12, 0, 0, 0);
-          
-          return selectedDateCopy >= startDate && selectedDateCopy <= endDate;
-        }
-        
-        // Pour une date unique
-        return (
-          entryDate.getDate() === selectedDate.getDate() &&
-          entryDate.getMonth() === selectedDate.getMonth() &&
-          entryDate.getFullYear() === selectedDate.getFullYear()
-        );
-      });
-      
-      // Sort by time and importance (more important first, then by time)
-      filtered.sort((a, b) => {
-        if (a.importance !== b.importance) {
-          return b.importance - a.importance;
-        }
-        
-        // Then sort by time (latest first)
-        const timeA = a.time.split(':').map(Number);
-        const timeB = b.time.split(':').map(Number);
-        
-        if (timeA[0] !== timeB[0]) {
-          return timeB[0] - timeA[0];
-        }
-        
-        return timeB[1] - timeA[1];
-      });
-      
-      setFilteredEntries(filtered);
-    };
-    
-    filterEntries();
-  }, [entries, filterService, filterHotel, searchQuery, showOnlyTasks, selectedDate]);
-  
-  // Load checklist items when selectedChecklistDate changes
-  useEffect(() => {
-    const loadChecklistItems = async () => {
+    const loadHotels = async () => {
       try {
-        setLoading(true);
-        setError(null);
+        const hotelsData = await getHotels();
         
-        if (!currentUser) {
-          navigate('/login');
-          return;
+        // Filter hotels based on user's permissions
+        const accessibleHotels = currentUser?.role === 'admin' 
+          ? hotelsData 
+          : hotelsData.filter(hotel => currentUser?.hotels.includes(hotel.id));
+        
+        setHotels(accessibleHotels);
+        
+        // If user has only one hotel, automatically select it
+        if (accessibleHotels.length === 1 && filterHotel === 'all') {
+          setFilterHotel(accessibleHotels[0].id);
         }
-        
-        // Dans une version réelle, nous chargerions les éléments de la check-list depuis Firebase
-        // pour la date sélectionnée
-        // Exemple: const checklistData = await getDailyChecklistItems(selectedChecklistDate, filterHotel);
-        
-        // Pour l'instant, nous utilisons les données mockées
-        // Filtrer les éléments de la check-list par date si nécessaire
-        const filteredItems = mockChecklistItems.filter(item => {
-          // Filtrer par hôtel si un hôtel est sélectionné
-          if (filterHotel !== 'all' && item.hotelId !== filterHotel) {
-            return false;
-          }
-          
-          // Si c'est une tâche permanente, toujours l'afficher
-          if (item.isPermanent) {
-            return true;
-          }
-          
-          // Si c'est une plage de dates
-          if (item.endDate) {
-            const startDate = new Date(item.dueDate);
-            const endDate = new Date(item.endDate);
-            startDate.setHours(0, 0, 0, 0);
-            endDate.setHours(23, 59, 59, 999);
-            
-            const checklistDateCopy = new Date(selectedChecklistDate);
-            checklistDateCopy.setHours(12, 0, 0, 0);
-            
-            return checklistDateCopy >= startDate && checklistDateCopy <= endDate;
-          }
-          
-          // Pour une date unique
-          const itemDate = new Date(item.dueDate);
-          return (
-            itemDate.getDate() === selectedChecklistDate.getDate() &&
-            itemDate.getMonth() === selectedChecklistDate.getMonth() &&
-            itemDate.getFullYear() === selectedChecklistDate.getFullYear()
-          );
-        });
-        
-        setChecklistItems(filteredItems);
-        // Mettre à jour également les éléments filtrés
-        setFilteredChecklistItems(filteredItems);
-        
       } catch (error) {
-        console.error('Error loading checklist items:', error);
-        toast({
-          title: "Erreur",
-          description: "Impossible de charger les éléments de la check-list.",
-          variant: "destructive",
-        });
-      } finally {
-        setLoading(false);
+        console.error('Error loading hotels:', error);
       }
     };
     
-    loadChecklistItems();
-  }, [selectedChecklistDate, toast, navigate, currentUser, filterHotel]);
+    loadHotels();
+  }, [currentUser, filterHotel]);
   
-  // Apply filters for checklist items
-  useEffect(() => {
-    let filtered = [...checklistItems];
+  // Mock function to load checklist items
+  // This would be replaced with an actual API call in a real implementation
+  const loadChecklistItems = () => {
+    // Filter checklist items by hotel if a specific hotel is selected
+    let filteredItems = mockChecklistItems;
     
-    // Filter by service
-    if (filterService !== 'all') {
-      filtered = filtered.filter(item => item.serviceId === filterService);
-    }
-    
-    // Filter by hotel
     if (filterHotel !== 'all') {
-      filtered = filtered.filter(item => item.hotelId === filterHotel);
-    }
-    
-    // Filter by search query
-    if (searchQuery) {
-      const query = searchQuery.toLowerCase();
-      filtered = filtered.filter(item => 
-        item.title.toLowerCase().includes(query) || 
-        (item.description && item.description.toLowerCase().includes(query))
+      filteredItems = mockChecklistItems.filter(item => 
+        !item.hotelId || item.hotelId === filterHotel
       );
     }
     
-    setFilteredChecklistItems(filtered);
-  }, [filterService, filterHotel, searchQuery, checklistItems]);
-  
-  // Group entries by service
-  const entriesByService = () => {
-    const grouped: Record<string, LogbookEntryType[]> = {};
-    
-    // Initialize with all services (including empty ones)
-    mockServices.forEach(service => {
-      grouped[service.id] = [];
-    });
-    
-    // Populate with entries
-    filteredEntries.forEach(entry => {
-      if (!grouped[entry.serviceId]) {
-        grouped[entry.serviceId] = [];
-      }
-      
-      grouped[entry.serviceId].push(entry);
-    });
-    
-    return grouped;
+    setChecklistItems(filteredItems);
   };
   
-  // Handle saving a new entry
-  const handleSaveEntry = async (formData: any) => {
+  // Mock checklist items - this would come from the database in a real implementation
+  const mockChecklistItems = [
+    // Empty array - removed all test items
+  ];
+  
+  // Services for the checklist
+  const services = [
+    { id: 'important', name: 'Important', icon: '⚠️' },
+    { id: 'reception', name: 'Réception', icon: '👥' },
+    { id: 'housekeeping', name: 'Housekeeping', icon: '🛏️' },
+    { id: 'restaurant', name: 'Restaurant', icon: '🍽️' },
+    { id: 'technical', name: 'Technique', icon: '🔧' },
+    { id: 'direction', name: 'Direction', icon: '👑' }
+  ];
+  
+  // Handle form submission for new entry
+  const handleSubmitEntry = async (formData: any) => {
     try {
-      // Verify the user has access to the selected hotel
-      if (!hasHotelAccess(formData.hotelId)) {
-        toast({
-          title: "Accès refusé",
-          description: "Vous n'avez pas accès à cet hôtel.",
-          variant: "destructive",
-        });
-        return;
-      }
+      // Create entry in database
+      await createLogbookEntry(formData);
       
-      // Find hotel name
-      const hotel = availableHotels.find(h => h.id === formData.hotelId);
-      const hotelName = hotel ? hotel.name : 'Hôtel inconnu';
+      toast({
+        title: "Consigne créée",
+        description: "La consigne a été créée avec succès",
+      });
       
-      // Find service details
-      const serviceInfo = mockServices.find(s => s.id === formData.serviceId);
-      
-      if (selectedEntry) {
-        // Update existing entry
-        await updateLogbookEntry(selectedEntry.id!, {
-          ...formData,
-          serviceName: serviceInfo?.name || '',
-          serviceIcon: serviceInfo?.icon || '',
-          hotelName
-        });
-        
-        toast({
-          title: "Consigne mise à jour",
-          description: "La consigne a été mise à jour avec succès.",
-        });
-      } else {
-        // Create new entry
-        const entryId = await createLogbookEntry({
-          ...formData,
-          serviceName: serviceInfo?.name || '',
-          serviceIcon: serviceInfo?.icon || '',
-          hotelName
-        });
-        
-        // Si un rappel doit être créé
-        if (formData.hasReminder) {
-          const newReminder = {
-            title: formData.reminderTitle,
-            description: formData.reminderDescription || '',
-            remindAt: formData.date,
-            endDate: formData.endDate || undefined, 
-            displayRange: formData.displayRange || false,
-            entryId,
-            userIds: [currentUser?.id || 'unknown'],
-          };
-          
-          await createLogbookReminder(newReminder);
-        }
-        
-        toast({
-          title: "Consigne créée",
-          description: "La consigne a été ajoutée au cahier avec succès.",
-        });
-      }
+      // Reload entries
+      const entriesData = await getLogbookEntriesByDate(selectedDate, filterHotel !== 'all' ? filterHotel : undefined);
+      setEntries(entriesData);
       
       // Close dialog
       setNewEntryDialogOpen(false);
-      setEditEntryDialogOpen(false);
-      setSelectedEntry(null);
-      
-      // Reload entries
-      const updatedEntries = await getLogbookEntriesByDate(
-        selectedDate,
-        filterHotel !== 'all' ? filterHotel : undefined
-      );
-      setEntries(updatedEntries);
-      
-      // Reload reminders
-      const updatedReminders = await getActiveLogbookReminders(selectedDate);
-      setReminders(updatedReminders);
     } catch (error) {
-      console.error('Error saving entry:', error);
+      console.error('Error creating logbook entry:', error);
       toast({
         title: "Erreur",
-        description: "Une erreur est survenue lors de l'enregistrement de la consigne.",
+        description: "Une erreur est survenue lors de la création de la consigne",
         variant: "destructive",
       });
     }
   };
   
-  // Handle saving a new checklist item
-  const handleSaveChecklistItem = async (formData: any) => {
+  // Handle form submission for new checklist item
+  const handleSubmitChecklistItem = async () => {
     try {
-      // Verify the user has access to the selected hotel
-      if (!hasHotelAccess(formData.hotelId)) {
+      // Validate form
+      if (!checklistFormData.title) {
         toast({
-          title: "Accès refusé",
-          description: "Vous n'avez pas accès à cet hôtel.",
+          title: "Erreur",
+          description: "Le titre est obligatoire",
           variant: "destructive",
         });
         return;
       }
       
-      // Find hotel name
-      const hotel = availableHotels.find(h => h.id === formData.hotelId);
-      const hotelName = hotel ? hotel.name : 'Hôtel inconnu';
+      if (!checklistFormData.serviceId) {
+        toast({
+          title: "Erreur",
+          description: "Le service est obligatoire",
+          variant: "destructive",
+        });
+        return;
+      }
       
-      // Create new checklist item
-      const newItem: ChecklistItem = {
-        id: `check-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
-        serviceId: formData.serviceId,
-        title: formData.title,
-        description: formData.description,
+      if (!checklistFormData.hotelId) {
+        toast({
+          title: "Erreur",
+          description: "L'hôtel est obligatoire",
+          variant: "destructive",
+        });
+        return;
+      }
+      
+      if (!checklistFormData.isPermanent && !checklistFormData.dueDate) {
+        toast({
+          title: "Erreur",
+          description: "La date d'échéance est obligatoire",
+          variant: "destructive",
+        });
+        return;
+      }
+      
+      if (checklistFormData.displayRange && !checklistFormData.endDate) {
+        toast({
+          title: "Erreur",
+          description: "La date de fin est obligatoire pour une plage de dates",
+          variant: "destructive",
+        });
+        return;
+      }
+      
+      // Create a new checklist item
+      const newItem = {
+        id: `checklist-${Date.now()}`,
+        title: checklistFormData.title,
+        description: checklistFormData.description,
+        serviceId: checklistFormData.serviceId,
+        dueDate: checklistFormData.dueDate,
+        endDate: checklistFormData.displayRange ? checklistFormData.endDate : undefined,
+        isPermanent: checklistFormData.isPermanent,
+        hotelId: checklistFormData.hotelId,
+        hotelName: hotels.find(h => h.id === checklistFormData.hotelId)?.name,
         completed: false,
-        dueDate: formData.date,
-        endDate: formData.displayRange ? formData.endDate : undefined,
-        isPermanent: formData.isPermanent,
-        hotelId: formData.hotelId,
-        hotelName,
-        completedById: null,
-        completedByName: null,
-        completedAt: null
+        createdAt: new Date().toISOString()
       };
       
-      // Add to state
-      setChecklistItems(prev => [...prev, newItem]);
+      // In a real implementation, this would be saved to the database
+      // For now, we'll just add it to our local state
+      setChecklistItems([...checklistItems, newItem]);
       
       toast({
         title: "Tâche créée",
-        description: "La tâche a été ajoutée à la check-list avec succès.",
+        description: "La tâche a été créée avec succès",
       });
       
-      // Close dialog
-      setNewChecklistItemDialogOpen(false);
-      
+      // Reset form and close dialog
+      setChecklistFormData({
+        title: '',
+        description: '',
+        serviceId: '',
+        dueDate: new Date().toISOString().split('T')[0],
+        endDate: '',
+        displayRange: false,
+        isPermanent: false,
+        hotelId: currentUser?.hotels?.length === 1 ? currentUser.hotels[0] : ''
+      });
+      setNewChecklistDialogOpen(false);
     } catch (error) {
-      console.error('Error saving checklist item:', error);
+      console.error('Error creating checklist item:', error);
       toast({
         title: "Erreur",
-        description: "Une erreur est survenue lors de l'enregistrement de la tâche.",
+        description: "Une erreur est survenue lors de la création de la tâche",
         variant: "destructive",
       });
     }
   };
   
-  // Handle editing an entry
-  const handleEditEntry = async (entryId: string) => {
-    const entry = entries.find(e => e.id === entryId);
-    if (entry) {
-      // Verify the user has access to the hotel of this entry
-      if (!hasHotelAccess(entry.hotelId)) {
-        toast({
-          title: "Accès refusé",
-          description: "Vous n'avez pas accès à cet hôtel.",
-          variant: "destructive",
-        });
-        return;
-      }
-      
-      setSelectedEntry(entry);
-      setEditEntryDialogOpen(true);
-    }
+  // Handle toggle checklist item
+  const handleToggleChecklistItem = (id: string) => {
+    // In a real implementation, this would update the database
+    // For now, we'll just update our local state
+    setChecklistItems(prevItems => 
+      prevItems.map(item => 
+        item.id === id 
+          ? { 
+              ...item, 
+              completed: !item.completed,
+              completedById: !item.completed ? currentUser?.id : null,
+              completedByName: !item.completed ? currentUser?.name : null,
+              completedAt: !item.completed ? new Date().toISOString() : null
+            } 
+          : item
+      )
+    );
   };
   
-  // Handle deleting an entry
+  // Handle delete entry
   const handleDeleteEntry = async (entryId: string) => {
     try {
-      const entry = entries.find(e => e.id === entryId);
-      if (!entry) return;
-      
-      // Verify the user has access to the hotel of this entry
-      if (!hasHotelAccess(entry.hotelId)) {
-        toast({
-          title: "Accès refusé",
-          description: "Vous n'avez pas accès à cet hôtel.",
-          variant: "destructive",
-        });
-        return;
-      }
-      
+      // Delete entry from database
       await deleteLogbookEntry(entryId);
       
       toast({
         title: "Consigne supprimée",
-        description: "La consigne a été supprimée avec succès.",
+        description: "La consigne a été supprimée avec succès",
       });
       
-      // Refresh entries
-      const updatedEntries = await getLogbookEntriesByDate(
-        selectedDate,
-        filterHotel !== 'all' ? filterHotel : undefined
-      );
-      setEntries(updatedEntries);
+      // Remove from local state
+      setEntries(entries.filter(entry => entry.id !== entryId));
     } catch (error) {
-      console.error('Error deleting entry:', error);
+      console.error('Error deleting logbook entry:', error);
       toast({
         title: "Erreur",
-        description: "Une erreur est survenue lors de la suppression de la consigne.",
+        description: "Une erreur est survenue lors de la suppression de la consigne",
         variant: "destructive",
       });
     }
   };
   
-  // Handle marking an entry as read
+  // Handle edit entry
+  const handleEditEntry = async (entryId: string) => {
+    // In a real implementation, this would open an edit dialog
+    // For now, we'll just log the action
+    console.log('Edit entry:', entryId);
+  };
+  
+  // Handle mark as read
   const handleMarkAsRead = async (entryId: string) => {
     try {
-      const entry = entries.find(e => e.id === entryId);
-      if (!entry) return;
-      
-      // Verify the user has access to the hotel of this entry
-      if (!hasHotelAccess(entry.hotelId)) {
-        return;
-      }
-      
+      // Mark entry as read in database
       await markLogbookEntryAsRead(entryId);
       
       // Update local state
-      setEntries(prev => 
-        prev.map(entry => 
-          entry.id === entryId ? { ...entry, isRead: true } : entry
-        )
-      );
+      setEntries(entries.map(entry => 
+        entry.id === entryId 
+          ? { ...entry, isRead: true } 
+          : entry
+      ));
     } catch (error) {
       console.error('Error marking entry as read:', error);
     }
   };
   
-  // Handle marking an entry as completed
+  // Handle mark as completed
   const handleMarkAsCompleted = async (entryId: string) => {
     try {
-      const entry = entries.find(e => e.id === entryId);
-      if (!entry) return;
-      
-      // Verify the user has access to the hotel of this entry
-      if (!hasHotelAccess(entry.hotelId)) {
-        toast({
-          title: "Accès refusé",
-          description: "Vous n'avez pas accès à cet hôtel.",
-          variant: "destructive",
-        });
-        return;
-      }
-      
+      // Mark entry as completed in database
       await markLogbookEntryAsCompleted(entryId);
+      
+      // Update local state
+      setEntries(entries.map(entry => 
+        entry.id === entryId 
+          ? { 
+              ...entry, 
+              isCompleted: true,
+              resolvedById: currentUser?.id,
+              resolvedByName: currentUser?.name,
+              resolvedAt: new Date().toISOString()
+            } 
+          : entry
+      ));
       
       toast({
         title: "Tâche terminée",
-        description: "La tâche a été marquée comme terminée.",
+        description: "La tâche a été marquée comme terminée",
       });
-      
-      // Refresh entries
-      const updatedEntries = await getLogbookEntriesByDate(
-        selectedDate,
-        filterHotel !== 'all' ? filterHotel : undefined
-      );
-      setEntries(updatedEntries);
     } catch (error) {
       console.error('Error marking entry as completed:', error);
       toast({
         title: "Erreur",
-        description: "Une erreur est survenue lors du marquage de la tâche.",
+        description: "Une erreur est survenue lors du marquage de la tâche comme terminée",
         variant: "destructive",
       });
     }
   };
   
-  // Handle adding a comment
-  const handleAddComment = async (entryId: string, commentText: string) => {
+  // Handle add comment
+  const handleAddComment = async (entryId: string, comment: string) => {
     try {
-      const entry = entries.find(e => e.id === entryId);
-      if (!entry) return;
+      // Add comment to entry in database
+      await addCommentToLogbookEntry(entryId, comment);
       
-      // Verify the user has access to the hotel of this entry
-      if (!hasHotelAccess(entry.hotelId)) {
-        toast({
-          title: "Accès refusé",
-          description: "Vous n'avez pas accès à cet hôtel.",
-          variant: "destructive",
-        });
-        return;
-      }
+      // Reload entries to get the updated comments
+      const entriesData = await getLogbookEntriesByDate(selectedDate, filterHotel !== 'all' ? filterHotel : undefined);
+      setEntries(entriesData);
       
-      await addCommentToLogbookEntry(entryId, commentText);
-      
-      // Refresh entries
-      const updatedEntries = await getLogbookEntriesByDate(
-        selectedDate,
-        filterHotel !== 'all' ? filterHotel : undefined
-      );
-      setEntries(updatedEntries);
+      toast({
+        title: "Commentaire ajouté",
+        description: "Le commentaire a été ajouté avec succès",
+      });
     } catch (error) {
       console.error('Error adding comment:', error);
       toast({
         title: "Erreur",
-        description: "Une erreur est survenue lors de l'ajout du commentaire.",
+        description: "Une erreur est survenue lors de l'ajout du commentaire",
         variant: "destructive",
       });
     }
@@ -746,632 +435,146 @@ const LogbookPage = () => {
   // Handle mark reminder as completed
   const handleMarkReminderAsCompleted = async (reminderId: string) => {
     try {
+      // Mark reminder as completed in database
       await markLogbookReminderAsCompleted(reminderId);
+      
+      // Update local state
+      setReminders(reminders.filter(reminder => reminder.id !== reminderId));
       
       toast({
         title: "Rappel terminé",
-        description: "Le rappel a été marqué comme terminé.",
+        description: "Le rappel a été marqué comme terminé",
       });
-      
-      // Refresh reminders
-      const updatedReminders = await getActiveLogbookReminders(selectedDate);
-      setReminders(updatedReminders);
     } catch (error) {
       console.error('Error marking reminder as completed:', error);
       toast({
         title: "Erreur",
-        description: "Une erreur est survenue lors du marquage du rappel.",
+        description: "Une erreur est survenue lors du marquage du rappel comme terminé",
         variant: "destructive",
       });
     }
   };
   
-  // Handle toggling checklist item completion
-  const handleToggleChecklistItem = (itemId: string) => {
-    setChecklistItems(items =>
-      items.map(item =>
-        item.id === itemId ? 
-          { 
-            ...item, 
-            completed: !item.completed,
-            completedById: !item.completed ? (currentUser?.id || 'unknown') : null,
-            completedByName: !item.completed ? (currentUser?.name || 'Utilisateur') : null,
-            completedAt: !item.completed ? new Date().toISOString() : null
-          } : item
-      )
-    );
+  // Handle view reminder entry
+  const handleViewReminderEntry = (entryId: string) => {
+    // In a real implementation, this would scroll to or highlight the entry
+    // For now, we'll just log the action
+    console.log('View reminder entry:', entryId);
   };
   
-  // Create a new checklist item
-  const handleAddChecklistItem = (data: Partial<ChecklistItem>) => {
-    const newItem: ChecklistItem = {
-      id: `check-${Date.now()}`,
-      serviceId: data.serviceId || 'reception',
-      title: data.title || 'Nouvelle tâche',
-      description: data.description,
-      completed: data.completed || false,
-      dueDate: data.dueDate || new Date().toISOString(),
-      endDate: data.endDate,
-      isPermanent: data.isPermanent || false,
-      hotelId: data.hotelId || (filterHotel !== 'all' ? filterHotel : availableHotels[0]?.id),
-      completedById: null,
-      completedByName: null,
-      completedAt: null
-    };
-    
-    setChecklistItems(prev => [...prev, newItem]);
-    
-    toast({
-      title: "Item ajouté",
-      description: "L'élément a été ajouté à la liste.",
-    });
+  // Reset filters
+  const resetFilters = () => {
+    setSearchQuery('');
+    setFilterHotel('all');
+    setFilterService('all');
+    setFiltersExpanded(false);
   };
   
-  const grouped = entriesByService();
+  // Filter entries based on search query and filters
+  const filteredEntries = entries.filter(entry => {
+    // Filter by service
+    if (filterService !== 'all' && entry.serviceId !== filterService) {
+      return false;
+    }
+    
+    // Search query
+    if (searchQuery) {
+      const query = searchQuery.toLowerCase();
+      const matchesContent = entry.content.toLowerCase().includes(query);
+      const matchesService = entry.serviceName?.toLowerCase().includes(query);
+      
+      return matchesContent || matchesService;
+    }
+    
+    return true;
+  });
+  
+  // Check if user is admin or hotel_admin
+  const isAdmin = currentUser?.role === 'admin' || currentUser?.role === 'hotel_admin';
   
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight">Cahier de Consignes</h1>
-        <p className="text-muted-foreground">Gérez et partagez les consignes quotidiennes entre services</p>
+      <div className="flex flex-col space-y-2 md:flex-row md:justify-between md:items-center">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">Cahier de Consignes</h1>
+          <p className="text-muted-foreground">Gestion des consignes et tâches quotidiennes</p>
+        </div>
+        
+        <div className="flex flex-col sm:flex-row space-y-2 sm:space-y-0 sm:space-x-2">
+          <Button onClick={() => setNewEntryDialogOpen(true)}>
+            <Plus className="mr-2 h-4 w-4" />
+            Nouvelle Consigne
+          </Button>
+        </div>
       </div>
       
-      <Tabs defaultValue="entries" value={selectedTab} onValueChange={setSelectedTab}>
-        <TabsList>
-          <TabsTrigger value="entries">Consignes</TabsTrigger>
-          <TabsTrigger value="checklist" className="flex items-center">
-            <CheckSquare className="mr-2 h-4 w-4" />
-            Check-list
-          </TabsTrigger>
-        </TabsList>
-        
-        <TabsContent value="entries">
-          <div className="grid grid-cols-1 md:grid-cols-12 gap-6">
-            {/* Main content - entries by service */}
-            <div className="col-span-1 md:col-span-8 space-y-4">
-              <LogbookDateNavigation 
-                selectedDate={selectedDate}
-                onDateChange={setSelectedDate}
-              />
-              
-              <div className="flex items-center space-x-2 mb-4">
-                <div className="relative flex-1">
-                  <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-                  <Input
-                    type="search"
-                    placeholder="Rechercher dans les consignes..."
-                    className="pl-8 w-full"
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                  />
-                </div>
-                
-                <Select
-                  value={filterService}
-                  onValueChange={setFilterService}
-                >
-                  <SelectTrigger className="w-[180px]">
-                    <SelectValue placeholder="Tous les services" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">Tous les services</SelectItem>
-                    {mockServices.map(service => (
-                      <SelectItem key={service.id} value={service.id}>
-                        <span className="mr-2">{service.icon}</span>
-                        {service.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                
-                {availableHotels.length > 1 && (
-                  <Select
-                    value={filterHotel}
-                    onValueChange={setFilterHotel}
-                  >
-                    <SelectTrigger className="w-[180px]">
-                      <SelectValue placeholder="Tous les hôtels" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">Tous les hôtels</SelectItem>
-                      {availableHotels.map(hotel => (
-                        <SelectItem key={hotel.id} value={hotel.id}>
-                          {hotel.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                )}
-                
-                <Button
-                  variant="outline"
-                  className={cn(
-                    "flex items-center",
-                    showOnlyTasks ? "bg-brand-50 border-brand-200 text-brand-700" : ""
-                  )}
-                  onClick={() => setShowOnlyTasks(!showOnlyTasks)}
-                >
-                  <ClipboardList className={cn(
-                    "mr-2 h-4 w-4",
-                    showOnlyTasks ? "text-brand-500" : "text-muted-foreground"
-                  )} />
-                  Tâches
-                </Button>
-                
-                <Button
-                  variant="default"
-                  onClick={() => setNewEntryDialogOpen(true)}
-                >
-                  <Plus className="mr-2 h-4 w-4" />
-                  Nouvelle
-                </Button>
-              </div>
-              
-              {loading ? (
-                <div className="flex justify-center items-center p-12">
-                  <Loader2 className="h-8 w-8 animate-spin text-brand-500" />
-                  <span className="ml-2">Chargement des consignes...</span>
-                </div>
-              ) : error ? (
-                <Alert variant="destructive">
-                  <AlertTriangle className="h-4 w-4" />
-                  <AlertDescription>{error}</AlertDescription>
-                </Alert>
-              ) : filteredEntries.length === 0 ? (
-                <div className="text-center py-12 border rounded-md">
-                  <ClipboardList className="h-12 w-12 mx-auto mb-4 text-muted-foreground" />
-                  <p className="text-lg font-medium">Aucune consigne trouvée</p>
-                  <p className="text-muted-foreground mt-1">
-                    Aucune consigne n'est disponible pour cette date et ces filtres.
-                  </p>
-                  <Button 
-                    variant="outline" 
-                    className="mt-4"
-                    onClick={() => {
-                      setFilterService('all');
-                      setFilterHotel('all');
-                      setSearchQuery('');
-                      setShowOnlyTasks(false);
-                    }}
-                  >
-                    <RefreshCw className="mr-2 h-4 w-4" />
-                    Réinitialiser les filtres
-                  </Button>
-                </div>
-              ) : (
-                <div className="space-y-6">
-                  {/* Display entries grouped by service */}
-                  {filterService === 'all' ? (
-                    Object.entries(grouped).map(([serviceId, serviceEntries]) => {
-                      if (serviceEntries.length === 0) return null;
-                      
-                      const service = mockServices.find(s => s.id === serviceId);
-                      if (!service) return null;
-                      
-                      return (
-                        <div key={serviceId} className="space-y-2">
-                          <div className="flex items-center mb-1 bg-slate-100 dark:bg-slate-800 p-2 rounded-md">
-                            <span className="text-xl mr-2">{service.icon}</span>
-                            <h3 className="font-semibold">{service.name}</h3>
-                            <Badge className={cn(
-                              "ml-2",
-                              service.id === 'important' ? 'bg-red-100 text-red-800' : ''
-                            )}>
-                              {serviceEntries.length}
-                            </Badge>
-                          </div>
-                          
-                          {serviceEntries.map(entry => (
-                            <LogbookEntry
-                              key={entry.id || ''}
-                              entry={entry as EntryType}
-                              onEdit={handleEditEntry}
-                              onDelete={handleDeleteEntry}
-                              onMarkAsRead={handleMarkAsRead}
-                              onMarkAsCompleted={handleMarkAsCompleted}
-                              onAddComment={handleAddComment}
-                            />
-                          ))}
-                        </div>
-                      );
-                    })
-                  ) : (
-                    <div className="space-y-2">
-                      {filteredEntries.map(entry => (
-                        <LogbookEntry
-                          key={entry.id || ''}
-                          entry={entry as EntryType}
-                          onEdit={handleEditEntry}
-                          onDelete={handleDeleteEntry}
-                          onMarkAsRead={handleMarkAsRead}
-                          onMarkAsCompleted={handleMarkAsCompleted}
-                          onAddComment={handleAddComment}
-                        />
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-            
-            {/* Sidebar - calendar and reminders */}
-            <div className="col-span-1 md:col-span-4 space-y-4">
-              <LogbookCalendar 
-                selectedDate={selectedDate}
-                onDateChange={setSelectedDate}
-              />
-              
-              <LogbookReminders 
-                reminders={reminders}
-                onMarkAsCompleted={handleMarkReminderAsCompleted}
-                selectedDate={selectedDate}
-              />
-              
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-lg flex items-center">
-                    <Filter className="h-5 w-5 mr-2 text-brand-500" />
-                    Filtres rapides
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-2">
-                    <Button
-                      variant="outline"
-                      className="w-full justify-start"
-                      onClick={() => {
-                        setFilterService('important');
-                        setShowOnlyTasks(false);
-                      }}
-                    >
-                      <span className="mr-2">⚠️</span>
-                      Consignes importantes
-                    </Button>
-                    <Button
-                      variant="outline"
-                      className="w-full justify-start"
-                      onClick={() => {
-                        setFilterService('all');
-                        setShowOnlyTasks(true);
-                      }}
-                    >
-                      <ClipboardList className="mr-2 h-4 w-4" />
-                      Tâches à faire
-                    </Button>
-                    <Button
-                      variant="outline"
-                      className="w-full justify-start"
-                      onClick={() => {
-                        setFilterService('all');
-                        setFilterHotel('all');
-                        setShowOnlyTasks(false);
-                        setSearchQuery('');
-                      }}
-                    >
-                      <RefreshCw className="mr-2 h-4 w-4" />
-                      Réinitialiser les filtres
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
-          </div>
-        </TabsContent>
-        
-        <TabsContent value="checklist">
-          <div className="grid grid-cols-1 md:grid-cols-12 gap-6">
-            {/* Checklist content */}
-            <div className="col-span-1 md:col-span-8 space-y-4">
-              <div className="flex items-center space-x-2 mb-4">
-                <div className="relative flex-1">
-                  <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-                  <Input
-                    type="search"
-                    placeholder="Rechercher dans la check-list..."
-                    className="pl-8 w-full"
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                  />
-                </div>
-                
-                <Select
-                  value={filterService}
-                  onValueChange={setFilterService}
-                >
-                  <SelectTrigger className="w-[180px]">
-                    <SelectValue placeholder="Tous les services" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">Tous les services</SelectItem>
-                    {mockServices.map(service => (
-                      <SelectItem key={service.id} value={service.id}>
-                        <span className="mr-2">{service.icon}</span>
-                        {service.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                
-                {/* Ajout du filtre hôtel pour la check-list */}
-                {availableHotels.length > 1 && (
-                  <Select
-                    value={filterHotel}
-                    onValueChange={setFilterHotel}
-                  >
-                    <SelectTrigger className="w-[180px]">
-                      <Building className="mr-2 h-4 w-4" />
-                      <SelectValue placeholder="Tous les hôtels" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">Tous les hôtels</SelectItem>
-                      {availableHotels.map(hotel => (
-                        <SelectItem key={hotel.id} value={hotel.id}>
-                          {hotel.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                )}
-                
-                {/* Bouton Nouvelle accessible uniquement aux administrateurs */}
-                {isAdmin && (
-                  <Button
-                    variant="default"
-                    onClick={() => setNewChecklistItemDialogOpen(true)}
-                  >
-                    <Plus className="mr-2 h-4 w-4" />
-                    Nouvelle
-                  </Button>
-                )}
-              </div>
-              
-              {loading ? (
-                <div className="flex justify-center items-center p-12">
-                  <Loader2 className="h-8 w-8 animate-spin text-brand-500" />
-                  <span className="ml-2">Chargement de la check-list...</span>
-                </div>
-              ) : filteredChecklistItems.length === 0 ? (
-                <div className="text-center py-12 border rounded-md">
-                  <CheckSquare className="h-12 w-12 mx-auto mb-4 text-muted-foreground" />
-                  <p className="text-lg font-medium">Aucun élément trouvé</p>
-                  <p className="text-muted-foreground mt-1">
-                    Aucun élément dans la check-list ne correspond à ces filtres.
-                  </p>
-                  <Button 
-                    variant="outline" 
-                    className="mt-4"
-                    onClick={() => {
-                      setFilterService('all');
-                      setFilterHotel('all');
-                      setSearchQuery('');
-                    }}
-                  >
-                    <RefreshCw className="mr-2 h-4 w-4" />
-                    Réinitialiser les filtres
-                  </Button>
-                </div>
-              ) : (
-                <div className="space-y-6">
-                  {/* Group checklist items by service */}
-                  {filterService === 'all' ? (
-                    mockServices.map(service => {
-                      const serviceItems = filteredChecklistItems.filter(item => item.serviceId === service.id);
-                      
-                      if (serviceItems.length === 0) return null;
-                      
-                      return (
-                        <div key={service.id} className="space-y-2">
-                          <div className="flex items-center mb-1 bg-slate-100 dark:bg-slate-800 p-2 rounded-md">
-                            <span className="text-xl mr-2">{service.icon}</span>
-                            <h3 className="font-semibold">{service.name}</h3>
-                            <Badge className="ml-2">
-                              {serviceItems.length}
-                            </Badge>
-                          </div>
-                          
-                          <div className="space-y-2">
-                            {serviceItems.map(item => (
-                              <LogbookChecklistItem 
-                                key={item.id}
-                                item={{
-                                  ...item,
-                                  // Ajouter des informations supplémentaires pour l'affichage
-                                  description: item.description || '',
-                                  isPermanent: item.isPermanent || false
-                                }}
-                                onToggle={handleToggleChecklistItem}
-                              />
-                            ))}
-                          </div>
-                        </div>
-                      );
-                    })
-                  ) : (
-                    <div className="space-y-2">
-                      {filteredChecklistItems.map(item => (
-                        <LogbookChecklistItem 
-                          key={item.id}
-                          item={{
-                            ...item,
-                            description: item.description || '',
-                            isPermanent: item.isPermanent || false
-                          }}
-                          onToggle={handleToggleChecklistItem}
-                        />
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-            
-            {/* Sidebar for checklist */}
-            <div className="col-span-1 md:col-span-4 space-y-4">
-              <LogbookCalendar 
-                selectedDate={selectedChecklistDate}
-                onDateChange={setSelectedChecklistDate}
-              />
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-lg flex items-center">
-                    <CheckSquare className="h-5 w-5 mr-2 text-brand-500" />
-                    Check-list du jour
-                  </CardTitle>
-                  <CardDescription>
-                    {selectedChecklistDate.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-2">
-                    <div className="flex justify-between items-center">
-                      <div className="text-sm font-medium">Statistiques</div>
-                    </div>
-                    
-                    <div className="grid grid-cols-2 gap-2">
-                      <div className="p-2 bg-slate-50 dark:bg-slate-900 rounded-md">
-                        <div className="text-2xl font-bold text-green-600">
-                          {filteredChecklistItems.filter(item => item.completed).length}
-                        </div>
-                        <div className="text-xs text-muted-foreground">
-                          Terminés
-                        </div>
-                      </div>
-                      <div className="p-2 bg-slate-50 dark:bg-slate-900 rounded-md">
-                        <div className="text-2xl font-bold text-amber-600">
-                          {filteredChecklistItems.filter(item => !item.completed).length}
-                        </div>
-                        <div className="text-xs text-muted-foreground">
-                          À faire
-                        </div>
-                      </div>
-                    </div>
-                    
-                    <div className="pt-2">
-                      <div className="text-sm font-medium mb-2">Filtres</div>
-                      <div className="space-y-2">
-                        <Button
-                          variant="outline"
-                          className="w-full justify-start"
-                          onClick={() => setFilterService('all')}
-                        >
-                          <CheckSquare className="mr-2 h-4 w-4" />
-                          Toutes les tâches
-                        </Button>
-                        <Button
-                          variant="outline"
-                          className="w-full justify-start"
-                          onClick={() => {
-                            setFilterService('all');
-                            setSearchQuery('');
-                          }}
-                        >
-                          <RefreshCw className="mr-2 h-4 w-4" />
-                          Réinitialiser les filtres
-                        </Button>
-                      </div>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
-          </div>
-        </TabsContent>
-      </Tabs>
-      
-      {/* New Entry Dialog */}
-      <LogbookEntryForm
-        isOpen={newEntryDialogOpen}
-        onClose={() => setNewEntryDialogOpen(false)}
-        onSave={handleSaveEntry}
-        initialData={{
-          serviceId: '',
-          content: '',
-          importance: 1,
-          date: selectedDate.toISOString().split('T')[0],
-          time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-          hotelId: availableHotels.length === 1 ? availableHotels[0].id : '',
-          isTask: false,
-          // Ajout des nouvelles propriétés
-          endDate: '',
-          displayRange: false,
-          hasReminder: false,
-          reminderTitle: '',
-          reminderDescription: ''
-        }}
-      />
-      
-      {/* Edit Entry Dialog */}
-      {selectedEntry && (
-        <LogbookEntryForm
-          isOpen={editEntryDialogOpen}
-          onClose={() => {
-            setEditEntryDialogOpen(false);
-            setSelectedEntry(null);
-          }}
-          onSave={handleSaveEntry}
-          initialData={selectedEntry}
-          isEditing={true}
-        />
-      )}
-      
-      {/* New Checklist Item Dialog */}
-      <Dialog
-        open={newChecklistItemDialogOpen}
-        onOpenChange={setNewChecklistItemDialogOpen}
-      >
-        <DialogContent className="sm:max-w-[500px]">
-          <DialogHeader>
-            <DialogTitle>Nouvelle tâche</DialogTitle>
-            <DialogDescription>
-              Ajoutez une nouvelle tâche à la check-list
-            </DialogDescription>
-          </DialogHeader>
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+        <div className="md:col-span-1 space-y-6">
+          <LogbookCalendar 
+            selectedDate={selectedDate}
+            onDateChange={setSelectedDate}
+          />
           
-          <form onSubmit={(e) => {
-            e.preventDefault();
-            const formData = new FormData(e.currentTarget);
-            const data = {
-              title: formData.get('title') as string,
-              description: formData.get('description') as string,
-              serviceId: formData.get('serviceId') as string,
-              hotelId: formData.get('hotelId') as string,
-              date: formData.get('date') as string,
-              endDate: formData.get('endDate') as string,
-              displayRange: formData.get('displayRange') === 'on',
-              isPermanent: formData.get('isPermanent') === 'on'
-            };
-            handleSaveChecklistItem(data);
-          }}>
-            <div className="grid gap-4 py-4">
-              <div className="space-y-2">
-                <Label htmlFor="title">Titre de la tâche</Label>
+          <LogbookReminders 
+            reminders={reminders}
+            onViewReminder={handleViewReminderEntry}
+            onMarkAsCompleted={handleMarkReminderAsCompleted}
+            selectedDate={selectedDate}
+          />
+        </div>
+        
+        <div className="md:col-span-3 space-y-4">
+          <LogbookDateNavigation 
+            selectedDate={selectedDate}
+            onDateChange={setSelectedDate}
+          />
+          
+          <div className="flex flex-col space-y-2">
+            <div className="flex flex-col sm:flex-row space-y-2 sm:space-y-0 sm:space-x-2">
+              <div className="relative flex-1">
+                <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
                 <Input
-                  id="title"
-                  name="title"
-                  placeholder="Titre de la tâche"
-                  required
+                  type="search"
+                  placeholder="Rechercher..."
+                  className="pl-8 w-full"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
                 />
               </div>
               
-              <div className="space-y-2">
-                <Label htmlFor="description">Description (optionnelle)</Label>
-                <textarea
-                  id="description"
-                  name="description"
-                  className="min-h-[80px] w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 resize-y"
-                  placeholder="Description détaillée de la tâche..."
-                />
-              </div>
+              <Select value={filterHotel} onValueChange={setFilterHotel}>
+                <SelectTrigger className="w-full sm:w-[180px]">
+                  <Building className="mr-2 h-4 w-4" />
+                  <SelectValue placeholder="Tous les hôtels" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Tous les hôtels</SelectItem>
+                  {hotels.map(hotel => (
+                    <SelectItem key={hotel.id} value={hotel.id}>{hotel.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
               
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="serviceId">Service</Label>
-                  <Select name="serviceId" defaultValue={filterService !== 'all' ? filterService : 'reception'}>
+              <Button variant="outline" size="icon" onClick={() => setFiltersExpanded(!filtersExpanded)}>
+                <SlidersHorizontal className="h-4 w-4" />
+              </Button>
+              
+              <Button variant="outline" size="icon" onClick={resetFilters}>
+                <RefreshCw className="h-4 w-4" />
+              </Button>
+            </div>
+            
+            {filtersExpanded && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 p-4 border rounded-md">
+                <div>
+                  <label className="text-sm font-medium mb-1 block">Service</label>
+                  <Select value={filterService} onValueChange={setFilterService}>
                     <SelectTrigger>
-                      <SelectValue placeholder="Sélectionner un service" />
+                      <SelectValue placeholder="Tous les services" />
                     </SelectTrigger>
                     <SelectContent>
-                      {mockServices.map(service => (
+                      <SelectItem value="all">Tous les services</SelectItem>
+                      {services.map(service => (
                         <SelectItem key={service.id} value={service.id}>
                           <span className="mr-2">{service.icon}</span>
                           {service.name}
@@ -1380,101 +583,272 @@ const LogbookPage = () => {
                     </SelectContent>
                   </Select>
                 </div>
-                
-                <div className="space-y-2">
-                  <Label htmlFor="hotelId">Hôtel</Label>
-                  <Select 
-                    name="hotelId" 
-                    defaultValue={filterHotel !== 'all' ? filterHotel : availableHotels[0]?.id}
-                    disabled={availableHotels.length === 1}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Sélectionner un hôtel" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {availableHotels.map(hotel => (
-                        <SelectItem key={hotel.id} value={hotel.id}>
-                          {hotel.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+              </div>
+            )}
+          </div>
+          
+          <Tabs value={activeTab} onValueChange={setActiveTab}>
+            <TabsList>
+              <TabsTrigger value="consignes">Consignes</TabsTrigger>
+              <TabsTrigger value="checklist" className="flex items-center">
+                <CheckSquare className="mr-2 h-4 w-4" />
+                Check-list
+                <div className="ml-2 bg-brand-100 text-brand-800 rounded-full w-5 h-5 flex items-center justify-center text-xs">
+                  {checklistItems.filter(item => !item.completed).length}
                 </div>
+              </TabsTrigger>
+            </TabsList>
+            
+            <TabsContent value="consignes" className="space-y-4 mt-4">
+              {loading ? (
+                <div className="text-center py-8">
+                  <p>Chargement des consignes...</p>
+                </div>
+              ) : filteredEntries.length === 0 ? (
+                <div className="text-center py-8 border rounded-md bg-slate-50 dark:bg-slate-900">
+                  <BookOpen className="h-12 w-12 mx-auto mb-4 text-slate-400" />
+                  <p className="text-lg font-medium">Aucune consigne pour cette date</p>
+                  <p className="text-sm text-muted-foreground mt-1">
+                    Ajoutez une nouvelle consigne en cliquant sur le bouton "Nouvelle Consigne"
+                  </p>
+                </div>
+              ) : (
+                filteredEntries.map(entry => (
+                  <LogbookEntry 
+                    key={entry.id}
+                    entry={entry}
+                    onEdit={handleEditEntry}
+                    onDelete={handleDeleteEntry}
+                    onMarkAsRead={handleMarkAsRead}
+                    onMarkAsCompleted={handleMarkAsCompleted}
+                    onAddComment={handleAddComment}
+                  />
+                ))
+              )}
+            </TabsContent>
+            
+            <TabsContent value="checklist" className="space-y-4 mt-4">
+              <div className="flex justify-between items-center">
+                <h2 className="text-lg font-medium">Tâches à effectuer</h2>
+                {isAdmin && (
+                  <Button 
+                    size="sm" 
+                    onClick={() => setNewChecklistDialogOpen(true)}
+                  >
+                    <Plus className="mr-2 h-4 w-4" />
+                    Nouvelle tâche
+                  </Button>
+                )}
+              </div>
+              
+              {checklistItems.length === 0 ? (
+                <div className="text-center py-8 border rounded-md bg-slate-50 dark:bg-slate-900">
+                  <CheckSquare className="h-12 w-12 mx-auto mb-4 text-slate-400" />
+                  <p className="text-lg font-medium">Aucune tâche pour cette date</p>
+                  <p className="text-sm text-muted-foreground mt-1">
+                    {isAdmin 
+                      ? "Ajoutez une nouvelle tâche en cliquant sur le bouton \"Nouvelle tâche\""
+                      : "Les tâches apparaîtront ici lorsqu'elles seront assignées"
+                    }
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {/* Group by service */}
+                  {services.map(service => {
+                    const serviceItems = checklistItems.filter(item => item.serviceId === service.id);
+                    if (serviceItems.length === 0) return null;
+                    
+                    return (
+                      <div key={service.id} className="space-y-2">
+                        <div className="flex items-center bg-slate-50 dark:bg-slate-900 p-2 rounded-md">
+                          <span className="text-xl mr-2">{service.icon}</span>
+                          <h3 className="font-medium">{service.name}</h3>
+                          <div className="ml-2 bg-brand-100 text-brand-800 rounded-full w-5 h-5 flex items-center justify-center text-xs">
+                            {serviceItems.filter(item => !item.completed).length}
+                          </div>
+                        </div>
+                        
+                        <div className="space-y-2">
+                          {serviceItems.map(item => (
+                            <LogbookChecklistItem 
+                              key={item.id}
+                              item={item}
+                              onToggle={handleToggleChecklistItem}
+                            />
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </TabsContent>
+          </Tabs>
+        </div>
+      </div>
+      
+      {/* New Entry Form */}
+      <LogbookEntryForm 
+        isOpen={newEntryDialogOpen}
+        onClose={() => setNewEntryDialogOpen(false)}
+        onSave={handleSubmitEntry}
+      />
+      
+      {/* New Checklist Item Dialog */}
+      <Dialog open={newChecklistDialogOpen} onOpenChange={setNewChecklistDialogOpen}>
+        <DialogContent className="sm:max-w-[500px]">
+          <DialogHeader>
+            <DialogTitle>Nouvelle tâche</DialogTitle>
+            <DialogDescription>
+              Créez une nouvelle tâche à effectuer
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="grid gap-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="title">Titre</Label>
+              <Input
+                id="title"
+                value={checklistFormData.title}
+                onChange={(e) => setChecklistFormData({...checklistFormData, title: e.target.value})}
+                placeholder="Titre de la tâche"
+              />
+            </div>
+            
+            <div className="space-y-2">
+              <Label htmlFor="description">Description (optionnelle)</Label>
+              <Input
+                id="description"
+                value={checklistFormData.description}
+                onChange={(e) => setChecklistFormData({...checklistFormData, description: e.target.value})}
+                placeholder="Description de la tâche"
+              />
+            </div>
+            
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="service">Service</Label>
+                <Select 
+                  value={checklistFormData.serviceId} 
+                  onValueChange={(value) => setChecklistFormData({...checklistFormData, serviceId: value})}
+                >
+                  <SelectTrigger id="service">
+                    <SelectValue placeholder="Sélectionner un service" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {services.map(service => (
+                      <SelectItem key={service.id} value={service.id}>
+                        <span className="mr-2">{service.icon}</span>
+                        {service.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
               
               <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <Label>Type de tâche</Label>
-                  <div className="flex items-center space-x-4">
-                    <div className="flex items-center space-x-2">
-                      <input
-                        type="checkbox"
-                        id="isPermanent"
-                        name="isPermanent"
-                        className="h-4 w-4 rounded border-gray-300 text-brand-600 focus:ring-brand-500"
-                      />
-                      <Label htmlFor="isPermanent" className="text-sm">
-                        Tâche permanente
-                      </Label>
-                    </div>
-                    
-                    <div className="flex items-center space-x-2">
-                      <input
-                        type="checkbox"
-                        id="displayRange"
-                        name="displayRange"
-                        className="h-4 w-4 rounded border-gray-300 text-brand-600 focus:ring-brand-500"
-                      />
-                      <Label htmlFor="displayRange" className="text-sm">
-                        Plage de dates
-                      </Label>
-                    </div>
-                  </div>
-                </div>
-                
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="date">Date de début</Label>
-                    <div className="flex items-center">
-                      <Calendar className="h-4 w-4 mr-2 text-muted-foreground" />
-                      <Input
-                        id="date"
-                        name="date"
-                        type="date"
-                        defaultValue={selectedChecklistDate.toISOString().split('T')[0]}
-                      />
-                    </div>
-                  </div>
-                  
-                  <div className="space-y-2">
-                    <Label htmlFor="endDate">Date de fin (optionnelle)</Label>
-                    <div className="flex items-center">
-                      <Calendar className="h-4 w-4 mr-2 text-muted-foreground" />
-                      <Input
-                        id="endDate"
-                        name="endDate"
-                        type="date"
-                        defaultValue=""
-                      />
-                    </div>
-                  </div>
-                </div>
+                <Label htmlFor="hotel">Hôtel</Label>
+                <Select 
+                  value={checklistFormData.hotelId} 
+                  onValueChange={(value) => setChecklistFormData({...checklistFormData, hotelId: value})}
+                >
+                  <SelectTrigger id="hotel">
+                    <SelectValue placeholder="Sélectionner un hôtel" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {hotels.map(hotel => (
+                      <SelectItem key={hotel.id} value={hotel.id}>{hotel.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
             </div>
             
-            <div className="flex justify-end space-x-2 mt-4">
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => setNewChecklistItemDialogOpen(false)}
-              >
-                Annuler
-              </Button>
-              <Button type="submit">
-                Créer la tâche
-              </Button>
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <Label>Type de tâche</Label>
+                <div className="flex items-center space-x-2">
+                  <Switch
+                    id="is-permanent"
+                    checked={checklistFormData.isPermanent}
+                    onCheckedChange={(checked) => setChecklistFormData({
+                      ...checklistFormData, 
+                      isPermanent: checked,
+                      // If permanent, disable date range
+                      displayRange: checked ? false : checklistFormData.displayRange
+                    })}
+                  />
+                  <Label htmlFor="is-permanent" className="text-sm">
+                    Tâche permanente
+                  </Label>
+                </div>
+              </div>
+              
+              {!checklistFormData.isPermanent && (
+                <div className="space-y-2 mt-2">
+                  <div className="flex items-center justify-between">
+                    <Label>Période d'affichage</Label>
+                    <div className="flex items-center space-x-2">
+                      <Switch
+                        id="display-range"
+                        checked={checklistFormData.displayRange}
+                        onCheckedChange={(checked) => setChecklistFormData({...checklistFormData, displayRange: checked})}
+                        disabled={checklistFormData.isPermanent}
+                      />
+                      <Label htmlFor="display-range" className="text-sm">
+                        Définir une plage de dates
+                      </Label>
+                    </div>
+                  </div>
+
+                  {checklistFormData.displayRange ? (
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label htmlFor="dueDate">Date de début</Label>
+                        <Input
+                          id="dueDate"
+                          type="date"
+                          value={checklistFormData.dueDate}
+                          onChange={(e) => setChecklistFormData({...checklistFormData, dueDate: e.target.value})}
+                        />
+                      </div>
+                      
+                      <div className="space-y-2">
+                        <Label htmlFor="endDate">Date de fin</Label>
+                        <Input
+                          id="endDate"
+                          type="date"
+                          value={checklistFormData.endDate}
+                          onChange={(e) => setChecklistFormData({...checklistFormData, endDate: e.target.value})}
+                          min={checklistFormData.dueDate} // La date de fin doit être après la date de début
+                        />
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      <Label htmlFor="dueDate">Date d'échéance</Label>
+                      <Input
+                        id="dueDate"
+                        type="date"
+                        value={checklistFormData.dueDate}
+                        onChange={(e) => setChecklistFormData({...checklistFormData, dueDate: e.target.value})}
+                      />
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
-          </form>
+          </div>
+          
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setNewChecklistDialogOpen(false)}>
+              Annuler
+            </Button>
+            <Button onClick={handleSubmitChecklistItem}>
+              Créer la tâche
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>
