@@ -32,12 +32,43 @@ const RATE_LIMITS = {
 };
 
 /**
+ * Check if user is authenticated and get current user
+ * @returns Current user or null
+ */
+const ensureAuthenticated = async () => {
+  try {
+    const user = await getCurrentUser();
+    if (!user) {
+      console.warn('User not authenticated for gamification operations');
+      return null;
+    }
+    return user;
+  } catch (error) {
+    console.error('Error checking authentication:', error);
+    return null;
+  }
+};
+
+/**
  * Retrieves user's gamification stats from Firebase
  * @param userId User ID to retrieve stats for
  * @returns UserStats object or null if not found
  */
 export const getUserStats = async (userId: string): Promise<UserStats | null> => {
   try {
+    // Ensure user is authenticated
+    const currentUser = await ensureAuthenticated();
+    if (!currentUser) {
+      console.warn('Cannot retrieve stats: User not authenticated');
+      return null;
+    }
+
+    // Ensure user can only access their own stats
+    if (currentUser.uid !== userId) {
+      console.warn('Cannot retrieve stats: User can only access their own data');
+      return null;
+    }
+
     const userStatsRef = doc(db, COLLECTIONS.USER_STATS, userId);
     const docSnap = await getDoc(userStatsRef);
     
@@ -48,6 +79,13 @@ export const getUserStats = async (userId: string): Promise<UserStats | null> =>
     return null;
   } catch (error) {
     console.error('Error retrieving user stats from Firebase:', error);
+    
+    // Check if it's a permission error
+    if (error instanceof Error && error.message.includes('permission')) {
+      console.error('Firebase permission error. Please check your Firestore security rules.');
+      console.error('Required rule: allow read, write: if request.auth != null && request.auth.uid == userId;');
+    }
+    
     return null;
   }
 };
@@ -59,6 +97,19 @@ export const getUserStats = async (userId: string): Promise<UserStats | null> =>
  */
 export const initializeOrGetUserStats = async (userId: string): Promise<UserStats> => {
   try {
+    // Ensure user is authenticated
+    const currentUser = await ensureAuthenticated();
+    if (!currentUser) {
+      console.warn('Cannot initialize stats: User not authenticated, returning default stats');
+      return initializeUserStats(userId);
+    }
+
+    // Ensure user can only access their own stats
+    if (currentUser.uid !== userId) {
+      console.warn('Cannot initialize stats: User can only access their own data, returning default stats');
+      return initializeUserStats(userId);
+    }
+
     // Try to get existing stats
     const stats = await getUserStats(userId);
     
@@ -69,9 +120,15 @@ export const initializeOrGetUserStats = async (userId: string): Promise<UserStat
     // If not found, initialize new stats
     const newStats = initializeUserStats(userId);
     
-    // Save to Firebase
-    const userStatsRef = doc(db, COLLECTIONS.USER_STATS, userId);
-    await setDoc(userStatsRef, newStats);
+    try {
+      // Save to Firebase
+      const userStatsRef = doc(db, COLLECTIONS.USER_STATS, userId);
+      await setDoc(userStatsRef, newStats);
+      console.log('Successfully initialized user stats in Firebase');
+    } catch (saveError) {
+      console.error('Error saving new stats to Firebase:', saveError);
+      // Continue with local stats even if save fails
+    }
     
     return newStats;
   } catch (error) {
@@ -95,6 +152,13 @@ export const recordActionHistory = async (
   details?: any
 ) => {
   try {
+    // Ensure user is authenticated
+    const currentUser = await ensureAuthenticated();
+    if (!currentUser || currentUser.uid !== userId) {
+      console.warn('Cannot record action history: Authentication failed');
+      return;
+    }
+
     const historyCollection = collection(db, COLLECTIONS.ACTION_HISTORY);
     
     await addDoc(historyCollection, {
@@ -109,6 +173,7 @@ export const recordActionHistory = async (
     console.log(`Recorded action history: ${action.type} for user ${userId}`);
   } catch (error) {
     console.error('Error recording action history:', error);
+    // Don't throw error to prevent breaking the main flow
   }
 };
 
@@ -123,6 +188,13 @@ export const isActionRateLimited = async (
   action: GamificationAction
 ): Promise<boolean> => {
   try {
+    // Ensure user is authenticated
+    const currentUser = await ensureAuthenticated();
+    if (!currentUser || currentUser.uid !== userId) {
+      console.warn('Cannot check rate limits: Authentication failed');
+      return false; // Allow action if we can't check
+    }
+
     const actionType = action.type;
     const limits = RATE_LIMITS[actionType as keyof typeof RATE_LIMITS] || RATE_LIMITS.DEFAULT;
     
@@ -177,6 +249,13 @@ export const isActionRateLimited = async (
  */
 export const hasReceivedLoginPointsToday = async (userId: string): Promise<boolean> => {
   try {
+    // Ensure user is authenticated
+    const currentUser = await ensureAuthenticated();
+    if (!currentUser || currentUser.uid !== userId) {
+      console.warn('Cannot check login points: Authentication failed');
+      return false;
+    }
+
     const now = new Date();
     const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
     
@@ -203,6 +282,13 @@ export const hasReceivedLoginPointsToday = async (userId: string): Promise<boole
  */
 export const getCurrentStreak = async (userId: string): Promise<number> => {
   try {
+    // Ensure user is authenticated
+    const currentUser = await ensureAuthenticated();
+    if (!currentUser || currentUser.uid !== userId) {
+      console.warn('Cannot get streak: Authentication failed');
+      return 0;
+    }
+
     const stats = await getUserStats(userId);
     if (!stats) return 0;
     
@@ -258,6 +344,14 @@ export const updateUserStats = async (
   newBadges: Badge[] 
 }> => {
   try {
+    // Ensure user is authenticated
+    const currentUser = await ensureAuthenticated();
+    if (!currentUser || currentUser.uid !== userId) {
+      console.warn('Cannot update stats: Authentication failed');
+      const fallbackStats = await initializeOrGetUserStats(userId);
+      return { newStats: fallbackStats, xpGained: 0, newBadges: [] };
+    }
+
     // Rate limiting check
     const isRateLimited = await isActionRateLimited(userId, action);
     if (isRateLimited) {
@@ -439,16 +533,23 @@ export const updateUserStats = async (
     // Update badges
     stats.badges = Array.from(currentBadges);
     
-    // Save updated stats to Firebase
-    const userStatsRef = doc(db, COLLECTIONS.USER_STATS, userId);
-    await setDoc(userStatsRef, stats, { merge: true });
-    
-    // Record action in history
-    await recordActionHistory(userId, action, xpGained, {
-      newLevel: stats.level,
-      newBadges: newBadges.map(b => b.id),
-      totalXp: stats.xp
-    });
+    try {
+      // Save updated stats to Firebase
+      const userStatsRef = doc(db, COLLECTIONS.USER_STATS, userId);
+      await setDoc(userStatsRef, stats, { merge: true });
+      
+      // Record action in history
+      await recordActionHistory(userId, action, xpGained, {
+        newLevel: stats.level,
+        newBadges: newBadges.map(b => b.id),
+        totalXp: stats.xp
+      });
+      
+      console.log(`Successfully updated stats for user ${userId}`);
+    } catch (saveError) {
+      console.error('Error saving updated stats to Firebase:', saveError);
+      // Continue with local stats even if save fails
+    }
     
     return { newStats: stats, xpGained, newBadges };
   } catch (error) {
@@ -467,6 +568,13 @@ export const updateUserStats = async (
  */
 export const getUserBadges = async (userId: string): Promise<Badge[]> => {
   try {
+    // Ensure user is authenticated
+    const currentUser = await ensureAuthenticated();
+    if (!currentUser || currentUser.uid !== userId) {
+      console.warn('Cannot get badges: Authentication failed');
+      return [];
+    }
+
     const stats = await getUserStats(userId);
     if (!stats) return [];
     
@@ -487,6 +595,13 @@ export const getUserBadges = async (userId: string): Promise<Badge[]> => {
  */
 export const getUserLevel = async (userId: string) => {
   try {
+    // Ensure user is authenticated
+    const currentUser = await ensureAuthenticated();
+    if (!currentUser || currentUser.uid !== userId) {
+      console.warn('Cannot get level: Authentication failed');
+      return { level: 1, progress: 0, levelInfo: EXPERIENCE_LEVELS[0] };
+    }
+
     const stats = await getUserStats(userId);
     if (!stats) return { level: 1, progress: 0, levelInfo: EXPERIENCE_LEVELS[0] };
     
@@ -508,6 +623,13 @@ export const getUserLevel = async (userId: string) => {
  */
 export const getUserRank = async (userId: string) => {
   try {
+    // Ensure user is authenticated
+    const currentUser = await ensureAuthenticated();
+    if (!currentUser || currentUser.uid !== userId) {
+      console.warn('Cannot get rank: Authentication failed');
+      return { rank: "Bronze", points: 0, nextRank: "Argent", pointsNeeded: 1000 };
+    }
+
     const stats = await getUserStats(userId);
     if (!stats) return { rank: "Bronze", points: 0, nextRank: "Argent", pointsNeeded: 1000 };
     
@@ -559,6 +681,13 @@ export const getUserRank = async (userId: string) => {
  */
 export const getUserChallenges = async (userId: string) => {
   try {
+    // Ensure user is authenticated
+    const currentUser = await ensureAuthenticated();
+    if (!currentUser || currentUser.uid !== userId) {
+      console.warn('Cannot get challenges: Authentication failed');
+      return { challenges: [], progress: {} };
+    }
+
     const stats = await getUserStats(userId);
     if (!stats) return { challenges: [], progress: {} };
     
