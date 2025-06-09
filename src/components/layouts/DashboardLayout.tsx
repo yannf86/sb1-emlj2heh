@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { Outlet, Link, useLocation, useNavigate } from 'react-router-dom';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -10,7 +10,6 @@ import {
   ClipboardCheck, 
   Search, 
   FileText, 
-  BarChart, 
   Settings, 
   Users, 
   ChevronLeft, 
@@ -21,12 +20,10 @@ import {
   Sun,
   Trophy,
   Truck,
-  Wrench,
-  BookMarked, // Added BookMarked icon for Logbook
-  BookOpen, // Added BookOpen icon for Cahier de Consignes
+  BookOpen
 } from 'lucide-react';
 import { getCurrentUser, logout, resetInactivityTimer } from '@/lib/auth';
-import { modules, hotels } from '@/lib/data';
+import { hotels } from '@/lib/data';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { getGroups } from '@/lib/db/groups';
 
@@ -34,7 +31,6 @@ import { getGroups } from '@/lib/db/groups';
 import { GamificationProvider } from '@/components/gamification/GamificationContext';
 import GamificationDialog from '@/components/gamification/GamificationDialog';
 import RecentBadgeToast from '@/components/gamification/RecentBadgeToast';
-import LevelProgressBar from '@/components/gamification/LevelProgressBar';
 import { useGamification } from '@/components/gamification/GamificationContext';
 
 // Badge indicator pour le niveau
@@ -119,11 +115,9 @@ const DashboardLayout = () => {
     { icon: <BookOpen size={20} />, label: 'Cahier de Consignes', path: 'logbook', moduleId: 'mod12' }, // Module Cahier de Consignes
     { icon: <AlertTriangle size={20} />, label: 'Suivi Incidents', path: 'incidents', moduleId: 'mod2' },
     { icon: <Tool size={20} />, label: 'Suivi Technique', path: 'maintenance', moduleId: 'mod3' },
-    { icon: <Wrench size={20} />, label: 'Techniciens', path: 'technicians', moduleId: 'mod9' },
     { icon: <ClipboardCheck size={20} />, label: 'Visites Qualité', path: 'quality', moduleId: 'mod4' },
     { icon: <Search size={20} />, label: 'Objets Trouvés', path: 'lost-found', moduleId: 'mod5' },
     { icon: <FileText size={20} />, label: 'Procédures', path: 'procedures', moduleId: 'mod6' },
-    { icon: <BarChart size={20} />, label: 'Statistiques', path: 'statistics', moduleId: 'mod7' },
     { icon: <Trophy size={20} />, label: 'Gamification', path: 'gamification', moduleId: 'mod10' },
     { icon: <Truck size={20} />, label: 'Fournisseurs', path: 'suppliers', moduleId: 'mod11' },
     { icon: <Settings size={20} />, label: 'Paramètres', path: 'settings', moduleId: 'mod8' },

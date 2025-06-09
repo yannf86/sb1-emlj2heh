@@ -1,14 +1,8 @@
-import { query, where, getDocs, collection, doc as firestoreDoc, getDoc as firestoreGetDoc, updateDoc, addDoc, setDoc } from 'firebase/firestore';
-import { db } from '../firebase';
-import { createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, getAuth, sendPasswordResetEmail, fetchSignInMethodsForEmail } from 'firebase/auth';
-import { auth } from '../firebase';
-import { getCurrentTechnician } from '../technician-auth';
 import { updateMaintenanceRequest, getMaintenanceRequest } from './maintenance';
 import { uploadToSupabase, deleteFromSupabase } from '../supabase';
-import { getTechnician } from './technicians';
-import { getHotelName } from './hotels';
-import { getLocationLabel } from './parameters-locations';
-import { getInterventionTypeLabel } from './parameters-intervention-type';
+import { getCurrentUser } from '../auth';
+import { sendMaintenanceEmailNotifications } from './notifications';
+import { updateTechnicianRating } from './technician-rating';
 
 // Add a quote to a maintenance request
 export const addQuoteToMaintenance = async (maintenanceId: string, quoteData: any) => {
@@ -19,7 +13,7 @@ export const addQuoteToMaintenance = async (maintenanceId: string, quoteData: an
       throw new Error('Maintenance request not found');
     }
     
-    const currentUser = getCurrentTechnician();
+    const currentUser = getCurrentUser();
     const userId = currentUser?.id || 'system';
     
     // Upload file if provided
@@ -37,11 +31,11 @@ export const addQuoteToMaintenance = async (maintenanceId: string, quoteData: an
     
     // Prepare quote data
     const quote = {
-      technicianId: quoteData.technicianId || null,
-      amount: quoteData.quoteAmount ? parseFloat(quoteData.quoteAmount) : null,
+      technicianId: quoteData.technicianId || undefined,
+      amount: quoteData.quoteAmount ? parseFloat(quoteData.quoteAmount) : 0,
       url: quoteUrl,
       status: quoteData.quoteStatus || 'pending',
-      comments: quoteData.comments || null,
+      comments: quoteData.comments || undefined,
       createdAt: new Date().toISOString(),
       createdBy: userId
     };
@@ -54,9 +48,9 @@ export const addQuoteToMaintenance = async (maintenanceId: string, quoteData: an
     await updateMaintenanceRequest(maintenanceId, {
       quotes,
       quoteUrl,  // For backwards compatibility
-      quoteAmount: quoteData.quoteAmount ? parseFloat(quoteData.quoteAmount) : null,
+      quoteAmount: quoteData.quoteAmount ? parseFloat(quoteData.quoteAmount) : undefined,
       quoteStatus: quoteData.quoteStatus || 'pending',
-      technicianId: quoteData.technicianId || maintenance.technicianId,
+      technicianId: quoteData.technicianId || maintenance.technicianId || undefined,
       updatedAt: new Date().toISOString(),
       updatedBy: userId
     });
@@ -81,7 +75,7 @@ export const updateQuoteStatus = async (maintenanceId: string, quoteIndex: numbe
       throw new Error('Maintenance request not found');
     }
     
-    const currentUser = getCurrentTechnician();
+    const currentUser = getCurrentUser();
     const userId = currentUser?.id || 'system';
     
     // Save the technicianId for notification purposes
@@ -89,9 +83,6 @@ export const updateQuoteStatus = async (maintenanceId: string, quoteIndex: numbe
     
     // Create a copy of the quotes array to avoid mutating the original
     const updatedQuotes = [...(maintenance.quotes || [])];
-    
-    // Use a separate variable to keep track of the accepted technicianId
-    let acceptedTechnicianId = null;
     
     if (status === 'accepted') {
       // When accepting a quote, mark all others as rejected
@@ -105,7 +96,7 @@ export const updateQuoteStatus = async (maintenanceId: string, quoteIndex: numbe
             statusUpdatedBy: userId,
             statusComments: comments
           };
-          acceptedTechnicianId = updatedQuotes[index].technicianId;
+
         } else if (quote.status === 'pending') {
           // Only update quotes that are still pending
           updatedQuotes[index] = {
@@ -151,9 +142,9 @@ export const updateQuoteStatus = async (maintenanceId: string, quoteIndex: numbe
       // These fields are for backwards compatibility
       quoteStatus: globalQuoteStatus,
       quoteAccepted: globalQuoteStatus === 'accepted',
-      quoteAcceptedDate: globalQuoteStatus === 'accepted' ? new Date().toISOString() : null,
-      quoteAcceptedById: globalQuoteStatus === 'accepted' ? userId : null,
-      technicianId: primaryTechnicianId,
+      quoteAcceptedDate: globalQuoteStatus === 'accepted' ? new Date().toISOString() : undefined,
+      quoteAcceptedById: globalQuoteStatus === 'accepted' ? userId : undefined,
+      technicianId: primaryTechnicianId || undefined,
       statusId: globalQuoteStatus === 'accepted' ? 'stat2' : maintenance.statusId, // If accepted, update status to 'in progress'
       updatedAt: new Date().toISOString(),
       updatedBy: userId
@@ -271,7 +262,7 @@ export const rateTechnician = async (maintenanceId: string, rating: number, comm
       throw new Error('No technician assigned to this maintenance');
     }
     
-    const currentUser = getCurrentTechnician();
+    const currentUser = getCurrentUser();
     const userId = currentUser?.id || 'system';
     
     // Update technician rating
@@ -284,7 +275,7 @@ export const rateTechnician = async (maintenanceId: string, rating: number, comm
       action: 'rate_technician',
       details: {
         rating,
-        comments: comments || null,
+        comments: comments || undefined,
         technicianId: maintenance.technicianId
       }
     };
@@ -292,17 +283,12 @@ export const rateTechnician = async (maintenanceId: string, rating: number, comm
     const history = maintenance.history || [];
     history.push(historyEntry);
     
-    // Update maintenance with rating info
+    // Update maintenance
     await updateMaintenanceRequest(maintenanceId, {
-      technicianRating: rating,
-      technicianRatingComments: comments,
-      technicianRatingDate: new Date().toISOString(),
-      technicianRatingBy: userId,
       history,
       updatedAt: new Date().toISOString(),
       updatedBy: userId
     }, userId);
-    
     return {
       success: true,
       newRating

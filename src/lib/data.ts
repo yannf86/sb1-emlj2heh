@@ -53,7 +53,6 @@ export const modules = [
   { id: 'mod4', name: 'Visites Qualité', code: 'quality', icon: 'clipboard-check', active: true, order: 4 },
   { id: 'mod5', name: 'Objets Trouvés', code: 'lost-found', icon: 'search', active: true, order: 5 },
   { id: 'mod6', name: 'Procédures', code: 'procedures', icon: 'file-text', active: true, order: 6 },
-  { id: 'mod7', name: 'Statistiques', code: 'statistics', icon: 'bar-chart', active: true, order: 7 },
   { id: 'mod8', name: 'Paramètres', code: 'settings', icon: 'settings', active: true, order: 8 },
   { id: 'mod9', name: 'Gestion des Utilisateurs', code: 'users', icon: 'users', active: true, order: 9 },
   { id: 'mod10', name: 'Gamification', code: 'gamification', icon: 'trophy', active: true, order: 10 },
@@ -103,7 +102,7 @@ export const users: User[] = [
     email: 'admin@test.com',
     role: 'admin',
     hotels: ['hotel1', 'hotel2', 'hotel3', 'hotel4'],
-    modules: ['mod1', 'mod2', 'mod3', 'mod4', 'mod5', 'mod6', 'mod7', 'mod8', 'mod9', 'mod10', 'mod11', 'mod12'], // Ajout du module mod12
+    modules: ['mod1', 'mod2', 'mod3', 'mod4', 'mod5', 'mod6', 'mod9', 'mod10', 'mod11', 'mod12'],
     active: true
   },
   {
@@ -112,7 +111,7 @@ export const users: User[] = [
     email: 'user@test.com',
     role: 'standard',
     hotels: ['hotel1', 'hotel2'],
-    modules: ['mod1', 'mod2', 'mod3', 'mod4', 'mod5', 'mod12'], // Ajout du module mod12
+    modules: ['mod1', 'mod2', 'mod3', 'mod4', 'mod5', 'mod12'],
     active: true
   },
 ];

@@ -4,8 +4,6 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 // Layout
 import DashboardLayout from './components/layouts/DashboardLayout';
-import TechnicianLayout from './components/technician/TechnicianLayout';
-
 // Pages
 import LoginPage from './pages/LoginPage';
 import DashboardPage from './pages/DashboardPage';
@@ -14,23 +12,16 @@ import MaintenancePage from './pages/MaintenancePage';
 import QualityPage from './pages/QualityPage';
 import LostFoundPage from './pages/LostFoundPage';
 import ProceduresPage from './pages/ProceduresPage';
-import StatisticsPage from './pages/StatisticsPage';
 import SettingsPage from './pages/SettingsPage';
 import UsersPage from './pages/UsersPage';
 import GamificationPage from './pages/GamificationPage';
 import GamificationConfigPage from './pages/GamificationConfigPage';
 import SuppliersPage from './pages/SuppliersPage';
-import TechniciansPage from './pages/TechniciansPage';
 import LogbookPage from './pages/LogbookPage'; 
-
-// Technician pages
-import TechnicianDashboard from './pages/technician/TechnicianDashboard';
-import TechnicianQuoteRequests from './pages/technician/TechnicianQuoteRequests';
-import TechnicianSettings from './pages/technician/TechnicianSettings';
 
 // Auth
 import { isAuthenticated, hasModuleAccess, initAuth, resetInactivityTimer } from './lib/auth';
-import TechnicianProtectedRoute from './components/technician/TechnicianProtectedRoute';
+
 
 // Toast
 import { ToastProvider } from './components/ui/toast';
@@ -83,7 +74,7 @@ const ProtectedRoute = ({ moduleCode, children }: ProtectedRouteProps) => {
   }
   
   if (moduleCode && !hasModuleAccess(moduleCode)) {
-    return <Navigate to="/dashboard\" replace />;
+    return <Navigate to="/dashboard" replace />;
   }
   
   return <>{children}</>;
@@ -139,7 +130,7 @@ function App() {
     <QueryClientProvider client={queryClient}>
       <ToastProvider>
         {!isOnline && (
-          <Alert variant="destructive\" className="fixed top-0 left-0 right-0 z-50 flex justify-center">
+          <Alert variant="destructive" className="fixed top-0 left-0 right-0 z-50 flex justify-center">
             <WifiOff className="h-4 w-4 mr-2" />
             <AlertDescription>
               Connexion internet perdue. Application en mode hors ligne.
@@ -150,26 +141,14 @@ function App() {
           <Routes>
             <Route path="/login" element={<LoginPage />} />
             
-            {/* Technician routes */}
-            <Route path="/technician" element={
-              <TechnicianProtectedRoute>
-                <TechnicianLayout />
-              </TechnicianProtectedRoute>
-            }>
-              <Route index element={<Navigate to="/technician/dashboard\" replace />} />
-              <Route path="dashboard" element={<TechnicianDashboard />} />
-              <Route path="quote-requests" element={<TechnicianQuoteRequests />} />
-              <Route path="settings" element={<TechnicianSettings />} />
-              {/* Add other technician pages here */}
-              <Route path="*" element={<Navigate to="/technician/dashboard\" replace />} />
-            </Route>
+
             
             <Route path="/" element={
               <ProtectedRoute>
                 <DashboardLayout />
               </ProtectedRoute>
             }>
-              <Route index element={<Navigate to="/dashboard\" replace />} />
+              <Route index element={<Navigate to="/dashboard" replace />} />
               
               <Route path="dashboard" element={
                 <ProtectedRoute moduleCode="mod1">
@@ -195,11 +174,7 @@ function App() {
                 </ProtectedRoute>
               } />
               
-              <Route path="technicians" element={
-                <ProtectedRoute moduleCode="mod9">
-                  <TechniciansPage />
-                </ProtectedRoute>
-              } />
+
               
               <Route path="quality" element={
                 <ProtectedRoute moduleCode="mod4">
@@ -216,12 +191,6 @@ function App() {
               <Route path="procedures" element={
                 <ProtectedRoute moduleCode="mod6">
                   <ProceduresPage />
-                </ProtectedRoute>
-              } />
-              
-              <Route path="statistics" element={
-                <ProtectedRoute moduleCode="mod7">
-                  <StatisticsPage />
                 </ProtectedRoute>
               } />
               

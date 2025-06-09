@@ -633,7 +633,7 @@ export const BADGES: Badge[] = [
     tier: 3,
     hidden: true,
     condition: (stats) => {
-      const moduleIds = ['mod1', 'mod2', 'mod3', 'mod4', 'mod5', 'mod6', 'mod7', 'mod8', 'mod9'];
+      const moduleIds = ['mod1', 'mod2', 'mod3', 'mod4', 'mod5', 'mod6', 'mod8', 'mod9', 'mod10', 'mod11', 'mod12'];
       return moduleIds.every(moduleId => (stats.contributionsPerModule[moduleId] || 0) > 0);
     }
   },

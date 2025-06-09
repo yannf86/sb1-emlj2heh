@@ -1,12 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Building as Buildings, Lock, Mail, Key, UserCircle, AlertTriangle, Wrench, Eye, EyeOff } from 'lucide-react';
+import { Building as Buildings, Mail, Key, UserCircle, AlertTriangle, Eye, EyeOff } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { login, isAuthenticated } from '@/lib/auth';
-import { loginTechnician, isTechnicianLoggedIn } from '@/lib/technician-auth';
+
 import { useToast } from '@/hooks/use-toast';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 
@@ -19,13 +19,6 @@ const LoginPage = () => {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [showPassword, setShowPassword] = useState(false);
 
-  // State for technician login
-  const [techEmail, setTechEmail] = useState('');
-  const [techPassword, setTechPassword] = useState('');
-  const [techLoading, setTechLoading] = useState(false);
-  const [techErrorMessage, setTechErrorMessage] = useState<string | null>(null);
-  const [showTechPassword, setShowTechPassword] = useState(false);
-  
   // Auth check loading state
   const [checkingAuth, setCheckingAuth] = useState(true);
 
@@ -40,11 +33,6 @@ const LoginPage = () => {
     const checkAuth = () => {
       if (isAuthenticated()) {
         navigate('/dashboard', { replace: true });
-        return;
-      }
-      
-      if (isTechnicianLoggedIn()) {
-        navigate('/technician/dashboard', { replace: true });
         return;
       }
       
@@ -97,46 +85,6 @@ const LoginPage = () => {
     setLoading(false);
   };
 
-  // Handle technician login form submission
-  const handleTechnicianSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setTechLoading(true);
-    setTechErrorMessage(null);
-    
-    // Basic validation
-    if (!techEmail) {
-      setTechErrorMessage("Veuillez entrer votre adresse e-mail");
-      setTechLoading(false);
-      return;
-    }
-    
-    if (!techPassword) {
-      setTechErrorMessage("Veuillez entrer un mot de passe");
-      setTechLoading(false);
-      return;
-    }
-    
-    try {
-      // Attempt login
-      const result = await loginTechnician(techEmail, techPassword);
-      
-      if (result.success) {
-        toast({
-          title: "Connexion réussie",
-          description: `Bienvenue, ${result.technician.name}`,
-        });
-        navigate('/technician/dashboard');
-      } else {
-        setTechErrorMessage(result.message || "Identifiants incorrects");
-      }
-    } catch (error) {
-      console.error('Login error:', error);
-      setTechErrorMessage("Une erreur est survenue lors de la connexion");
-    } finally {
-      setTechLoading(false);
-    }
-  };
-
   // Show loading state while checking authentication
   if (checkingAuth) {
     return (
@@ -169,14 +117,10 @@ const LoginPage = () => {
           className="w-full"
         >
           <div className="px-6 mb-6">
-            <TabsList className="grid grid-cols-2 w-full">
+            <TabsList className="grid grid-cols-1 w-full">
               <TabsTrigger value="user" className="flex items-center">
                 <UserCircle className="h-4 w-4 mr-2" />
                 Utilisateur
-              </TabsTrigger>
-              <TabsTrigger value="technician" className="flex items-center">
-                <Wrench className="h-4 w-4 mr-2" />
-                Technicien
               </TabsTrigger>
             </TabsList>
           </div>
@@ -186,7 +130,7 @@ const LoginPage = () => {
             <form onSubmit={handleUserSubmit}>
               <CardContent className="space-y-4">
                 {errorMessage && (
-                  <Alert variant="destructive\" className="mb-4">
+                  <Alert variant="destructive" className="mb-4">
                     <AlertTriangle className="h-4 w-4" />
                     <AlertDescription>{errorMessage}</AlertDescription>
                   </Alert>
@@ -274,76 +218,6 @@ const LoginPage = () => {
             <div className="mt-4 text-center px-6 pb-6">
               <p className="text-sm text-muted-foreground">
                 Pour créer un compte, veuillez contacter un administrateur qui pourra créer votre compte depuis la section Utilisateurs.
-              </p>
-            </div>
-          </TabsContent>
-
-          {/* Technician Login Content */}
-          <TabsContent value="technician">
-            <form onSubmit={handleTechnicianSubmit}>
-              <CardContent className="space-y-4">
-                {techErrorMessage && (
-                  <Alert variant="destructive\" className="mb-4">
-                    <AlertTriangle className="h-4 w-4" />
-                    <AlertDescription>{techErrorMessage}</AlertDescription>
-                  </Alert>
-                )}
-                
-                <div className="space-y-2">
-                  <div className="flex items-center">
-                    <Mail className="h-4 w-4 text-muted-foreground mr-2" />
-                    <label htmlFor="tech-email" className="text-sm font-medium after:content-['*'] after:ml-0.5 after:text-red-500">Adresse e-mail</label>
-                  </div>
-                  <Input
-                    id="tech-email"
-                    type="email"
-                    value={techEmail}
-                    onChange={(e) => setTechEmail(e.target.value)}
-                    placeholder="exemple@email.com"
-                    className="w-full"
-                    required
-                  />
-                </div>
-                <div className="space-y-2">
-                  <div className="flex items-center">
-                    <Lock className="h-4 w-4 text-muted-foreground mr-2" />
-                    <label htmlFor="tech-password" className="text-sm font-medium after:content-['*'] after:ml-0.5 after:text-red-500">Mot de passe</label>
-                  </div>
-                  <div className="relative">
-                    <Input
-                      id="tech-password"
-                      type={showTechPassword ? "text" : "password"}
-                      value={techPassword}
-                      onChange={(e) => setTechPassword(e.target.value)}
-                      placeholder="••••••••"
-                      className="w-full"
-                      required
-                    />
-                    <Button 
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      className="absolute right-0 top-0 h-10"
-                      onClick={() => setShowTechPassword(!showTechPassword)}
-                    >
-                      {showTechPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                    </Button>
-                  </div>
-                </div>
-              </CardContent>
-              <CardFooter>
-                <Button 
-                  type="submit" 
-                  className="w-full" 
-                  disabled={techLoading}
-                >
-                  {techLoading ? 'Connexion en cours...' : 'Se connecter'}
-                </Button>
-              </CardFooter>
-            </form>
-            <div className="mt-4 text-center px-6 pb-6">
-              <p className="text-sm text-muted-foreground">
-                Portail réservé aux techniciens. Pour créer un compte technicien, veuillez contacter un administrateur.
               </p>
             </div>
           </TabsContent>
