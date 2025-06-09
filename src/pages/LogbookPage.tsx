@@ -84,6 +84,7 @@ type EntryType = {
   isCompleted?: boolean;
   comments?: any[];
   isRead?: boolean;
+  roomNumber?: string;
 };
 
 // Mock services
@@ -751,15 +752,7 @@ const LogbookPage = () => {
                 
                 <Button
                   variant="default"
-                  onClick={() => {
-                    // Handle adding a new checklist item
-                    handleAddChecklistItem({
-                      serviceId: filterService === 'all' ? 'reception' : filterService,
-                      title: "Nouvelle tâche",
-                      completed: false,
-                      dueDate: new Date().toISOString()
-                    });
-                  }}
+                  onClick={() => setNewEntryDialogOpen(true)}
                 >
                   <Plus className="mr-2 h-4 w-4" />
                   Nouvelle
