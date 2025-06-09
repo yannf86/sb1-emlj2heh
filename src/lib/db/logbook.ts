@@ -107,7 +107,7 @@ export const getLogbookEntriesByDate = async (date: Date, hotelId?: string): Pro
       ...doc.data()
     }));
 
-    // Pour les entrées avec plage, on filtre en mémoire - CORRECTION ici pour le problème du 7 juin
+    // Pour les entrées avec plage, on filtre en mémoire
     const rangeEntries = rangeSnapshot.docs
       .map(doc => ({
         id: doc.id,
@@ -458,7 +458,7 @@ export const addCommentToLogbookEntry = async (id: string, comment: string): Pro
 
     // Créer un nouveau commentaire
     const newComment = {
-      id: `comment-${Date.now()}`,
+      id: `comment-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
       authorId: currentUser.id,
       authorName: currentUser.name,
       content: comment,

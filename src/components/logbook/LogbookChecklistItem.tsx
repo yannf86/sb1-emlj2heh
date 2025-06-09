@@ -1,9 +1,8 @@
 import React from 'react';
 import { Card, CardContent } from '@/components/ui/card';
-import { Checkbox } from '@/components/ui/checkbox';
-import { formatDate } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
-import { Clock, Calendar, CheckSquare, User } from 'lucide-react';
+import { formatDate } from '@/lib/utils';
+import { Clock, User, Calendar, Building, CalendarRange, CheckSquare, Info } from 'lucide-react';
 
 interface LogbookChecklistItemProps {
   item: {
@@ -13,9 +12,13 @@ interface LogbookChecklistItemProps {
     description?: string;
     completed: boolean;
     dueDate: string;
-    completedById?: string;
-    completedByName?: string;
-    completedAt?: string;
+    endDate?: string;
+    isPermanent?: boolean;
+    hotelId?: string;
+    hotelName?: string;
+    completedById?: string | null;
+    completedByName?: string | null;
+    completedAt?: string | null;
   };
   onToggle: (id: string) => void;
 }
@@ -37,10 +40,11 @@ const LogbookChecklistItem: React.FC<LogbookChecklistItemProps> = ({
     <Card className={`${item.completed ? 'opacity-75' : ''}`}>
       <CardContent className="p-0">
         <div className="flex items-center p-4">
-          <Checkbox 
+          <input
+            type="checkbox"
             checked={item.completed} 
-            onCheckedChange={() => onToggle(item.id)}
-            className="mr-2 h-5 w-5"
+            onChange={() => onToggle(item.id)}
+            className="mr-2 h-5 w-5 rounded border-gray-300 text-brand-600 focus:ring-brand-500"
             id={`checklist-item-${item.id}`}
           />
           <label 
@@ -56,6 +60,32 @@ const LogbookChecklistItem: React.FC<LogbookChecklistItemProps> = ({
                   {item.description}
                 </div>
               )}
+              
+              <div className="flex flex-wrap gap-2 mt-2">
+                {item.hotelName && (
+                  <div className="flex items-center text-xs text-muted-foreground">
+                    <Building className="h-3 w-3 mr-1" />
+                    <span>{item.hotelName}</span>
+                  </div>
+                )}
+                
+                {item.isPermanent ? (
+                  <Badge variant="outline" className="text-xs bg-purple-50 text-purple-700 border-purple-200">
+                    <CheckSquare className="h-3 w-3 mr-1" />
+                    Tâche permanente
+                  </Badge>
+                ) : item.endDate ? (
+                  <Badge variant="outline" className="text-xs bg-blue-50 text-blue-700 border-blue-200">
+                    <CalendarRange className="h-3 w-3 mr-1" />
+                    Du {formatDate(new Date(item.dueDate))} au {formatDate(new Date(item.endDate))}
+                  </Badge>
+                ) : (
+                  <Badge variant="outline" className="text-xs">
+                    <Calendar className="h-3 w-3 mr-1" />
+                    {formatDate(new Date(item.dueDate))}
+                  </Badge>
+                )}
+              </div>
             </div>
           </label>
           
@@ -64,13 +94,6 @@ const LogbookChecklistItem: React.FC<LogbookChecklistItemProps> = ({
               <span className="mr-1">{serviceName.icon}</span>
               <span>{serviceName.name}</span>
             </Badge>
-            
-            {item.dueDate && (
-              <Badge variant="outline" className="mr-2">
-                <Calendar className="h-3 w-3 mr-1" />
-                {formatDate(new Date(item.dueDate))}
-              </Badge>
-            )}
           </div>
         </div>
         
