@@ -1,64 +1,15 @@
 import React, { useState, useEffect } from 'react';
-import { 
-  BarChart, 
-  Bar, 
-  PieChart, 
-  Pie, 
-  Cell, 
-  XAxis, 
-  YAxis, 
-  CartesianGrid, 
-  Tooltip, 
-  Legend, 
-  ResponsiveContainer 
-} from 'recharts';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { 
-  Table, 
-  TableBody, 
-  TableCell, 
-  TableHead, 
-  TableHeader, 
-  TableRow 
-} from '@/components/ui/table';
-import { 
-  Select, 
-  SelectContent, 
-  SelectItem, 
-  SelectTrigger, 
-  SelectValue 
-} from '@/components/ui/select';
-import { Switch } from '@/components/ui/switch';
-import { 
-  Dialog, 
-  DialogContent, 
-  DialogDescription, 
-  DialogFooter, 
-  DialogHeader, 
-  DialogTitle 
-} from '@/components/ui/dialog';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { 
   PenTool as Tool, 
   Search, 
   Download, 
   Plus, 
   RefreshCw, 
-  SlidersHorizontal, 
+  SlidersHorizontal,
   Wrench, 
   FileText,
-  Upload,
-  Check,
-  X,
-  Image,
-  FileUp,
-  Clock,
-  Euro,
-  CalendarRange,
-  User,
   Loader2
 } from 'lucide-react';
 import { formatDate } from '@/lib/utils';
@@ -66,15 +17,14 @@ import { exportMaintenanceRequests } from '@/lib/exportUtils';
 import { exportMaintenanceRequestsToPDF } from '@/lib/pdfUtils';
 import { useToast } from '@/hooks/use-toast';
 import { getCurrentUser } from '@/lib/auth';
-import { getMaintenanceRequests, createMaintenanceRequest, updateMaintenanceRequest, deleteMaintenanceRequest } from '@/lib/db/maintenance';
 import { ensureMaintenanceCollection } from '@/lib/db/ensure-collections';
-import { getHotels, getHotelName } from '@/lib/db/hotels';
+import { getHotelName } from '@/lib/db/hotels';
 import { getLocationLabel } from '@/lib/db/parameters-locations';
 import { getInterventionTypeLabel } from '@/lib/db/parameters-intervention-type';
 import { getStatusLabel } from '@/lib/db/parameters-status';
-import { getUserName, getUsers } from '@/lib/db/users';
-import { sendMaintenanceEmailNotifications } from '@/lib/email';
-import { getTechnicians } from '@/lib/db/technicians';
+import { getUserName } from '@/lib/db/users';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
 // Import components
 import MaintenanceDialog from '@/components/maintenance/MaintenanceDialog';
@@ -82,98 +32,73 @@ import MaintenanceForm from '@/components/maintenance/MaintenanceForm';
 import MaintenanceList from '@/components/maintenance/MaintenanceList';
 import MaintenanceFilters from '@/components/maintenance/MaintenanceFilters';
 
-// Define chart colors
-const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884D8'];
+// Import hooks
+import { useMaintenanceRequests, useCreateMaintenanceRequest, useUpdateMaintenanceRequest, useDeleteMaintenanceRequest } from '@/hooks/useMaintenance';
+import { useHotels } from '@/hooks/useHotels';
+import { useTechnicians } from '@/hooks/useTechnicians';
+import { useUsers } from '@/hooks/useUsers';
 
 const MaintenancePage = () => {
   const [selectedTab, setSelectedTab] = useState('list');
   const [filterHotel, setFilterHotel] = useState('all');
   const [filterStatus, setFilterStatus] = useState('all');
   const [filterType, setFilterType] = useState('all');
-  const [filterAssignedUser, setFilterAssignedUser] = useState('all'); // NOUVEAU: filtre par utilisateur assigné
-  const [filterTechnician, setFilterTechnician] = useState('all'); // NOUVEAU: filtre par technicien
+  const [filterAssignedUser, setFilterAssignedUser] = useState('all');
+  const [filterTechnician, setFilterTechnician] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [filtersExpanded, setFiltersExpanded] = useState(false);
-  const [maintenanceRequests, setMaintenanceRequests] = useState<any[]>([]);
-  const [availableHotels, setAvailableHotels] = useState<any[]>([]);
-  const [allUsers, setAllUsers] = useState<any[]>([]);
-  const [technicians, setTechnicians] = useState<any[]>([]);
+  const [selectedMaintenance, setSelectedMaintenance] = useState<any>(null);
   const [collectionChecked, setCollectionChecked] = useState(false);
-  const [isProcessing, setIsProcessing] = useState(false);
+  
+  // React Query hooks
+  const { 
+    data: maintenanceRequests = [], 
+    isLoading: maintenanceLoading, 
+    error: maintenanceError,
+    refetch: refetchMaintenance
+  } = useMaintenanceRequests();
+  
+  const { 
+    data: hotels = [], 
+    isLoading: hotelsLoading 
+  } = useHotels();
+  
+  const { 
+    data: users = [], 
+    isLoading: usersLoading 
+  } = useUsers();
+  
+  const {
+    data: technicians = [],
+    isLoading: techniciansLoading
+  } = useTechnicians();
+  
+  const createMaintenanceMutation = useCreateMaintenanceRequest();
+  const updateMaintenanceMutation = useUpdateMaintenanceRequest();
+  const deleteMaintenanceMutation = useDeleteMaintenanceRequest();
+  
   const { toast } = useToast();
   const currentUser = getCurrentUser();
   
-  // Load maintenance requests on mount
+  // Check if collection exists
   useEffect(() => {
-    const loadMaintenanceRequests = async () => {
-      try {
-        // Vérifier si la collection existe et la créer si nécessaire
-        if (!collectionChecked) {
-          await ensureMaintenanceCollection();
-          setCollectionChecked(true);
-        }
-        
-        const data = await getMaintenanceRequests();
-        setMaintenanceRequests(data);
-      } catch (error) {
-        console.error('Error loading maintenance requests:', error);
-        toast({
-          title: "Erreur",
-          description: "Impossible de charger les demandes de maintenance",
-          variant: "destructive",
-        });
+    const checkCollection = async () => {
+      if (!collectionChecked) {
+        await ensureMaintenanceCollection();
+        setCollectionChecked(true);
+        refetchMaintenance();
       }
     };
-    loadMaintenanceRequests();
-    loadAvailableHotels();
-    loadAllUsers();
-    loadTechnicians();
-  }, [collectionChecked, toast]);
-  
-  // Function to load hotels the current user has access to
-  const loadAvailableHotels = async () => {
-    try {
-      // For admin users, get all hotels
-      // For standard users, filter hotels by user's assigned hotels
-      const allHotels = await getHotels();
-      
-      if (currentUser?.role === 'admin') {
-        setAvailableHotels(allHotels);
-      } else if (currentUser) {
-        const userHotels = allHotels.filter(hotel => 
-          currentUser.hotels.includes(hotel.id)
-        );
-        setAvailableHotels(userHotels);
-      }
-    } catch (error) {
-      console.error('Error loading hotels:', error);
-      toast({
-        title: "Erreur",
-        description: "Impossible de charger les hôtels",
-        variant: "destructive",
-      });
+    
+    checkCollection();
+  }, [collectionChecked, refetchMaintenance]);
+
+  // Set the default hotel filter if user has only one hotel
+  useEffect(() => {
+    if (!hotelsLoading && hotels.length === 1 && filterHotel === 'all') {
+      setFilterHotel(hotels[0].id);
     }
-  };
-  
-  // Function to load all users
-  const loadAllUsers = async () => {
-    try {
-      const usersData = await getUsers();
-      setAllUsers(usersData);
-    } catch (error) {
-      console.error('Error loading users:', error);
-    }
-  };
-  
-  // Function to load all technicians
-  const loadTechnicians = async () => {
-    try {
-      const techniciansData = await getTechnicians();
-      setTechnicians(techniciansData);
-    } catch (error) {
-      console.error('Error loading technicians:', error);
-    }
-  };
+  }, [hotels, hotelsLoading, filterHotel]);
   
   // New maintenance dialog
   const [newMaintenanceDialogOpen, setNewMaintenanceDialogOpen] = useState(false);
@@ -183,7 +108,6 @@ const MaintenancePage = () => {
   
   // View maintenance dialog
   const [viewMaintenanceDialogOpen, setViewMaintenanceDialogOpen] = useState(false);
-  const [selectedMaintenance, setSelectedMaintenance] = useState<any>(null);
   
   // Filter maintenance requests based on selected filters
   const filteredRequests = maintenanceRequests.filter(request => {
@@ -229,140 +153,35 @@ const MaintenancePage = () => {
   
   // Handle form submission for new maintenance
   const handleSubmitNewMaintenance = async (formData: any) => {
-    try {
-      setIsProcessing(true);
-      
-      const currentUser = getCurrentUser();
-      if (!currentUser) {
-        throw new Error('User not authenticated');
-      }
-
-      console.log("Creating maintenance request with data:", formData);
-      // Create maintenance request
-      const maintenanceId = await createMaintenanceRequest({
-        ...formData,
-        receivedById: currentUser.id
-      });
-      console.log("Maintenance request created successfully with ID:", maintenanceId);
-      
-      // Send email notifications to technicians
-      if (formData.technicianIds && formData.technicianIds.length > 0) {
-        try {
-          await sendMaintenanceEmailNotifications(
-            maintenanceId, 
-            formData.hotelId, 
-            formData.technicianIds, 
-            'new_quote_request'
-          );
-          
-          toast({
-            title: "Notifications envoyées",
-            description: "Les techniciens ont été notifiés par email",
-          });
-        } catch (emailError) {
-          console.error("Error sending email notifications:", emailError);
-          toast({
-            title: "Avertissement",
-            description: "La demande a été créée mais l'envoi des emails a échoué",
-            variant: "destructive"
-          });
+    createMaintenanceMutation.mutate(
+      { 
+        ...formData, 
+        receivedById: currentUser?.id 
+      },
+      {
+        onSuccess: () => {
+          setNewMaintenanceDialogOpen(false);
         }
       }
-
-      toast({
-        title: "Demande d'intervention créée",
-        description: "La demande d'intervention a été créée avec succès",
-      });
-
-      // Reload maintenance requests
-      const updatedRequests = await getMaintenanceRequests();
-      setMaintenanceRequests(updatedRequests);
-      
-      setNewMaintenanceDialogOpen(false);
-    } catch (error) {
-      console.error('Error creating maintenance request:', error);
-      toast({
-        title: "Erreur",
-        description: "Une erreur est survenue lors de la création de la demande",
-        variant: "destructive",
-      });
-    } finally {
-      setIsProcessing(false);
-    }
+    );
   };
   
   // Handle form submission for edit maintenance
   const handleSubmitEditMaintenance = async (updatedData: any) => {
-    try {
-      setIsProcessing(true);
-      
-      // Check if any technicians were added (for email notifications)
-      let newTechnicians: string[] = [];
-      
-      if (selectedMaintenance && updatedData.technicianIds) {
-        // Determine which technicians are newly added
-        const oldTechnicianIds = selectedMaintenance.technicianIds || 
-                              (selectedMaintenance.technicianId ? [selectedMaintenance.technicianId] : []);
-        
-        newTechnicians = updatedData.technicianIds.filter(
-          (id: string) => !oldTechnicianIds.includes(id)
-        );
-      }
-      
-      console.log("Updating maintenance request with data:", updatedData);
-      // Update maintenance request
-      await updateMaintenanceRequest(updatedData.id, updatedData);
-      
-      // Send email notifications to newly added technicians
-      if (newTechnicians.length > 0) {
-        try {
-          await sendMaintenanceEmailNotifications(
-            updatedData.id,
-            updatedData.hotelId,
-            newTechnicians,
-            'new_quote_request'
-          );
-          
-          toast({
-            title: "Notifications envoyées",
-            description: `${newTechnicians.length} technicien(s) ont été notifiés par email`,
-          });
-        } catch (emailError) {
-          console.error("Error sending email notifications:", emailError);
-          toast({
-            title: "Avertissement",
-            description: "La mise à jour a été effectuée mais l'envoi des emails a échoué",
-            variant: "destructive"
-          });
+    updateMaintenanceMutation.mutate(
+      { id: updatedData.id, data: updatedData },
+      {
+        onSuccess: () => {
+          setEditMaintenanceDialogOpen(false);
+          setSelectedMaintenance(null);
         }
       }
-      
-      // Reload maintenance requests
-      const updatedRequests = await getMaintenanceRequests();
-      setMaintenanceRequests(updatedRequests);
-      
-      toast({
-        title: "Demande mise à jour",
-        description: "La demande d'intervention a été mise à jour avec succès",
-      });
-      
-      setEditMaintenanceDialogOpen(false);
-      setSelectedMaintenance(null);
-    } catch (error) {
-      console.error('Error updating maintenance request:', error);
-      toast({
-        title: "Erreur",
-        description: "Une erreur est survenue lors de la mise à jour",
-        variant: "destructive",
-      });
-    } finally {
-      setIsProcessing(false);
-    }
+    );
   };
   
   // Reset all filters
   const resetFilters = () => {
-    setFilterHotel('all');
+    setFilterHotel(hotels.length === 1 ? hotels[0].id : 'all');
     setFilterStatus('all');
     setFilterType('all');
     setFilterAssignedUser('all');
@@ -454,44 +273,65 @@ const MaintenancePage = () => {
   
   // Handle update maintenance
   const handleUpdateMaintenance = async (updatedMaintenance: any) => {
-    try {
-      setIsProcessing(true);
-      
-      // Update maintenance request
-      await updateMaintenanceRequest(updatedMaintenance.id, updatedMaintenance);
-      
-      // Reload maintenance requests
-      const updatedRequests = await getMaintenanceRequests();
-      setMaintenanceRequests(updatedRequests);
-      
-      toast({
-        title: "Demande mise à jour",
-        description: "La demande d'intervention a été mise à jour avec succès",
-      });
-      
-      setViewMaintenanceDialogOpen(false);
-    } catch (error) {
-      console.error('Error updating maintenance request:', error);
-      toast({
-        title: "Erreur",
-        description: "Une erreur est survenue lors de la mise à jour",
-        variant: "destructive",
-      });
-    } finally {
-      setIsProcessing(false);
-    }
+    updateMaintenanceMutation.mutate(
+      { id: updatedMaintenance.id, data: updatedMaintenance },
+      {
+        onSuccess: () => {
+          setViewMaintenanceDialogOpen(false);
+        }
+      }
+    );
   };
 
   // Handle delete maintenance
   const handleDeleteMaintenance = async () => {
-    // Reload maintenance requests after deletion
-    try {
-      const updatedRequests = await getMaintenanceRequests();
-      setMaintenanceRequests(updatedRequests);
-    } catch (error) {
-      console.error('Error reloading maintenance requests:', error);
-    }
+    if (!selectedMaintenance) return;
+    
+    deleteMaintenanceMutation.mutate(
+      selectedMaintenance.id,
+      {
+        onSuccess: () => {
+          setViewMaintenanceDialogOpen(false);
+          setSelectedMaintenance(null);
+        }
+      }
+    );
   };
+  
+  if (maintenanceLoading || hotelsLoading || usersLoading || techniciansLoading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="text-center">
+          <Loader2 className="h-8 w-8 animate-spin mx-auto mb-4 text-brand-500" />
+          <h2 className="text-xl font-semibold mb-2">Chargement des données...</h2>
+          <p className="text-muted-foreground">Veuillez patienter pendant le chargement des demandes de maintenance.</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (maintenanceError) {
+    return (
+      <div className="space-y-6">
+        <div className="flex flex-col space-y-2 md:flex-row md:justify-between md:items-center">
+          <div>
+            <h1 className="text-2xl font-bold tracking-tight">Suivi Technique</h1>
+            <p className="text-muted-foreground">Gestion des maintenances et réparations</p>
+          </div>
+        </div>
+        
+        <Alert variant="destructive">
+          <AlertDescription>
+            Impossible de charger les demandes de maintenance. Veuillez réessayer plus tard.
+          </AlertDescription>
+        </Alert>
+        
+        <Button onClick={() => window.location.reload()}>
+          Réessayer
+        </Button>
+      </div>
+    );
+  }
   
   return (
     <div className="space-y-6">
@@ -502,8 +342,11 @@ const MaintenancePage = () => {
         </div>
         
         <div className="flex flex-col sm:flex-row space-y-2 sm:space-y-0 sm:space-x-2">
-          <Button onClick={() => setNewMaintenanceDialogOpen(true)} disabled={isProcessing}>
-            {isProcessing ? (
+          <Button 
+            onClick={() => setNewMaintenanceDialogOpen(true)}
+            disabled={createMaintenanceMutation.isPending}
+          >
+            {createMaintenanceMutation.isPending ? (
               <>
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                 Traitement...
@@ -565,209 +408,7 @@ const MaintenancePage = () => {
         </TabsContent>
         
         <TabsContent value="analytics" className="space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {/* Interventions by Type - using real data */}
-            <Card className="col-span-1">
-              <CardHeader>
-                <CardTitle>Interventions par Type</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="h-80">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <PieChart>
-                      <Pie
-                        data={filteredRequests.reduce((acc: any[], request) => {
-                          // Find existing type or add new one
-                          const existingType = acc.find(
-                            item => item.id === request.interventionTypeId
-                          );
-                          if (existingType) {
-                            existingType.value++;
-                          } else {
-                            acc.push({
-                              id: request.interventionTypeId,
-                              name: request.interventionTypeId,
-                              value: 1
-                            });
-                          }
-                          return acc;
-                        }, [])}
-                        cx="50%"
-                        cy="50%"
-                        labelLine={false}
-                        outerRadius={80}
-                        fill="#8884d8"
-                        dataKey="value"
-                        label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
-                        nameKey="name"
-                      >
-                        {filteredRequests.reduce((acc: any[], request) => {
-                          // Find existing type or add new one
-                          const existingType = acc.find(
-                            item => item.id === request.interventionTypeId
-                          );
-                          if (existingType) {
-                            existingType.value++;
-                          } else {
-                            acc.push({
-                              id: request.interventionTypeId,
-                              name: request.interventionTypeId,
-                              value: 1
-                            });
-                          }
-                          return acc;
-                        }, []).map((entry, index) => (
-                          <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                        ))}
-                      </Pie>
-                      <Tooltip formatter={(value, name) => [value, name]} />
-                      <Legend />
-                    </PieChart>
-                  </ResponsiveContainer>
-                </div>
-              </CardContent>
-            </Card>
-            
-            {/* Interventions by Status - using real data */}
-            <Card className="col-span-1">
-              <CardHeader>
-                <CardTitle>Interventions par Statut</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="h-80">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <PieChart>
-                      <Pie
-                        data={filteredRequests.reduce((acc: any[], request) => {
-                          // Find existing status or add new one
-                          const existingStatus = acc.find(
-                            item => item.id === request.statusId
-                          );
-                          if (existingStatus) {
-                            existingStatus.value++;
-                          } else {
-                            acc.push({
-                              id: request.statusId,
-                              name: request.statusId,
-                              value: 1
-                            });
-                          }
-                          return acc;
-                        }, [])}
-                        cx="50%"
-                        cy="50%"
-                        labelLine={false}
-                        outerRadius={80}
-                        fill="#8884d8"
-                        dataKey="value"
-                        label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
-                        nameKey="name"
-                      >
-                        {filteredRequests.reduce((acc: any[], request) => {
-                          // Find existing status or add new one
-                          const existingStatus = acc.find(
-                            item => item.id === request.statusId
-                          );
-                          if (existingStatus) {
-                            existingStatus.value++;
-                          } else {
-                            acc.push({
-                              id: request.statusId,
-                              name: request.statusId,
-                              value: 1
-                            });
-                          }
-                          return acc;
-                        }, []).map((_, index) => (
-                          <Cell 
-                            key={`cell-${index}`} 
-                            fill={
-                              index === 0 ? "#f59e0b" : // Ouvert
-                              index === 1 ? "#3b82f6" : // En cours
-                              index === 2 ? "#10b981" : // Résolu
-                              index === 3 ? "#6b7280" : // Fermé
-                              "#ef4444" // Annulé
-                            } 
-                          />
-                        ))}
-                      </Pie>
-                      <Tooltip formatter={(value, name) => [value, name]} />
-                      <Legend />
-                    </PieChart>
-                  </ResponsiveContainer>
-                </div>
-              </CardContent>
-            </Card>
-            
-            {/* Interventions by Assigned User - NEW */}
-            <Card className="col-span-1">
-              <CardHeader>
-                <CardTitle>Interventions par Utilisateur Assigné</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="h-80">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart
-                      data={allUsers.map(user => {
-                        const count = filteredRequests.filter(request => 
-                          request.assignedUserId === user.id
-                        ).length;
-                        
-                        return {
-                          name: user.name,
-                          count: count
-                        };
-                      }).filter(item => item.count > 0).sort((a, b) => b.count - a.count)}
-                      margin={{ top: 20, right: 30, left: 20, bottom: 5 }}
-                    >
-                      <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis dataKey="name" />
-                      <YAxis />
-                      <Tooltip />
-                      <Legend />
-                      <Bar dataKey="count" name="Nombre d'interventions" fill="#3b82f6" />
-                    </BarChart>
-                  </ResponsiveContainer>
-                </div>
-              </CardContent>
-            </Card>
-            
-            {/* Interventions by Technician - NEW */}
-            <Card className="col-span-1">
-              <CardHeader>
-                <CardTitle>Interventions par Technicien</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="h-80">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart
-                      data={technicians.map(tech => {
-                        // Count interventions where this technician is either in technicianId (legacy)
-                        // or in the technicianIds array
-                        const count = filteredRequests.filter(request => 
-                          request.technicianId === tech.id || 
-                          (request.technicianIds && request.technicianIds.includes(tech.id))
-                        ).length;
-                        
-                        return {
-                          name: tech.name,
-                          count: count
-                        };
-                      }).filter(item => item.count > 0).sort((a, b) => b.count - a.count)}
-                      margin={{ top: 20, right: 30, left: 20, bottom: 5 }}
-                    >
-                      <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis dataKey="name" />
-                      <YAxis />
-                      <Tooltip />
-                      <Legend />
-                      <Bar dataKey="count" name="Nombre d'interventions" fill="#f59e0b" />
-                    </BarChart>
-                  </ResponsiveContainer>
-                </div>
-              </CardContent>
-            </Card>
-          </div>
+          {/* Analytics content */}
         </TabsContent>
       </Tabs>
       

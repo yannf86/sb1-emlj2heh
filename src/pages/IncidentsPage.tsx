@@ -6,21 +6,22 @@ import {
   Download, 
   Plus, 
   FileText,
-  BarChart2
+  BarChart2,
+  Loader2
 } from 'lucide-react';
 import { formatDate } from '@/lib/utils';
 import { exportIncidents } from '@/lib/exportUtils';
 import { exportIncidentsToPDF } from '@/lib/pdfUtils';
 import { useToast } from '@/hooks/use-toast';
-import { getIncidents, createIncident, updateIncident } from '@/lib/db/incidents';
 import { getCurrentUser, hasHotelAccess } from '@/lib/auth';
-import { getHotels, getHotelName } from '@/lib/db/hotels';
+import { getHotelName } from '@/lib/db/hotels';
 import { getLocationLabel } from '@/lib/db/parameters-locations';
 import { getIncidentCategoryLabel } from '@/lib/db/parameters-incident-categories';
 import { getImpactLabel } from '@/lib/db/parameters-impact';
 import { getStatusLabel } from '@/lib/db/parameters-status';
 import { getUserName } from '@/lib/db/users';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Alert, AlertDescription } from '@/components/ui/alert';
 
 // Import components
 import IncidentDialog from '@/components/incidents/IncidentDialog';
@@ -30,6 +31,10 @@ import IncidentFilters from '@/components/incidents/IncidentFilters';
 import IncidentEdit from '@/components/incidents/IncidentEdit';
 import IncidentAnalytics from '@/components/incidents/analytics/IncidentAnalytics';
 
+// Import hooks
+import { useIncidents, useCreateIncident, useUpdateIncident, useDeleteIncident } from '@/hooks/useIncidents';
+import { useHotels } from '@/hooks/useHotels';
+
 const IncidentsPage = () => {
   const [selectedTab, setSelectedTab] = useState('list');
   const [filterHotel, setFilterHotel] = useState('all');
@@ -38,67 +43,42 @@ const IncidentsPage = () => {
   const [filterImpact, setFilterImpact] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [filtersExpanded, setFiltersExpanded] = useState(false);
-  const [incidents, setIncidents] = useState<any[]>([]);
-  const [availableHotels, setAvailableHotels] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [selectedIncident, setSelectedIncident] = useState<any>(null);
+  
+  // React Query hooks
+  const { 
+    data: incidents = [], 
+    isLoading: incidentsLoading, 
+    error: incidentsError 
+  } = useIncidents();
+  
+  const { 
+    data: hotels = [], 
+    isLoading: hotelsLoading 
+  } = useHotels();
+  
+  const createIncidentMutation = useCreateIncident();
+  const updateIncidentMutation = useUpdateIncident();
+  const deleteIncidentMutation = useDeleteIncident();
+  
   const { toast } = useToast();
   const currentUser = getCurrentUser();
-  
-  // Load incidents and hotels on mount
-  useEffect(() => {
-    loadIncidents();
-    loadAvailableHotels();
-  }, []);
-
-  // Function to load incidents
-  const loadIncidents = async () => {
-    try {
-      setLoading(true);
-      // getIncidents already applies hotel access filtering based on current user
-      const data = await getIncidents();
-      setIncidents(data);
-    } catch (error) {
-      console.error('Error loading incidents:', error);
-      toast({
-        title: "Erreur",
-        description: "Impossible de charger les incidents",
-        variant: "destructive",
-      });
-    } finally {
-      setLoading(false);
-    }
-  };
-  
-  // Function to load hotels the current user has access to
-  const loadAvailableHotels = async () => {
-    try {
-      // getHotels now applies hotel access filtering based on current user
-      const hotelsData = await getHotels();
-      setAvailableHotels(hotelsData);
-      
-      // If user has only one hotel, automatically select it
-      if (hotelsData.length === 1 && filterHotel === 'all') {
-        setFilterHotel(hotelsData[0].id);
-      }
-    } catch (error) {
-      console.error('Error loading hotels:', error);
-      toast({
-        title: "Erreur",
-        description: "Impossible de charger les hôtels",
-        variant: "destructive",
-      });
-    }
-  };
   
   // New incident dialog
   const [newIncidentDialogOpen, setNewIncidentDialogOpen] = useState(false);
 
   // View incident dialog
   const [viewIncidentDialogOpen, setViewIncidentDialogOpen] = useState(false);
-  const [selectedIncident, setSelectedIncident] = useState<any>(null);
   
   // Edit incident dialog
   const [editIncidentDialogOpen, setEditIncidentDialogOpen] = useState(false);
+
+  // Set the default hotel filter if user has only one hotel
+  useEffect(() => {
+    if (!hotelsLoading && hotels.length === 1 && filterHotel === 'all') {
+      setFilterHotel(hotels[0].id);
+    }
+  }, [hotels, hotelsLoading, filterHotel]);
 
   // Filter incidents based on selected filters
   const filteredIncidents = incidents.filter(incident => {
@@ -119,17 +99,7 @@ const IncidentsPage = () => {
       const query = searchQuery.toLowerCase();
       const matchesDescription = incident.description.toLowerCase().includes(query);
       
-      // For hotel, category, client name, we'll need to check actual values rather than IDs
-      let matchesHotel = false;
-      let matchesCategory = false;
-      let matchesClient = false;
-      
-      // Check client name if available
-      if (incident.clientName) {
-        matchesClient = incident.clientName.toLowerCase().includes(query);
-      }
-      
-      if (!matchesDescription && !matchesHotel && !matchesCategory && !matchesClient) return false;
+      if (!matchesDescription) return false;
     }
     
     return true;
@@ -137,42 +107,26 @@ const IncidentsPage = () => {
   
   // Handle form submission
   const handleSubmitIncident = async (formData: any) => {
-    try {
-      // Verify that user has access to the selected hotel
-      if (!hasHotelAccess(formData.hotelId)) {
-        toast({
-          title: "Accès refusé",
-          description: "Vous n'avez pas accès à cet hôtel",
-          variant: "destructive",
-        });
-        return;
-      }
-      
-      // Create incident in Firebase
-      await createIncident(formData);
-      
+    // Verify that user has access to the selected hotel
+    if (!hasHotelAccess(formData.hotelId)) {
       toast({
-        title: "Incident créé",
-        description: "L'incident a été créé avec succès",
-      });
-      
-      // Reload incidents
-      await loadIncidents();
-      
-      setNewIncidentDialogOpen(false);
-    } catch (error) {
-      console.error('Error creating incident:', error);
-      toast({
-        title: "Erreur",
-        description: "Une erreur est survenue lors de la création de l'incident",
+        title: "Accès refusé",
+        description: "Vous n'avez pas accès à cet hôtel",
         variant: "destructive",
       });
+      return;
     }
+    
+    createIncidentMutation.mutate(formData, {
+      onSuccess: () => {
+        setNewIncidentDialogOpen(false);
+      }
+    });
   };
   
   // Reset all filters
   const resetFilters = () => {
-    setFilterHotel(availableHotels.length === 1 ? availableHotels[0].id : 'all');
+    setFilterHotel(hotels.length === 1 ? hotels[0].id : 'all');
     setFilterStatus('all');
     setFilterCategory('all');
     setFilterImpact('all');
@@ -298,73 +252,97 @@ const IncidentsPage = () => {
 
   // Handle incident update
   const handleIncidentUpdate = async () => {
-    await loadIncidents(); // Reload incidents after update
     setViewIncidentDialogOpen(false);
     setEditIncidentDialogOpen(false);
   };
   
   // Handle save from edit form directly (not via view dialog)
   const handleSaveEdit = async (updatedIncident: any) => {
-    try {
-      // Vérifier l'accès à l'hôtel de l'incident
-      if (!hasHotelAccess(updatedIncident.hotelId)) {
-        toast({
-          title: "Accès refusé",
-          description: "Vous n'avez pas accès à cet hôtel",
-          variant: "destructive",
-        });
-        return;
-      }
-      
-      // Create a copy of the incident to avoid modifying the original
-      const incidentToUpdate = { ...updatedIncident };
-      
-      // Ensure fields are never undefined (convert undefined to null)
-      if (incidentToUpdate.concludedAt === undefined) {
-        incidentToUpdate.concludedAt = null;
-      }
-      
-      if (incidentToUpdate.concludedById === undefined) {
-        incidentToUpdate.concludedById = null;
-      }
-      
-      // If concludedById is falsy (null, empty, etc.), ensure concludedAt is also null
-      if (!incidentToUpdate.concludedById) {
-        incidentToUpdate.concludedAt = null;
-        incidentToUpdate.concludedById = null;
-      }
-      
-      // Update incident in Firebase
-      await updateIncident(incidentToUpdate.id, incidentToUpdate);
-      
+    // Vérifier l'accès à l'hôtel de l'incident
+    if (!hasHotelAccess(updatedIncident.hotelId)) {
       toast({
-        title: "Incident mis à jour",
-        description: "L'incident a été mis à jour avec succès",
-      });
-      
-      // Reload incidents
-      await loadIncidents();
-      
-      // Close edit dialog
-      setEditIncidentDialogOpen(false);
-      setSelectedIncident(null);
-    } catch (error) {
-      console.error('Error updating incident:', error);
-      toast({
-        title: "Erreur",
-        description: "Une erreur est survenue lors de la mise à jour de l'incident",
+        title: "Accès refusé",
+        description: "Vous n'avez pas accès à cet hôtel",
         variant: "destructive",
       });
+      return;
     }
+    
+    // Create a copy of the incident to avoid modifying the original
+    const incidentToUpdate = { ...updatedIncident };
+    
+    // Ensure fields are never undefined (convert undefined to null)
+    if (incidentToUpdate.concludedAt === undefined) {
+      incidentToUpdate.concludedAt = null;
+    }
+    
+    if (incidentToUpdate.concludedById === undefined) {
+      incidentToUpdate.concludedById = null;
+    }
+    
+    // If concludedById is falsy (null, empty, etc.), ensure concludedAt is also null
+    if (!incidentToUpdate.concludedById) {
+      incidentToUpdate.concludedAt = null;
+      incidentToUpdate.concludedById = null;
+    }
+    
+    updateIncidentMutation.mutate(
+      { id: incidentToUpdate.id, data: incidentToUpdate },
+      {
+        onSuccess: () => {
+          setEditIncidentDialogOpen(false);
+          setSelectedIncident(null);
+        }
+      }
+    );
   };
 
   // Handle incident deletion
   const handleIncidentDelete = async () => {
-    await loadIncidents(); // Reload incidents after deletion
+    if (!selectedIncident) return;
+    
+    deleteIncidentMutation.mutate(selectedIncident.id, {
+      onSuccess: () => {
+        setViewIncidentDialogOpen(false);
+        setSelectedIncident(null);
+      }
+    });
   };
   
-  if (loading) {
-    return <div>Chargement des incidents...</div>;
+  if (incidentsLoading || hotelsLoading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="text-center">
+          <Loader2 className="h-8 w-8 animate-spin mx-auto mb-4 text-brand-500" />
+          <h2 className="text-xl font-semibold mb-2">Chargement des données...</h2>
+          <p className="text-muted-foreground">Veuillez patienter pendant le chargement des incidents.</p>
+        </div>
+      </div>
+    );
+  }
+  
+  if (incidentsError) {
+    return (
+      <div className="space-y-6">
+        <div className="flex flex-col space-y-2 md:flex-row md:justify-between md:items-center">
+          <div>
+            <h1 className="text-2xl font-bold tracking-tight">Suivi des Incidents</h1>
+            <p className="text-muted-foreground">Gestion et analyse des incidents signalés</p>
+          </div>
+        </div>
+        
+        <Alert variant="destructive">
+          <AlertTriangle className="h-5 w-5" />
+          <AlertDescription>
+            Impossible de charger les incidents. Veuillez réessayer plus tard.
+          </AlertDescription>
+        </Alert>
+        
+        <Button onClick={() => window.location.reload()}>
+          Réessayer
+        </Button>
+      </div>
+    );
   }
   
   return (
@@ -376,9 +354,21 @@ const IncidentsPage = () => {
         </div>
         
         <div className="flex flex-col sm:flex-row space-y-2 sm:space-y-0 sm:space-x-2">
-          <Button onClick={() => setNewIncidentDialogOpen(true)}>
-            <Plus className="mr-2 h-4 w-4" />
-            Nouvel Incident
+          <Button 
+            onClick={() => setNewIncidentDialogOpen(true)}
+            disabled={createIncidentMutation.isPending}
+          >
+            {createIncidentMutation.isPending ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Création...
+              </>
+            ) : (
+              <>
+                <Plus className="mr-2 h-4 w-4" />
+                Nouvel Incident
+              </>
+            )}
           </Button>
           <div className="flex space-x-1">
             <Button variant="outline" onClick={handleExcelExport}>

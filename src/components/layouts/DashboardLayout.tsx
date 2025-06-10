@@ -26,6 +26,7 @@ import { getCurrentUser, logout, resetInactivityTimer } from '@/lib/auth';
 import { hotels } from '@/lib/data';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { getGroups } from '@/lib/db/groups';
+import { queryClient } from '@/lib/query-client';
 
 // Gamification
 import { GamificationProvider } from '@/components/gamification/GamificationContext';
@@ -135,6 +136,8 @@ const DashboardLayout = () => {
   
   // Handle logout
   const handleLogout = () => {
+    // Clear cache on logout
+    queryClient.clear();
     logout();
     navigate('/login');
   };

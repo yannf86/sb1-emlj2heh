@@ -33,6 +33,51 @@ export const getHotels = async () => {
   }
 };
 
+// Get hotel by ID
+export const getHotelById = async (hotelId: string): Promise<Hotel | null> => {
+  try {
+    const currentUser = getCurrentUser();
+    if (!currentUser) {
+      throw new Error('User not authenticated');
+    }
+
+    // Get hotel document
+    const docRef = doc(db, 'hotels', hotelId);
+    const docSnap = await getDoc(docRef);
+    
+    if (!docSnap.exists()) {
+      return null;
+    }
+
+    const hotel = {
+      id: docSnap.id,
+      ...docSnap.data()
+    } as Hotel;
+
+    // Check permissions - admin can access any hotel
+    if (currentUser.role === 'admin') {
+      return hotel;
+    }
+
+    // Group admin can access hotels in their groups
+    if (currentUser.role === 'group_admin' && currentUser.groupIds && currentUser.groupIds.length > 0) {
+      if (hotel.groupId && currentUser.groupIds.includes(hotel.groupId)) {
+        return hotel;
+      }
+    }
+
+    // Hotel admin and standard users must have explicit access
+    if (hasHotelAccess(hotelId)) {
+      return hotel;
+    }
+
+    throw new Error('You do not have access to this hotel');
+  } catch (error) {
+    console.error('Error getting hotel by ID:', error);
+    throw error;
+  }
+};
+
 // Get hotels by group
 export const getHotelsByGroup = async (groupId: string) => {
   try {

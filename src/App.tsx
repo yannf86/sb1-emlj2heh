@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { QueryClientProvider } from '@tanstack/react-query';
+import { queryClient } from './lib/query-client';
+import { usePrefetchData, useOptimizedQueries } from './hooks/useQueries';
 
 // Layout
 import DashboardLayout from './components/layouts/DashboardLayout';
@@ -22,7 +24,6 @@ import LogbookPage from './pages/LogbookPage';
 // Auth
 import { isAuthenticated, hasModuleAccess, initAuth, resetInactivityTimer } from './lib/auth';
 
-
 // Toast
 import { ToastProvider } from './components/ui/toast';
 import { Toaster } from './components/ui/toaster';
@@ -31,16 +32,12 @@ import { Toaster } from './components/ui/toaster';
 import { Alert, AlertDescription } from './components/ui/alert';
 import { WifiOff, Loader2 } from 'lucide-react';
 
-// Create a client
-const queryClient = new QueryClient({
-  defaultOptions: {
-    queries: {
-      retry: 1,
-      staleTime: 5 * 60 * 1000, // 5 minutes
-      refetchOnWindowFocus: false,
-    },
-  },
-});
+// DataCacheProvider component for managing data prefetching
+const DataCacheProvider = ({ children }) => {
+  usePrefetchData();
+  useOptimizedQueries();
+  return children;
+};
 
 // Protected route component
 type ProtectedRouteProps = {
@@ -86,7 +83,7 @@ const ProtectedRoute = ({ moduleCode, children }: ProtectedRouteProps) => {
   }
   
   if (moduleCode && !hasAccess) {
-    return <Navigate to="/dashboard\" replace />;
+    return <Navigate to="/dashboard" replace />;
   }
   
   return <>{children}</>;
@@ -146,7 +143,7 @@ function App() {
     <QueryClientProvider client={queryClient}>
       <ToastProvider>
         {!isOnline && (
-          <Alert variant="destructive\" className="fixed top-0 left-0 right-0 z-50 flex justify-center">
+          <Alert variant="destructive" className="fixed top-0 left-0 right-0 z-50 flex justify-center">
             <WifiOff className="h-4 w-4 mr-2" />
             <AlertDescription>
               Connexion internet perdue. Application en mode hors ligne.
@@ -154,102 +151,100 @@ function App() {
           </Alert>
         )}
         <Router>
-          <Routes>
-            <Route path="/login" element={<LoginPage />} />
-            
-
-            
-            <Route path="/" element={
-              <ProtectedRoute>
-                <DashboardLayout />
-              </ProtectedRoute>
-            }>
-              <Route index element={<Navigate to="/dashboard\" replace />} />
+          <DataCacheProvider>
+            <Routes>
+              <Route path="/login" element={<LoginPage />} />
               
-              <Route path="dashboard" element={
-                <ProtectedRoute moduleCode="mod1">
-                  <DashboardPage />
+              <Route path="/" element={
+                <ProtectedRoute>
+                  <DashboardLayout />
                 </ProtectedRoute>
-              } />
+              }>
+                <Route index element={<Navigate to="/dashboard" replace />} />
+                
+                <Route path="dashboard" element={
+                  <ProtectedRoute moduleCode="mod1">
+                    <DashboardPage />
+                  </ProtectedRoute>
+                } />
+                
+                <Route path="logbook" element={
+                  <ProtectedRoute moduleCode="mod12">
+                    <LogbookPage />
+                  </ProtectedRoute>
+                } />
+                
+                <Route path="incidents" element={
+                  <ProtectedRoute moduleCode="mod2">
+                    <IncidentsPage />
+                  </ProtectedRoute>
+                } />
+                
+                <Route path="maintenance" element={
+                  <ProtectedRoute moduleCode="mod3">
+                    <MaintenancePage />
+                  </ProtectedRoute>
+                } />
+                
+                <Route path="quality" element={
+                  <ProtectedRoute moduleCode="mod4">
+                    <QualityPage />
+                  </ProtectedRoute>
+                } />
+                
+                <Route path="lost-found" element={
+                  <ProtectedRoute moduleCode="mod5">
+                    <LostFoundPage />
+                  </ProtectedRoute>
+                } />
+                
+                <Route path="procedures" element={
+                  <ProtectedRoute moduleCode="mod6">
+                    <ProceduresPage />
+                  </ProtectedRoute>
+                } />
+                
+                <Route path="settings" element={
+                  <ProtectedRoute moduleCode="mod8">
+                    <SettingsPage />
+                  </ProtectedRoute>
+                } />
+                
+                <Route path="settings/gamification-config" element={
+                  <ProtectedRoute moduleCode="mod8">
+                    <GamificationConfigPage />
+                  </ProtectedRoute>
+                } />
+                
+                <Route path="users" element={
+                  <ProtectedRoute moduleCode="mod9">
+                    <UsersPage />
+                  </ProtectedRoute>
+                } />
+                
+                <Route path="gamification" element={
+                  <ProtectedRoute moduleCode="mod10">
+                    <GamificationPage />
+                  </ProtectedRoute>
+                } />
+                
+                <Route path="suppliers" element={
+                  <ProtectedRoute moduleCode="mod11">
+                    <SuppliersPage />
+                  </ProtectedRoute>
+                } />
+              </Route>
               
-              <Route path="logbook" element={
-                <ProtectedRoute moduleCode="mod12">
-                  <LogbookPage />
-                </ProtectedRoute>
-              } />
-              
-              <Route path="incidents" element={
-                <ProtectedRoute moduleCode="mod2">
-                  <IncidentsPage />
-                </ProtectedRoute>
-              } />
-              
-              <Route path="maintenance" element={
-                <ProtectedRoute moduleCode="mod3">
-                  <MaintenancePage />
-                </ProtectedRoute>
-              } />
-              
-
-              
-              <Route path="quality" element={
-                <ProtectedRoute moduleCode="mod4">
-                  <QualityPage />
-                </ProtectedRoute>
-              } />
-              
-              <Route path="lost-found" element={
-                <ProtectedRoute moduleCode="mod5">
-                  <LostFoundPage />
-                </ProtectedRoute>
-              } />
-              
-              <Route path="procedures" element={
-                <ProtectedRoute moduleCode="mod6">
-                  <ProceduresPage />
-                </ProtectedRoute>
-              } />
-              
-              <Route path="settings" element={
-                <ProtectedRoute moduleCode="mod8">
-                  <SettingsPage />
-                </ProtectedRoute>
-              } />
-              
-              <Route path="settings/gamification-config" element={
-                <ProtectedRoute moduleCode="mod8">
-                  <GamificationConfigPage />
-                </ProtectedRoute>
-              } />
-              
-              <Route path="users" element={
-                <ProtectedRoute moduleCode="mod9">
-                  <UsersPage />
-                </ProtectedRoute>
-              } />
-              
-              <Route path="gamification" element={
-                <ProtectedRoute moduleCode="mod10">
-                  <GamificationPage />
-                </ProtectedRoute>
-              } />
-              
-              <Route path="suppliers" element={
-                <ProtectedRoute moduleCode="mod11">
-                  <SuppliersPage />
-                </ProtectedRoute>
-              } />
-            </Route>
-            
-            <Route 
-              path="*" 
-              element={
-                window.location.pathname.startsWith("/dev")
-                  ? <div style={{ padding: "2rem", textAlign: "center" }}><h2>Page non trouvée</h2></div>
-                  : <Navigate to="/login" replace />
-              } 
-            />
-          </Routes>
+              <Route 
+                path="*" 
+                element={
+                  window.location.pathname.startsWith("/dev")
+                    ? <div style={{ padding: "2rem", textAlign: "center" }}><h2>Page non trouvée</h2></div>
+                    : <Navigate to="/login" replace />
+                } 
+              />
+            </Routes>
+          </DataCacheProvider>
         </Router>
         <Toaster />
       </ToastProvider>

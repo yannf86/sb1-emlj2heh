@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { 
   BarChart, 
   Bar, 
@@ -20,32 +20,35 @@ import {
   Plus, 
   RefreshCw,
   SlidersHorizontal,
-  MapPin,
-  Briefcase,
-  Tag,
   FileText,
   Edit,
   Trash2,
-  Image as ImageIcon,
-  User
+  User,
+  Loader2,
+  AlertTriangle,
 } from 'lucide-react';
 import { formatDate } from '@/lib/utils';
 import { exportLostItems } from '@/lib/exportUtils';
 import { exportLostItemsToPDF } from '@/lib/pdfUtils';
 import { useToast } from '@/hooks/use-toast';
 import { getCurrentUser } from '@/lib/auth';
-import { getLostItems, createLostItem, updateLostItem, deleteLostItem } from '@/lib/db/lost-items';
-import { getLostItemTypeParameters, getLostItemTypeLabel } from '@/lib/db/parameters-lost-item-type';
-import { getHotelName, getHotels } from '@/lib/db/hotels';
+import { getHotelName } from '@/lib/db/hotels';
 import { getLocationLabel } from '@/lib/db/parameters-locations';
+import { getLostItemTypeLabel } from '@/lib/db/parameters-lost-item-type';
 import { getUserName } from '@/lib/db/users';
 
 // Import components
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import LostItemForm from '@/components/lost-found/LostItemForm';
 import LostItemFilters from '@/components/lost-found/LostItemFilters';
 import LostItemList from '@/components/lost-found/LostItemList';
+
+// Import hooks
+import { useLostItems, useCreateLostItem, useUpdateLostItem, useDeleteLostItem } from '@/hooks/useLostItems';
+import { useHotels } from '@/hooks/useHotels';
+import { useLostItemTypeParameters } from '@/hooks/useParametersCache';
 
 // Define chart colors
 const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884D8'];
@@ -57,63 +60,34 @@ const LostFoundPage = () => {
   const [filterType, setFilterType] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [filtersExpanded, setFiltersExpanded] = useState(false);
-  const [lostItems, setLostItems] = useState<any[]>([]);
-  const [availableHotels, setAvailableHotels] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
-  const { toast } = useToast();
-  const currentUser = getCurrentUser();
+  const [selectedItem, setSelectedItem] = useState<any>(null);
   
   // For item history display
   const [historyUserNames, setHistoryUserNames] = useState<Record<string, string>>({});
   
-  // Load lost items on mount
-  useEffect(() => {
-    loadLostItems();
-    loadAvailableHotels();
-  }, []);
-
-  // Function to load lost items
-  const loadLostItems = async () => {
-    try {
-      setLoading(true);
-      const data = await getLostItems();
-      setLostItems(data);
-    } catch (error) {
-      console.error('Error loading lost items:', error);
-      toast({
-        title: "Erreur",
-        description: "Impossible de charger les objets trouvés",
-        variant: "destructive",
-      });
-    } finally {
-      setLoading(false);
-    }
-  };
+  // React Query hooks
+  const { 
+    data: lostItems = [], 
+    isLoading: lostItemsLoading, 
+    error: lostItemsError 
+  } = useLostItems();
   
-  // Function to load hotels the current user has access to
-  const loadAvailableHotels = async () => {
-    try {
-      // For admin users, get all hotels
-      // For standard users, filter hotels by user's assigned hotels
-      const allHotels = await getHotels();
-      
-      if (currentUser?.role === 'admin') {
-        setAvailableHotels(allHotels);
-      } else if (currentUser) {
-        const userHotels = allHotels.filter(hotel => 
-          currentUser.hotels.includes(hotel.id)
-        );
-        setAvailableHotels(userHotels);
-      }
-    } catch (error) {
-      console.error('Error loading hotels:', error);
-      toast({
-        title: "Erreur",
-        description: "Impossible de charger les hôtels",
-        variant: "destructive",
-      });
-    }
-  };
+  const { 
+    data: hotels = [], 
+    isLoading: hotelsLoading 
+  } = useHotels();
+  
+  const {
+    data: itemTypeParams = [],
+    isLoading: itemTypesLoading
+  } = useLostItemTypeParameters();
+  
+  const createLostItemMutation = useCreateLostItem();
+  const updateLostItemMutation = useUpdateLostItem();
+  const deleteLostItemMutation = useDeleteLostItem();
+  
+  const { toast } = useToast();
+  const currentUser = getCurrentUser();
 
   // New lost item dialog
   const [newItemDialogOpen, setNewItemDialogOpen] = useState(false);
@@ -123,26 +97,6 @@ const LostFoundPage = () => {
   
   // View lost item dialog
   const [viewItemDialogOpen, setViewItemDialogOpen] = useState(false);
-  const [selectedItem, setSelectedItem] = useState<any>(null);
-  
-  // State for item types to avoid parameter filtering every render
-  const [itemTypeParams, setItemTypeParams] = useState<any[]>([]);
-  
-  // Load item types
-  useEffect(() => {
-    const loadItemTypes = async () => {
-      try {
-        const types = await getLostItemTypeParameters();
-        setItemTypeParams(types);
-      } catch (error) {
-        console.error('Error loading item types:', error);
-        // Fallback to static data from imported parameters
-        setItemTypeParams([]);
-      }
-    };
-    
-    loadItemTypes();
-  }, []);
   
   // Filter lost items based on selected filters
   const filteredItems = lostItems.filter(item => {
@@ -169,94 +123,46 @@ const LostFoundPage = () => {
   
   // Handle form submission for new lost item
   const handleSubmitLostItem = async (formData: any) => {
-    try {
-      // Create lost item in Firebase
-      await createLostItem(formData);
-      
-      toast({
-        title: "Objet enregistré",
-        description: "L'objet trouvé a été enregistré avec succès",
-      });
-      
-      // Reload lost items
-      await loadLostItems();
-      
-      // Close dialog
-      setNewItemDialogOpen(false);
-    } catch (error) {
-      console.error('Error creating lost item:', error);
-      toast({
-        title: "Erreur",
-        description: "Une erreur est survenue lors de l'enregistrement de l'objet trouvé",
-        variant: "destructive",
-      });
-    }
+    createLostItemMutation.mutate(formData, {
+      onSuccess: () => {
+        setNewItemDialogOpen(false);
+      }
+    });
   };
   
   // Handle form submission for edit
   const handleUpdateLostItem = async (updatedData: any) => {
-    try {
-      // Update lost item in Firebase
-      await updateLostItem(updatedData.id, updatedData);
-      
-      toast({
-        title: "Objet mis à jour",
-        description: "L'objet trouvé a été mis à jour avec succès",
-      });
-      
-      // Reload lost items
-      await loadLostItems();
-      
-      // Close dialog
-      setEditItemDialogOpen(false);
-      setSelectedItem(null);
-    } catch (error) {
-      console.error('Error updating lost item:', error);
-      toast({
-        title: "Erreur",
-        description: "Une erreur est survenue lors de la mise à jour de l'objet trouvé",
-        variant: "destructive",
-      });
-    }
+    updateLostItemMutation.mutate(
+      { id: updatedData.id, data: updatedData },
+      {
+        onSuccess: () => {
+          setEditItemDialogOpen(false);
+          setSelectedItem(null);
+        }
+      }
+    );
   };
   
   // Handle delete lost item
   const handleDeleteLostItem = async () => {
     if (!selectedItem) return;
 
-    try {
-      // Delete lost item in Firebase
-      await deleteLostItem(selectedItem.id);
-      
-      toast({
-        title: "Objet supprimé",
-        description: "L'objet trouvé a été supprimé avec succès",
-      });
-      
-      // Reload lost items
-      await loadLostItems();
-      
-      // Close dialog
-      setViewItemDialogOpen(false);
-      setSelectedItem(null);
-    } catch (error) {
-      console.error('Error deleting lost item:', error);
-      toast({
-        title: "Erreur",
-        description: "Une erreur est survenue lors de la suppression de l'objet trouvé",
-        variant: "destructive",
-      });
-    }
+    deleteLostItemMutation.mutate(selectedItem.id, {
+      onSuccess: () => {
+        setViewItemDialogOpen(false);
+        setSelectedItem(null);
+      }
+    });
   };
   
-  // Prepare chart data - using async functions to get labels
+  // Prepare chart data
   const itemsByType = itemTypeParams.map(type => ({
     name: type.label,
     value: filteredItems.filter(item => item.itemTypeId === type.id).length
   }));
   
   // Get locations from parameters
-  const locationParams = [];
+  const locationParams: any[] = [];
   const itemsByLocation = locationParams.map(location => ({
     name: location.label,
     value: filteredItems.filter(item => 
@@ -272,21 +178,6 @@ const LostFoundPage = () => {
     { name: 'Rendu', value: filteredItems.filter(item => item.status === 'rendu').length },
     { name: 'Transféré', value: filteredItems.filter(item => item.status === 'transféré').length }
   ];
-  
-  // Dynamic chart data based on available hotels
-  const [hotels, setHotels] = useState<any[]>([]);
-  useEffect(() => {
-    const loadHotels = async () => {
-      try {
-        const hotelsData = await getHotels();
-        setHotels(hotelsData);
-      } catch (error) {
-        console.error('Error loading hotels:', error);
-        setHotels([]);
-      }
-    };
-    loadHotels();
-  }, []);
   
   // Calculate items by hotel
   const itemsByHotel = hotels.map(hotel => ({
@@ -400,13 +291,38 @@ const LostFoundPage = () => {
     }
   };
   
-  if (loading) {
+  if (lostItemsLoading || hotelsLoading || itemTypesLoading) {
     return (
       <div className="flex items-center justify-center h-64">
         <div className="text-center">
+          <Loader2 className="h-8 w-8 animate-spin mx-auto mb-4 text-brand-500" />
           <h2 className="text-xl font-semibold mb-2">Chargement des données...</h2>
           <p className="text-muted-foreground">Veuillez patienter pendant le chargement des objets trouvés.</p>
         </div>
+      </div>
+    );
+  }
+
+  if (lostItemsError) {
+    return (
+      <div className="space-y-6">
+        <div className="flex flex-col space-y-2 md:flex-row md:justify-between md:items-center">
+          <div>
+            <h1 className="text-2xl font-bold tracking-tight">Objets Trouvés</h1>
+            <p className="text-muted-foreground">Gestion des objets trouvés et perdus</p>
+          </div>
+        </div>
+        
+        <Alert variant="destructive">
+          <AlertTriangle className="h-5 w-5" />
+          <AlertDescription>
+            Impossible de charger les objets trouvés. Veuillez réessayer plus tard.
+          </AlertDescription>
+        </Alert>
+        
+        <Button onClick={() => window.location.reload()}>
+          Réessayer
+        </Button>
       </div>
     );
   }
@@ -420,9 +336,21 @@ const LostFoundPage = () => {
         </div>
         
         <div className="flex flex-col sm:flex-row space-y-2 sm:space-y-0 sm:space-x-2">
-          <Button onClick={() => setNewItemDialogOpen(true)}>
-            <Plus className="mr-2 h-4 w-4" />
-            Nouvel Objet
+          <Button 
+            onClick={() => setNewItemDialogOpen(true)}
+            disabled={createLostItemMutation.isPending}
+          >
+            {createLostItemMutation.isPending ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Création...
+              </>
+            ) : (
+              <>
+                <Plus className="mr-2 h-4 w-4" />
+                Nouvel Objet
+              </>
+            )}
           </Button>
           <div className="flex space-x-1">
             <Button variant="outline" onClick={handleExcelExport}>
@@ -765,9 +693,19 @@ const LostFoundPage = () => {
               variant="destructive" 
               onClick={handleDeleteLostItem}
               className="flex items-center"
+              disabled={deleteLostItemMutation.isPending}
             >
-              <Trash2 className="h-4 w-4 mr-2" />
-              Supprimer
+              {deleteLostItemMutation.isPending ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Suppression...
+                </>
+              ) : (
+                <>
+                  <Trash2 className="h-4 w-4 mr-2" />
+                  Supprimer
+                </>
+              )}
             </Button>
             <div className="space-x-2">
               <Button variant="outline" onClick={() => setViewItemDialogOpen(false)}>

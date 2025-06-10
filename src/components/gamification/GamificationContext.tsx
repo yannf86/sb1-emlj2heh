@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { createContext, useContext, useState, useEffect } from 'react';
 import { 
   GamificationAction, 
   Badge, 
@@ -8,6 +8,7 @@ import {
 } from '@/lib/gamification';
 import { getCurrentUser } from '@/lib/auth';
 import { useToast } from '@/hooks/use-toast';
+import { useUserGamificationStats, useUserBadges, useUserLevel, useUserRank, useUserChallenges } from '@/hooks/useGamification';
 import { 
   FirebaseGamificationService,
   getUserStats,
@@ -39,17 +40,44 @@ type GamificationContextType = {
 const GamificationContext = createContext<GamificationContextType | undefined>(undefined);
 
 export const GamificationProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [userStats, setUserStats] = useState<UserStats | null>(null);
-  const [level, setLevel] = useState<{ level: number; progress: number; levelInfo: any } | null>(null);
-  const [rank, setRank] = useState<{ rank: string; points: number; nextRank: string; pointsNeeded: number } | null>(null);
-  const [badges, setBadges] = useState<Badge[]>([]);
-  const [challenges, setChallenges] = useState<Challenge[]>([]);
-  const [challengeProgress, setChallengeProgress] = useState<{ [id: string]: number }>({});
+  const { toast } = useToast();
+  const currentUser = getCurrentUser();
+  const userId = currentUser?.id || '';
+  
+  // Use React Query hooks
+  const { 
+    data: userStats, 
+    isLoading: statsLoading, 
+    refetch: refetchStats 
+  } = useUserGamificationStats(userId);
+  
+  const { 
+    data: userLevel, 
+    isLoading: levelLoading,
+    refetch: refetchLevel 
+  } = useUserLevel(userId);
+  
+  const { 
+    data: userRank, 
+    isLoading: rankLoading,
+    refetch: refetchRank 
+  } = useUserRank(userId);
+  
+  const { 
+    data: userBadges = [], 
+    isLoading: badgesLoading,
+    refetch: refetchBadges 
+  } = useUserBadges(userId);
+  
+  const { 
+    data: userChallengesData, 
+    isLoading: challengesLoading,
+    refetch: refetchChallenges 
+  } = useUserChallenges(userId);
+
+  // Local state for UI elements that don't need to be queried
   const [recentBadges, setRecentBadges] = useState<Badge[]>([]);
   const [enabled, setEnabled] = useState<boolean>(true);
-  const [loading, setLoading] = useState<boolean>(true);
-  
-  const { toast } = useToast();
   
   // Check if gamification is enabled from settings
   useEffect(() => {
@@ -64,70 +92,15 @@ export const GamificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
     }
   }, []);
   
-  // Initialize user stats when component mounts
-  const refreshStats = async () => {
-    const currentUser = getCurrentUser();
-    if (!currentUser) {
-      setLoading(false);
-      return;
-    }
-
-    try {
-      setLoading(true);
-      
-      // Get or initialize user stats
-      const stats = await initializeOrGetUserStats(currentUser.id);
-      setUserStats(stats);
-      
-      // Get user level
-      const userLevel = await getUserLevel(currentUser.id);
-      setLevel(userLevel);
-      
-      // Get user rank
-      const userRank = await getUserRank(currentUser.id);
-      setRank(userRank);
-      
-      // Get user badges
-      const userBadges = await getUserBadges(currentUser.id);
-      setBadges(userBadges);
-      
-      // Get user challenges
-      const { challenges: userChallenges, progress } = await getUserChallenges(currentUser.id);
-      setChallenges(userChallenges);
-      setChallengeProgress(progress);
-    } catch (error) {
-      console.error('Error initializing gamification stats:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
-  
-  useEffect(() => {
-    refreshStats();
-  }, []);
-  
-  // Function to perform gamification actions
+  // Function to perform gamification action
   const performAction = async (action: GamificationAction) => {
-    // If gamification is disabled, do nothing
-    if (!enabled) return;
-    
-    const currentUser = getCurrentUser();
-    if (!currentUser) return;
+    if (!enabled || !currentUser?.id) return;
     
     try {
-      const userId = currentUser.id;
-      const { newStats, xpGained, newBadges } = await updateUserStats(userId, action);
+      const { newStats, xpGained, newBadges } = await updateUserStats(currentUser.id, action);
       
-      // Update the state with new values
-      setUserStats(newStats);
-      setLevel(await getUserLevel(userId));
-      setRank(await getUserRank(userId));
-      setBadges(await getUserBadges(userId));
-      
-      // Update challenges
-      const { challenges: userChallenges, progress } = await getUserChallenges(userId);
-      setChallenges(userChallenges);
-      setChallengeProgress(progress);
+      // Update all gamification data
+      await refreshStats();
       
       // Handle new badges
       if (newBadges.length > 0) {
@@ -153,22 +126,37 @@ export const GamificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
       }
       
       // Check for completed challenges
-      userChallenges.forEach(challenge => {
-        if (challenge.condition(newStats) && 
-            (!userStats || !challenge.condition(userStats))) {
-          toast({
-            title: `Défi complété: ${challenge.icon} ${challenge.title}`,
-            description: `Tu as gagné ${challenge.xpReward} points XP !`,
-            variant: "default",
-          });
-          
-          // Add the points from the challenge
-          performAction({ type: 'COMPLETE_WEEKLY_GOAL' });
-        }
-      });
+      if (userChallengesData?.challenges) {
+        userChallengesData.challenges.forEach(challenge => {
+          if (challenge.condition(newStats) && 
+              (!userStats || !challenge.condition(userStats))) {
+            toast({
+              title: `Défi complété: ${challenge.icon} ${challenge.title}`,
+              description: `Tu as gagné ${challenge.xpReward} points XP !`,
+              variant: "default",
+            });
+            
+            // Add the points from the challenge
+            performAction({ type: 'COMPLETE_WEEKLY_GOAL' });
+          }
+        });
+      }
     } catch (error) {
       console.error('Error performing gamification action:', error);
     }
+  };
+  
+  // Function to refresh all stats
+  const refreshStats = async () => {
+    if (!currentUser?.id) return;
+    
+    await Promise.all([
+      refetchStats(),
+      refetchLevel(),
+      refetchRank(),
+      refetchBadges(),
+      refetchChallenges()
+    ]);
   };
   
   const clearRecentBadges = () => {
@@ -176,16 +164,19 @@ export const GamificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
   };
   
   const getBadgesByCategory = (category: BadgeCategory): Badge[] => {
-    return badges.filter(badge => badge.category === category);
+    return userBadges.filter(badge => badge.category === category);
   };
   
+  // Loading state
+  const loading = statsLoading || levelLoading || rankLoading || badgesLoading || challengesLoading;
+
   const contextValue = {
-    userStats,
-    level,
-    rank,
-    badges,
-    challenges,
-    challengeProgress,
+    userStats: userStats || null,
+    level: userLevel || null,
+    rank: userRank || null,
+    badges: userBadges,
+    challenges: userChallengesData?.challenges || [],
+    challengeProgress: userChallengesData?.progress || {},
     recentBadges,
     enabled,
     loading,
