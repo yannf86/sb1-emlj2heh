@@ -14,7 +14,7 @@ import { getHotels } from '@/lib/db/hotels';
 interface LogbookEntryFormProps {
   isOpen: boolean;
   onClose: () => void;
-  onSubmit: (formData: any) => void;
+  onSave: (formData: any) => void;
   initialData?: any;
   isEditing?: boolean;
 }
@@ -22,7 +22,7 @@ interface LogbookEntryFormProps {
 const LogbookEntryForm: React.FC<LogbookEntryFormProps> = ({
   isOpen,
   onClose,
-  onSubmit,
+  onSave,
   initialData = {},
   isEditing = false
 }) => {
@@ -31,17 +31,14 @@ const LogbookEntryForm: React.FC<LogbookEntryFormProps> = ({
   
   // Initialisation du formulaire selon le mode (création ou édition)
   const [formData, setFormData] = useState({
-    serviceId: initialData.serviceId || 'none',
+    serviceId: initialData.serviceId || '',
     content: initialData.content || '',
-    title: initialData.title || '',
-    description: initialData.description || '',
     importance: initialData.importance || 1,
     date: initialData.date || new Date().toISOString().split('T')[0],
     endDate: initialData.endDate || '', // Nouvelle prop pour date de fin
     displayRange: initialData.displayRange || false, // Pour activer/désactiver la plage de date
-    isPermanent: initialData.isPermanent || false, // Pour les tâches permanentes
     time: initialData.time || new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-    hotelId: initialData.hotelId || (currentUser?.hotels?.length === 1 ? currentUser.hotels[0] : 'none'),
+    hotelId: initialData.hotelId || (currentUser?.hotels?.length === 1 ? currentUser.hotels[0] : ''),
     roomNumber: initialData.roomNumber || '',
     isTask: initialData.isTask || false,
     assignedToIds: initialData.assignedToIds || [],
@@ -87,7 +84,7 @@ const LogbookEntryForm: React.FC<LogbookEntryFormProps> = ({
         setHotels(accessibleHotels);
         
         // Set default hotel if user has only one
-        if (accessibleHotels.length === 1 && formData.hotelId === 'none') {
+        if (accessibleHotels.length === 1 && !formData.hotelId) {
           setFormData(prev => ({
             ...prev,
             hotelId: accessibleHotels[0].id
@@ -109,10 +106,10 @@ const LogbookEntryForm: React.FC<LogbookEntryFormProps> = ({
     if (isOpen) {
       loadData();
     }
-  }, [isOpen, currentUser, toast]);
+  }, [isOpen, currentUser, toast, formData.hotelId]);
   
   // Handle form input changes
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target;
     setFormData(prev => ({ ...prev, [name]: value }));
   };
@@ -126,11 +123,6 @@ const LogbookEntryForm: React.FC<LogbookEntryFormProps> = ({
   const handleSwitchChange = (name: string, checked: boolean) => {
     setFormData(prev => ({ ...prev, [name]: checked }));
 
-    // Si on active la tâche permanente, on active aussi la plage de dates
-    if (name === 'isPermanent' && checked) {
-      setFormData(prev => ({ ...prev, displayRange: true }));
-    }
-    
     // Si on désactive la plage de dates, on vide la date de fin
     if (name === 'displayRange' && !checked) {
       setFormData(prev => ({ ...prev, endDate: '' }));
@@ -139,13 +131,13 @@ const LogbookEntryForm: React.FC<LogbookEntryFormProps> = ({
   
   // Validate form
   const validateForm = () => {
-    if (!formData.content && !formData.title) {
-      return { valid: false, message: formData.isTask ? 'Le titre est requis' : 'Le contenu est requis' };
+    if (!formData.content) {
+      return { valid: false, message: 'Le contenu est requis' };
     }
-    if (!formData.hotelId || formData.hotelId === 'none') {
+    if (!formData.hotelId) {
       return { valid: false, message: 'Veuillez sélectionner un hôtel' };
     }
-    if (!formData.serviceId || formData.serviceId === 'none') {
+    if (!formData.serviceId) {
       return { valid: false, message: 'Veuillez sélectionner un service' };
     }
     
@@ -183,7 +175,7 @@ const LogbookEntryForm: React.FC<LogbookEntryFormProps> = ({
       return;
     }
     
-    onSubmit({
+    onSave({
       ...formData,
       authorId: currentUser?.id
     });
@@ -222,7 +214,6 @@ const LogbookEntryForm: React.FC<LogbookEntryFormProps> = ({
                   <SelectValue placeholder="Sélectionner un service" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="none">Sélectionner un service</SelectItem>
                   {services.map(service => (
                     <SelectItem key={service.id} value={service.id}>
                       <span className="mr-2">{service.icon}</span>
@@ -244,9 +235,10 @@ const LogbookEntryForm: React.FC<LogbookEntryFormProps> = ({
                   <SelectValue placeholder="Sélectionner un hôtel" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="none">Sélectionner un hôtel</SelectItem>
                   {hotels.map(hotel => (
-                    <SelectItem key={hotel.id} value={hotel.id}>{hotel.name}</SelectItem>
+                    <SelectItem key={hotel.id} value={hotel.id}>
+                      {hotel.name}
+                    </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
@@ -261,7 +253,6 @@ const LogbookEntryForm: React.FC<LogbookEntryFormProps> = ({
                   id="display-range"
                   checked={formData.displayRange}
                   onCheckedChange={(checked) => handleSwitchChange('displayRange', checked)}
-                  disabled={formData.isPermanent} // Désactiver si tâche permanente
                 />
                 <Label htmlFor="display-range" className="text-sm">
                   Définir une plage de dates
@@ -323,9 +314,7 @@ const LogbookEntryForm: React.FC<LogbookEntryFormProps> = ({
           
           <div className="space-y-2">
             <div className="flex justify-between">
-              <Label htmlFor="content">
-                {formData.isTask ? 'Titre de la tâche' : 'Contenu'}
-              </Label>
+              <Label htmlFor="content">Contenu</Label>
               <div className="flex items-center space-x-2">
                 <Switch
                   id="is-task"
@@ -337,55 +326,14 @@ const LogbookEntryForm: React.FC<LogbookEntryFormProps> = ({
                 </Label>
               </div>
             </div>
-            
-            {formData.isTask ? (
-              <div className="space-y-4">
-                <Input
-                  id="title"
-                  name="title"
-                  value={formData.title}
-                  onChange={handleInputChange}
-                  placeholder="Titre de la tâche"
-                />
-                <div className="space-y-2">
-                  <Label htmlFor="description">Description (optionnelle)</Label>
-                  <textarea
-                    id="description"
-                    name="description"
-                    value={formData.description}
-                    onChange={handleInputChange}
-                    placeholder="Description de la tâche..."
-                    className="min-h-[100px] w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 resize-y"
-                  />
-                </div>
-                
-                <div className="flex items-center space-x-2">
-                  <Switch
-                    id="is-permanent"
-                    checked={formData.isPermanent}
-                    onCheckedChange={(checked) => handleSwitchChange('isPermanent', checked)}
-                  />
-                  <Label htmlFor="is-permanent" className="text-sm">
-                    Tâche permanente
-                  </Label>
-                </div>
-                
-                {formData.isPermanent && (
-                  <div className="text-sm text-muted-foreground bg-slate-50 p-2 rounded-md">
-                    <p>Une tâche permanente s'affichera tous les jours automatiquement.</p>
-                  </div>
-                )}
-              </div>
-            ) : (
-              <textarea
-                id="content"
-                name="content"
-                value={formData.content}
-                onChange={handleInputChange}
-                placeholder="Saisissez votre consigne ici..."
-                className="min-h-[150px] w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 resize-y"
-              />
-            )}
+            <textarea
+              id="content"
+              name="content"
+              value={formData.content}
+              onChange={handleInputChange}
+              placeholder="Saisissez votre consigne ici..."
+              className="min-h-[150px] w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 resize-y"
+            />
           </div>
           
           <div className="grid grid-cols-2 gap-4">

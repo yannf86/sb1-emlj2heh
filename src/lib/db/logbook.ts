@@ -1,7 +1,6 @@
 import { collection, addDoc, getDoc, getDocs, updateDoc, deleteDoc, doc, query, where, orderBy, Timestamp, serverTimestamp } from 'firebase/firestore';
 import { db } from '../firebase';
 import { getCurrentUser } from '../auth';
-import { getHotelName } from './hotels';
 
 // Interface pour les entrées du cahier de consignes
 export interface LogbookEntry {
@@ -10,23 +9,17 @@ export interface LogbookEntry {
   time: string;
   endDate?: string;
   displayRange?: boolean;
-  isPermanent?: boolean;
   hotelId: string;
-  hotelName?: string;
   serviceId: string;
   serviceName?: string;
   serviceIcon?: string;
   content: string;
-  title?: string; // Pour les tâches de checklist
-  description?: string; // Pour les tâches de checklist
   authorId: string;
   authorName?: string;
   importance: number;
   isTask?: boolean;
   isCompleted?: boolean;
-  completedById?: string | null;
-  completedByName?: string | null;
-  completedAt?: string | null;
+  hotelName?: string;
   roomNumber?: string;
   isRead?: boolean;
   comments?: {
@@ -83,117 +76,6 @@ export const getLogbookEntriesByDate = async (date: Date, hotelId?: string): Pro
     // Filtrer par hôtel si spécifié
     if (hotelId) {
       queryConstraints.push(where('hotelId', '==', hotelId));
-    } else {
-      // Si aucun hôtel n'est spécifié, filtrer par les hôtels auxquels l'utilisateur a accès
-      const currentUser = getCurrentUser();
-      if (currentUser && currentUser.role !== 'admin') {
-        // Pour les utilisateurs non-admin, on doit filtrer par leurs hôtels
-        if (currentUser.hotels.length === 1) {
-          // Si l'utilisateur n'a accès qu'à un seul hôtel, on peut utiliser une requête simple
-          queryConstraints.push(where('hotelId', '==', currentUser.hotels[0]));
-        } else if (currentUser.hotels.length > 0) {
-          // Si l'utilisateur a accès à plusieurs hôtels, on doit faire plusieurs requêtes
-          // et combiner les résultats, car Firestore ne supporte pas les requêtes OR sur le même champ
-          const results = [];
-          for (const hotel of currentUser.hotels) {
-            const hotelQuery = query(
-              baseQuery,
-              where('hotelId', '==', hotel)
-            );
-            const snapshot = await getDocs(hotelQuery);
-            results.push(...snapshot.docs.map(doc => ({
-              id: doc.id,
-              ...doc.data()
-            })));
-          }
-          
-          // Filtrer les résultats en mémoire
-          const filteredResults = results.filter(entry => {
-            // Pour les entrées à date unique
-            if (!entry.displayRange && !entry.isPermanent) {
-              return entry.date === formattedDate;
-            }
-            
-            // Pour les entrées permanentes, toujours les inclure
-            if (entry.isPermanent) {
-              return true;
-            }
-            
-            // Pour les entrées avec plage de dates
-            if (entry.displayRange && entry.endDate) {
-              const startDate = new Date(entry.date);
-              const endDate = new Date(entry.endDate);
-              const selectedDate = new Date(formattedDate);
-              
-              // Normaliser les dates pour éviter les problèmes de fuseau horaire
-              startDate.setHours(0, 0, 0, 0);
-              endDate.setHours(23, 59, 59, 999);
-              selectedDate.setHours(12, 0, 0, 0);
-              
-              return selectedDate >= startDate && selectedDate <= endDate;
-            }
-            
-            return false;
-          });
-          
-          // Trier les résultats
-          filteredResults.sort((a, b) => {
-            // D'abord par importance (plus important = plus grand nombre)
-            if (a.importance !== b.importance) {
-              return b.importance - a.importance;
-            }
-            
-            // Ensuite par date (plus récent en premier pour les plages)
-            if (a.displayRange && b.displayRange) {
-              const dateA = new Date(a.date);
-              const dateB = new Date(b.date);
-              if (dateA.getTime() !== dateB.getTime()) {
-                return dateB.getTime() - dateA.getTime();
-              }
-            }
-            
-            // Enfin par heure (plus récent en premier)
-            const timeA = a.time.split(':').map(Number);
-            const timeB = b.time.split(':').map(Number);
-            
-            if (timeA[0] !== timeB[0]) {
-              return timeB[0] - timeA[0];
-            }
-            
-            return timeB[1] - timeA[1];
-          });
-          
-          // Enrichir les entrées avec les noms d'hôtels et d'auteurs
-          for (const entry of filteredResults) {
-            try {
-              // Ajouter le nom de l'hôtel
-              if (entry.hotelId && !entry.hotelName) {
-                entry.hotelName = await getHotelName(entry.hotelId);
-              }
-              
-              // Ajouter le nom de l'auteur
-              if (entry.authorId && !entry.authorName) {
-                const userDoc = await getDoc(doc(db, 'users', entry.authorId));
-                if (userDoc.exists()) {
-                  entry.authorName = userDoc.data().name;
-                }
-              }
-              
-              // Ajouter le nom de la personne qui a complété la tâche
-              if (entry.completedById && !entry.completedByName) {
-                const userDoc = await getDoc(doc(db, 'users', entry.completedById));
-                if (userDoc.exists()) {
-                  entry.completedByName = userDoc.data().name;
-                }
-              }
-            } catch (error) {
-              console.error('Error enriching entry data:', error);
-            }
-          }
-          
-          return filteredResults;
-        }
-      }
     }
 
     // Vérifier les entrées qui ont une date unique correspondant à la date
@@ -202,15 +84,7 @@ export const getLogbookEntriesByDate = async (date: Date, hotelId?: string): Pro
       baseQuery,
       ...queryConstraints,
       where('displayRange', '==', false),
-      where('isPermanent', '==', false),
       where('date', '==', formattedDate)
-    );
-
-    // Pour les entrées permanentes
-    const permanentQuery = query(
-      baseQuery,
-      ...queryConstraints,
-      where('isPermanent', '==', true)
     );
 
     // Pour les entrées avec plage de dates, on fait une requête simplifiée
@@ -218,25 +92,17 @@ export const getLogbookEntriesByDate = async (date: Date, hotelId?: string): Pro
     const rangeQuery = query(
       baseQuery,
       ...queryConstraints,
-      where('displayRange', '==', true),
-      where('isPermanent', '==', false)
+      where('displayRange', '==', true)
     );
 
-    // Exécuter les trois requêtes
-    const [singleDateSnapshot, permanentSnapshot, rangeSnapshot] = await Promise.all([
+    // Exécuter les deux requêtes
+    const [singleDateSnapshot, rangeSnapshot] = await Promise.all([
       getDocs(singleDateQuery),
-      getDocs(permanentQuery),
       getDocs(rangeQuery)
     ]);
 
     // Pour les entrées à date unique, on les prend toutes
     const singleDateEntries = singleDateSnapshot.docs.map(doc => ({
-      id: doc.id,
-      ...doc.data()
-    }));
-
-    // Pour les entrées permanentes, on les prend toutes
-    const permanentEntries = permanentSnapshot.docs.map(doc => ({
       id: doc.id,
       ...doc.data()
     }));
@@ -263,35 +129,7 @@ export const getLogbookEntriesByDate = async (date: Date, hotelId?: string): Pro
       });
 
     // Combiner les résultats
-    const entries = [...singleDateEntries, ...permanentEntries, ...rangeEntries] as LogbookEntry[];
-
-    // Enrichir les entrées avec les noms d'hôtels et d'auteurs
-    for (const entry of entries) {
-      try {
-        // Ajouter le nom de l'hôtel
-        if (entry.hotelId && !entry.hotelName) {
-          entry.hotelName = await getHotelName(entry.hotelId);
-        }
-        
-        // Ajouter le nom de l'auteur
-        if (entry.authorId && !entry.authorName) {
-          const userDoc = await getDoc(doc(db, 'users', entry.authorId));
-          if (userDoc.exists()) {
-            entry.authorName = userDoc.data().name;
-          }
-        }
-        
-        // Ajouter le nom de la personne qui a complété la tâche
-        if (entry.completedById && !entry.completedByName) {
-          const userDoc = await getDoc(doc(db, 'users', entry.completedById));
-          if (userDoc.exists()) {
-            entry.completedByName = userDoc.data().name;
-          }
-        }
-      } catch (error) {
-        console.error('Error enriching entry data:', error);
-      }
-    }
+    const entries = [...singleDateEntries, ...rangeEntries] as LogbookEntry[];
 
     // Trier les résultats en JavaScript pour éviter les index composites
     entries.sort((a, b) => {
@@ -343,11 +181,8 @@ export const createLogbookEntry = async (entry: Omit<LogbookEntry, 'id' | 'creat
     if (!entry.serviceId) {
       throw new Error('Service ID is required');
     }
-    if (entry.isTask && !entry.title) {
-      throw new Error('Title is required for tasks');
-    }
-    if (!entry.isTask && !entry.content) {
-      throw new Error('Content is required for entries');
+    if (!entry.content) {
+      throw new Error('Content is required');
     }
 
     // Ajouter les informations d'historique
@@ -356,7 +191,7 @@ export const createLogbookEntry = async (entry: Omit<LogbookEntry, 'id' | 'creat
       userId: currentUser.id,
       userName: currentUser.name,
       action: 'create',
-      details: entry.isTask ? 'Création de la tâche' : 'Création de la consigne'
+      details: 'Création de la consigne'
     }];
 
     // Ajouter les informations de création
@@ -415,21 +250,13 @@ export const updateLogbookEntry = async (id: string, entry: Partial<LogbookEntry
 
     const existingEntry = entrySnap.data() as LogbookEntry;
 
-    // Vérifier les permissions
-    if (existingEntry.authorId !== currentUser.id && 
-        currentUser.role !== 'admin' && 
-        currentUser.role !== 'hotel_admin' && 
-        currentUser.role !== 'group_admin') {
-      throw new Error('You do not have permission to update this entry');
-    }
-
     // Créer une entrée d'historique pour cette modification
     const historyEntry = {
       timestamp: new Date().toISOString(),
       userId: currentUser.id,
       userName: currentUser.name,
       action: 'update',
-      details: entry.isTask ? 'Modification de la tâche' : 'Modification de la consigne'
+      details: 'Modification de la consigne'
     };
 
     // Mettre à jour l'historique
@@ -496,24 +323,6 @@ export const deleteLogbookEntry = async (id: string): Promise<void> => {
     
     if (!currentUser) {
       throw new Error('User not authenticated');
-    }
-
-    // Récupérer l'entrée existante pour vérifier les permissions
-    const entryRef = doc(db, 'logbook_entries', id);
-    const entrySnap = await getDoc(entryRef);
-    
-    if (!entrySnap.exists()) {
-      throw new Error('Entry not found');
-    }
-
-    const existingEntry = entrySnap.data() as LogbookEntry;
-
-    // Vérifier les permissions
-    if (existingEntry.authorId !== currentUser.id && 
-        currentUser.role !== 'admin' && 
-        currentUser.role !== 'hotel_admin' && 
-        currentUser.role !== 'group_admin') {
-      throw new Error('You do not have permission to delete this entry');
     }
 
     // Supprimer l'entrée
@@ -618,9 +427,9 @@ export const markLogbookEntryAsCompleted = async (id: string): Promise<void> => 
       history,
       updatedAt: new Date().toISOString(),
       updatedBy: currentUser.id,
-      completedById: currentUser.id,
-      completedByName: currentUser.name,
-      completedAt: new Date().toISOString()
+      resolvedById: currentUser.id,
+      resolvedByName: currentUser.name,
+      resolvedAt: new Date().toISOString()
     });
   } catch (error) {
     console.error('Error marking logbook entry as completed:', error);
