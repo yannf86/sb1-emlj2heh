@@ -1,6 +1,7 @@
 import { collection, addDoc, getDoc, getDocs, updateDoc, deleteDoc, doc, query, where, orderBy, Timestamp, serverTimestamp } from 'firebase/firestore';
 import { db } from '../firebase';
 import { getCurrentUser } from '../auth';
+import { getHotelName } from './hotels';
 
 // Interface pour les entrées du cahier de consignes
 export interface LogbookEntry {

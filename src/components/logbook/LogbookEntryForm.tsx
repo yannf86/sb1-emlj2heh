@@ -31,7 +31,7 @@ const LogbookEntryForm: React.FC<LogbookEntryFormProps> = ({
   
   // Initialisation du formulaire selon le mode (création ou édition)
   const [formData, setFormData] = useState({
-    serviceId: initialData.serviceId || '',
+    serviceId: initialData.serviceId || 'none',
     content: initialData.content || '',
     title: initialData.title || '',
     description: initialData.description || '',
@@ -41,7 +41,7 @@ const LogbookEntryForm: React.FC<LogbookEntryFormProps> = ({
     displayRange: initialData.displayRange || false, // Pour activer/désactiver la plage de date
     isPermanent: initialData.isPermanent || false, // Pour les tâches permanentes
     time: initialData.time || new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-    hotelId: initialData.hotelId || (currentUser?.hotels?.length === 1 ? currentUser.hotels[0] : ''),
+    hotelId: initialData.hotelId || (currentUser?.hotels?.length === 1 ? currentUser.hotels[0] : 'none'),
     roomNumber: initialData.roomNumber || '',
     isTask: initialData.isTask || false,
     assignedToIds: initialData.assignedToIds || [],
@@ -87,7 +87,7 @@ const LogbookEntryForm: React.FC<LogbookEntryFormProps> = ({
         setHotels(accessibleHotels);
         
         // Set default hotel if user has only one
-        if (accessibleHotels.length === 1 && !formData.hotelId) {
+        if (accessibleHotels.length === 1 && formData.hotelId === 'none') {
           setFormData(prev => ({
             ...prev,
             hotelId: accessibleHotels[0].id
@@ -109,7 +109,7 @@ const LogbookEntryForm: React.FC<LogbookEntryFormProps> = ({
     if (isOpen) {
       loadData();
     }
-  }, [isOpen, currentUser, toast, formData.hotelId]);
+  }, [isOpen, currentUser, toast]);
   
   // Handle form input changes
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
@@ -142,10 +142,10 @@ const LogbookEntryForm: React.FC<LogbookEntryFormProps> = ({
     if (!formData.content && !formData.title) {
       return { valid: false, message: formData.isTask ? 'Le titre est requis' : 'Le contenu est requis' };
     }
-    if (!formData.hotelId) {
+    if (!formData.hotelId || formData.hotelId === 'none') {
       return { valid: false, message: 'Veuillez sélectionner un hôtel' };
     }
-    if (!formData.serviceId) {
+    if (!formData.serviceId || formData.serviceId === 'none') {
       return { valid: false, message: 'Veuillez sélectionner un service' };
     }
     
@@ -222,6 +222,7 @@ const LogbookEntryForm: React.FC<LogbookEntryFormProps> = ({
                   <SelectValue placeholder="Sélectionner un service" />
                 </SelectTrigger>
                 <SelectContent>
+                  <SelectItem value="none">Sélectionner un service</SelectItem>
                   {services.map(service => (
                     <SelectItem key={service.id} value={service.id}>
                       <span className="mr-2">{service.icon}</span>
@@ -243,6 +244,7 @@ const LogbookEntryForm: React.FC<LogbookEntryFormProps> = ({
                   <SelectValue placeholder="Sélectionner un hôtel" />
                 </SelectTrigger>
                 <SelectContent>
+                  <SelectItem value="none">Sélectionner un hôtel</SelectItem>
                   {hotels.map(hotel => (
                     <SelectItem key={hotel.id} value={hotel.id}>{hotel.name}</SelectItem>
                   ))}
