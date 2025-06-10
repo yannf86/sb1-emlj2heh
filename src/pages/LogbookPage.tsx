@@ -111,7 +111,7 @@ const LogbookPage = () => {
       setError(null);
       
       // Get entries for the selected date
-      const entriesData = await getLogbookEntriesByDate(selectedDate, selectedHotel === 'all' ? null : selectedHotel);
+      const entriesData = await getLogbookEntriesByDate(selectedDate, selectedHotel);
       
       // Separate regular entries from checklist items
       const regularEntries = entriesData.filter(entry => !entry.isTask);
@@ -361,14 +361,14 @@ const LogbookPage = () => {
         <div className="flex flex-col sm:flex-row space-y-2 sm:space-y-0 sm:space-x-2">
           {/* Hotel selector */}
           <Select 
-            value={selectedHotel || 'all'} 
-            onValueChange={(value) => setSelectedHotel(value === 'all' ? null : value)}
+            value={selectedHotel || ''} 
+            onValueChange={setSelectedHotel}
           >
             <SelectTrigger className="w-full sm:w-[200px]">
               <SelectValue placeholder="Tous les hôtels" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">Tous les hôtels</SelectItem>
+              <SelectItem value="">Tous les hôtels</SelectItem>
               {availableHotels.map(hotel => (
                 <SelectItem key={hotel.id} value={hotel.id}>{hotel.name}</SelectItem>
               ))}
