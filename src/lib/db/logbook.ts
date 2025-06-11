@@ -1,6 +1,7 @@
-import { collection, addDoc, getDoc, getDocs, updateDoc, deleteDoc, doc, query, where, orderBy, Timestamp, serverTimestamp } from 'firebase/firestore';
+import { collection, addDoc, getDoc, getDocs, updateDoc, deleteDoc, doc, query, where, Timestamp, orderBy } from 'firebase/firestore';
 import { db } from '../firebase';
 import { getCurrentUser } from '../auth';
+import { formatToISOLocalDate, parseISOLocalDate, isDateInRange, normalizeToMidnight } from '../date-utils';
 
 // Interface pour les entrées du cahier de consignes
 export interface LogbookEntry {
@@ -22,6 +23,7 @@ export interface LogbookEntry {
   hotelName?: string;
   roomNumber?: string;
   isRead?: boolean;
+  completedDates?: string[]; // Tableau des dates complétées pour les tâches avec plage de dates
   comments?: {
     id: string;
     authorId: string;
@@ -64,22 +66,31 @@ export interface LogbookReminder {
   updatedAt?: string;
 }
 
-// Obtenir les entrées du cahier de consignes pour une date spécifique
+/**
+ * Récupère les entrées du cahier de consignes pour une date spécifique
+ * @param date Date pour laquelle récupérer les entrées du cahier de consignes
+ * @param hotelId ID de l'hôtel (optionnel)
+ * @returns Promise avec un tableau d'entrées de cahier de consignes
+ */
 export const getLogbookEntriesByDate = async (date: Date, hotelId?: string): Promise<LogbookEntry[]> => {
   try {
-    // Formats pour les dates - utiliser minuit pour éviter les problèmes de fuseau horaire
-    const formattedDate = date.toISOString().split('T')[0]; // YYYY-MM-DD
+    // Normaliser la date à minuit pour une comparaison stable
+    const normalizedDate = normalizeToMidnight(new Date(date.getTime()));
+    
+    // Obtenir la date au format YYYY-MM-DD uniquement
+    const formattedDate = formatToISOLocalDate(normalizedDate);
+    
+    console.log(`Fetching logbook entries for date: ${formattedDate}, hotelId: ${hotelId || 'all'}`);
     
     let baseQuery = collection(db, 'logbook_entries');
     let queryConstraints = [];
 
-    // Filtrer par hôtel si spécifié
+    // Filtrer par hôtel
     if (hotelId) {
       queryConstraints.push(where('hotelId', '==', hotelId));
     }
 
     // Vérifier les entrées qui ont une date unique correspondant à la date
-    // Simplifié: enlever orderBy pour éviter les index composites complexes
     const singleDateQuery = query(
       baseQuery,
       ...queryConstraints,
@@ -87,8 +98,7 @@ export const getLogbookEntriesByDate = async (date: Date, hotelId?: string): Pro
       where('date', '==', formattedDate)
     );
 
-    // Pour les entrées avec plage de dates, on fait une requête simplifiée
-    // puis on filtre en mémoire pour éviter les index composites
+    // Pour les entrées avec plage de dates
     const rangeQuery = query(
       baseQuery,
       ...queryConstraints,
@@ -101,11 +111,13 @@ export const getLogbookEntriesByDate = async (date: Date, hotelId?: string): Pro
       getDocs(rangeQuery)
     ]);
 
-    // Pour les entrées à date unique, on les prend toutes
+    // Pour les entrées à date unique, on les prend tous
     const singleDateEntries = singleDateSnapshot.docs.map(doc => ({
       id: doc.id,
       ...doc.data()
     }));
+    
+    console.log(`Found ${singleDateEntries.length} single date entries for ${formattedDate}`);
 
     // Pour les entrées avec plage, on filtre en mémoire
     const rangeEntries = rangeSnapshot.docs
@@ -114,49 +126,40 @@ export const getLogbookEntriesByDate = async (date: Date, hotelId?: string): Pro
         ...doc.data()
       }))
       .filter(entry => {
-        // Convertir les dates en objets Date, en forçant l'heure à midi pour éviter les problèmes de fuseau horaire
-        const startDate = new Date(entry.date);
-        startDate.setHours(0, 0, 0, 0);
+        // Normaliser les dates sans dépendance au fuseau horaire
+        const startDateStr = entry.date;
+        const endDateStr = entry.endDate || startDateStr;
         
-        const endDate = new Date(entry.endDate);
-        endDate.setHours(23, 59, 59, 999);
+        // Convertir en objets Date sans problèmes de fuseau horaire
+        const startDate = parseISOLocalDate(startDateStr);
+        const endDate = parseISOLocalDate(endDateStr);
+        const selectedDateObj = normalizedDate;
         
-        const selectedDateCopy = new Date(date);
-        selectedDateCopy.setHours(12, 0, 0, 0);
-        
-        // Vérifier si la date sélectionnée est dans la plage (inclut les bornes)
-        return selectedDateCopy >= startDate && selectedDateCopy <= endDate;
+        // Vérifier si la date sélectionnée est dans la plage
+        return isDateInRange(selectedDateObj, startDate, endDate);
       });
+    
+    console.log(`Found ${rangeEntries.length} range entries for ${formattedDate}`);
 
     // Combiner les résultats
     const entries = [...singleDateEntries, ...rangeEntries] as LogbookEntry[];
 
-    // Trier les résultats en JavaScript pour éviter les index composites
+    // Trier les résultats en JavaScript
     entries.sort((a, b) => {
-      // D'abord par importance (plus important = plus grand nombre)
+      // D'abord par importance (décroissante)
       if (a.importance !== b.importance) {
         return b.importance - a.importance;
       }
       
-      // Ensuite par date (plus récent en premier pour les plages)
-      if (a.displayRange && b.displayRange) {
-        const dateA = new Date(a.date);
-        const dateB = new Date(b.date);
-        if (dateA.getTime() !== dateB.getTime()) {
-          return dateB.getTime() - dateA.getTime();
-        }
-      }
+      // Ensuite par date et heure (plus récent en premier)
+      // Utiliser les chaînes directement pour éviter les problèmes de fuseau horaire
+      const dateTimeA = `${a.date}T${a.time || '00:00'}`;
+      const dateTimeB = `${b.date}T${b.time || '00:00'}`;
       
-      // Enfin par heure (plus récent en premier)
-      const timeA = a.time.split(':').map(Number);
-      const timeB = b.time.split(':').map(Number);
-      
-      if (timeA[0] !== timeB[0]) {
-        return timeB[0] - timeA[0];
-      }
-      
-      return timeB[1] - timeA[1];
+      return dateTimeB.localeCompare(dateTimeA);
     });
+    
+    console.log(`Total entries for ${formattedDate}: ${entries.length}`);
 
     return entries;
   } catch (error) {
@@ -165,7 +168,11 @@ export const getLogbookEntriesByDate = async (date: Date, hotelId?: string): Pro
   }
 };
 
-// Créer une nouvelle entrée dans le cahier de consignes
+/**
+ * Crée une nouvelle entrée dans le cahier de consignes
+ * @param entry Élément de cahier de consignes à créer
+ * @returns Promise avec l'ID de la nouvelle entrée créée
+ */
 export const createLogbookEntry = async (entry: Omit<LogbookEntry, 'id' | 'createdAt' | 'updatedAt'>): Promise<string> => {
   try {
     const currentUser = getCurrentUser();
@@ -184,6 +191,11 @@ export const createLogbookEntry = async (entry: Omit<LogbookEntry, 'id' | 'creat
     if (!entry.content) {
       throw new Error('Content is required');
     }
+    
+    // S'assurer que la date est au format YYYY-MM-DD
+    // On ne modifie pas la date d'entrée, on extrait simplement la partie date
+    const entryDate = entry.date.split('T')[0];
+    console.log(`Creating entry for date: ${entryDate}`);
 
     // Ajouter les informations d'historique
     const history = [{
@@ -197,6 +209,7 @@ export const createLogbookEntry = async (entry: Omit<LogbookEntry, 'id' | 'creat
     // Ajouter les informations de création
     const entryToCreate = {
       ...entry,
+      date: entryDate, // Assurons-nous que la date est bien au format YYYY-MM-DD
       authorId: currentUser.id,
       authorName: currentUser.name,
       isRead: true,
@@ -216,9 +229,9 @@ export const createLogbookEntry = async (entry: Omit<LogbookEntry, 'id' | 'creat
       await createLogbookReminder({
         entryId: docRef.id,
         title: entry.reminderTitle,
-        description: entry.reminderDescription,
+        description: entry.reminderDescription || null,
         remindAt: entry.date,
-        endDate: entry.displayRange ? entry.endDate : undefined,
+        endDate: entry.displayRange ? entry.endDate : null,
         displayRange: entry.displayRange,
         userIds: entry.reminderUserIds || [currentUser.id]
       });
@@ -231,7 +244,12 @@ export const createLogbookEntry = async (entry: Omit<LogbookEntry, 'id' | 'creat
   }
 };
 
-// Mettre à jour une entrée existante
+/**
+ * Mettre à jour une entrée existante
+ * @param id ID de l'entrée à mettre à jour
+ * @param entry Données de l'entrée à mettre à jour
+ * @returns Promise<void>
+ */
 export const updateLogbookEntry = async (id: string, entry: Partial<LogbookEntry>): Promise<void> => {
   try {
     const currentUser = getCurrentUser();
@@ -263,9 +281,18 @@ export const updateLogbookEntry = async (id: string, entry: Partial<LogbookEntry
     const history = existingEntry.history || [];
     history.push(historyEntry);
 
+    // Si des dates sont fournies, s'assurer qu'elles sont au format YYYY-MM-DD
+    const updatedEntry = { ...entry };
+    if (entry.date) {
+      updatedEntry.date = entry.date.split('T')[0];
+    }
+    if (entry.endDate) {
+      updatedEntry.endDate = entry.endDate.split('T')[0];
+    }
+
     // Mettre à jour l'entrée dans Firestore
     await updateDoc(entryRef, {
-      ...entry,
+      ...updatedEntry,
       history,
       updatedAt: new Date().toISOString(),
       updatedBy: currentUser.id
@@ -302,9 +329,9 @@ export const updateLogbookEntry = async (id: string, entry: Partial<LogbookEntry
         await createLogbookReminder({
           entryId: id,
           title: entry.reminderTitle,
-          description: entry.reminderDescription,
+          description: entry.reminderDescription || null,
           remindAt: entry.date || existingEntry.date,
-          endDate: entry.displayRange ? entry.endDate : undefined,
+          endDate: entry.displayRange ? entry.endDate : null,
           displayRange: entry.displayRange,
           userIds: entry.reminderUserIds || [currentUser.id]
         });
@@ -316,7 +343,11 @@ export const updateLogbookEntry = async (id: string, entry: Partial<LogbookEntry
   }
 };
 
-// Supprimer une entrée
+/**
+ * Supprimer une entrée
+ * @param id ID de l'entrée à supprimer
+ * @returns Promise<void>
+ */
 export const deleteLogbookEntry = async (id: string): Promise<void> => {
   try {
     const currentUser = getCurrentUser();
@@ -325,26 +356,50 @@ export const deleteLogbookEntry = async (id: string): Promise<void> => {
       throw new Error('User not authenticated');
     }
 
-    // Supprimer l'entrée
-    await deleteDoc(doc(db, 'logbook_entries', id));
-
-    // Supprimer les rappels associés
-    const remindersQuery = query(
-      collection(db, 'logbook_reminders'),
-      where('entryId', '==', id)
-    );
-    const reminderSnap = await getDocs(remindersQuery);
+    console.log(`Attempting to delete logbook entry with id: ${id}`);
     
-    for (const reminderDoc of reminderSnap.docs) {
-      await deleteDoc(doc(db, 'logbook_reminders', reminderDoc.id));
+    // Vérifier si l'entrée existe
+    const entryRef = doc(db, 'logbook_entries', id);
+    const entrySnap = await getDoc(entryRef);
+    
+    if (!entrySnap.exists()) {
+      console.warn(`Entry with ID ${id} not found, but deletion operation is considered successful since the entry is already absent`);
+      // Don't throw an error - if the entry doesn't exist, deletion goal is already achieved
+      return;
     }
+    
+    // Supprimer d'abord les rappels associés
+    try {
+      const remindersQuery = query(
+        collection(db, 'logbook_reminders'),
+        where('entryId', '==', id)
+      );
+      const reminderSnap = await getDocs(remindersQuery);
+      
+      // Delete each reminder document
+      const deletePromises = reminderSnap.docs.map(doc => deleteDoc(doc.ref));
+      await Promise.all(deletePromises);
+      
+      console.log(`Deleted ${deletePromises.length} associated reminders`);
+    } catch (reminderError) {
+      console.error('Error deleting associated reminders:', reminderError);
+      // Continue with the entry deletion even if reminder deletion fails
+    }
+
+    // Then delete the entry itself
+    await deleteDoc(entryRef);
+    console.log(`Successfully deleted logbook entry with id: ${id}`);
   } catch (error) {
     console.error('Error deleting logbook entry:', error);
     throw error;
   }
 };
 
-// Marquer une entrée comme lue
+/**
+ * Marquer une entrée comme lue
+ * @param id ID de l'entrée à marquer comme lue
+ * @returns Promise<void>
+ */
 export const markLogbookEntryAsRead = async (id: string): Promise<void> => {
   try {
     const currentUser = getCurrentUser();
@@ -389,7 +444,11 @@ export const markLogbookEntryAsRead = async (id: string): Promise<void> => {
   }
 };
 
-// Marquer une entrée comme terminée
+/**
+ * Marquer une entrée comme terminée
+ * @param id ID de l'entrée à marquer comme terminée
+ * @returns Promise<void>
+ */
 export const markLogbookEntryAsCompleted = async (id: string): Promise<void> => {
   try {
     const currentUser = getCurrentUser();
@@ -407,14 +466,22 @@ export const markLogbookEntryAsCompleted = async (id: string): Promise<void> => 
     }
 
     const existingEntry = entrySnap.data() as LogbookEntry;
-
+    
+    // Si c'est une tâche avec une plage de dates, nous stockons la date actuelle comme "completed"
+    // dans un tableau des dates complétées, plutôt que de marquer toute la tâche comme complétée
+    const today = formatToISOLocalDate(new Date());
+    const historyAction = existingEntry.displayRange ? 'complete_for_date' : 'complete';
+    const historyDetails = existingEntry.displayRange 
+      ? `Tâche marquée comme terminée pour le ${today}`
+      : 'Tâche marquée comme terminée';
+      
     // Créer une entrée d'historique pour cette action
     const historyEntry = {
       timestamp: new Date().toISOString(),
       userId: currentUser.id,
       userName: currentUser.name,
-      action: 'complete',
-      details: 'Tâche marquée comme terminée'
+      action: historyAction,
+      details: historyDetails
     };
 
     // Mettre à jour l'historique
@@ -422,22 +489,101 @@ export const markLogbookEntryAsCompleted = async (id: string): Promise<void> => 
     history.push(historyEntry);
 
     // Mettre à jour l'entrée dans Firestore
-    await updateDoc(entryRef, {
-      isCompleted: true,
+    const updateData: any = {
       history,
       updatedAt: new Date().toISOString(),
-      updatedBy: currentUser.id,
-      resolvedById: currentUser.id,
-      resolvedByName: currentUser.name,
-      resolvedAt: new Date().toISOString()
-    });
+      updatedBy: currentUser.id
+    };
+    
+    // Si c'est une tâche avec plage de dates, stocker les dates de complétion
+    if (existingEntry.displayRange && existingEntry.isTask) {
+      // Initialiser ou mettre à jour le tableau des dates complétées
+      const completedDates = existingEntry.completedDates || [];
+      if (!completedDates.includes(today)) {
+        completedDates.push(today);
+      }
+      updateData.completedDates = completedDates;
+    } else {
+      // Pour les tâches normales, marquer simplement comme terminé
+      updateData.isCompleted = true;
+    }
+    
+    await updateDoc(entryRef, updateData);
   } catch (error) {
     console.error('Error marking logbook entry as completed:', error);
     throw error;
   }
 };
 
-// Ajouter un commentaire à une entrée
+/**
+ * Annuler le statut terminé d'une entrée pour une date spécifique
+ * @param id ID de l'entrée à modifier
+ * @param dateStr Date spécifique à annuler au format YYYY-MM-DD (par défaut: aujourd'hui)
+ * @returns Promise<void>
+ */
+export const unmarkLogbookEntryAsCompleted = async (id: string, dateStr?: string): Promise<void> => {
+  try {
+    const currentUser = getCurrentUser();
+    
+    if (!currentUser) {
+      throw new Error('User not authenticated');
+    }
+
+    // Récupérer l'entrée existante
+    const entryRef = doc(db, 'logbook_entries', id);
+    const entrySnap = await getDoc(entryRef);
+    
+    if (!entrySnap.exists()) {
+      throw new Error('Entry not found');
+    }
+
+    const existingEntry = entrySnap.data() as LogbookEntry;
+    const targetDate = dateStr || formatToISOLocalDate(new Date());
+    
+    // Créer une entrée d'historique pour cette action
+    const historyEntry = {
+      timestamp: new Date().toISOString(),
+      userId: currentUser.id,
+      userName: currentUser.name,
+      action: existingEntry.displayRange ? 'uncomplete_for_date' : 'uncomplete',
+      details: existingEntry.displayRange 
+        ? `Statut "terminé" annulé pour le ${targetDate}` 
+        : 'Statut "terminé" annulé'
+    };
+
+    // Mettre à jour l'historique
+    const history = existingEntry.history || [];
+    history.push(historyEntry);
+
+    // Préparer les données à mettre à jour
+    const updateData: any = {
+      history,
+      updatedAt: new Date().toISOString(),
+      updatedBy: currentUser.id
+    };
+    
+    // Mettre à jour selon le type d'entrée
+    if (existingEntry.displayRange && existingEntry.completedDates) {
+      // Pour les tâches avec plage de dates, retirer la date du tableau des dates complétées
+      updateData.completedDates = existingEntry.completedDates.filter(date => date !== targetDate);
+    } else {
+      // Pour les tâches normales, marquer comme non terminée
+      updateData.isCompleted = false;
+    }
+    
+    await updateDoc(entryRef, updateData);
+  } catch (error) {
+    console.error('Error unmarking logbook entry as completed:', error);
+    throw error;
+  }
+};
+
+/**
+ * Ajouter un commentaire à une entrée
+ * @param id ID de l'entrée à commenter
+ * @param comment Contenu du commentaire
+ * @returns Promise<void>
+ */
 export const addCommentToLogbookEntry = async (id: string, comment: string): Promise<void> => {
   try {
     const currentUser = getCurrentUser();
@@ -495,7 +641,11 @@ export const addCommentToLogbookEntry = async (id: string, comment: string): Pro
   }
 };
 
-// Créer un rappel pour une entrée
+/**
+ * Créer un rappel pour une entrée
+ * @param reminder Rappel à créer
+ * @returns Promise<string>
+ */
 export const createLogbookReminder = async (reminder: Omit<LogbookReminder, 'id' | 'createdAt' | 'updatedAt'>): Promise<string> => {
   try {
     const currentUser = getCurrentUser();
@@ -543,7 +693,12 @@ export const createLogbookReminder = async (reminder: Omit<LogbookReminder, 'id'
   }
 };
 
-// Mettre à jour un rappel
+/**
+ * Mettre à jour un rappel
+ * @param id ID du rappel à mettre à jour
+ * @param reminder Données du rappel à mettre à jour
+ * @returns Promise<void>
+ */
 export const updateLogbookReminder = async (id: string, reminder: Partial<LogbookReminder>): Promise<void> => {
   try {
     const currentUser = getCurrentUser();
@@ -563,7 +718,11 @@ export const updateLogbookReminder = async (id: string, reminder: Partial<Logboo
   }
 };
 
-// Marquer un rappel comme terminé
+/**
+ * Marquer un rappel comme terminé
+ * @param id ID du rappel à marquer comme terminé
+ * @returns Promise<void>
+ */
 export const markLogbookReminderAsCompleted = async (id: string): Promise<void> => {
   try {
     const currentUser = getCurrentUser();
@@ -586,17 +745,21 @@ export const markLogbookReminderAsCompleted = async (id: string): Promise<void> 
   }
 };
 
-// Obtenir tous les rappels actifs
+/**
+ * Obtenir tous les rappels actifs
+ * @param date Date pour laquelle obtenir les rappels (facultatif)
+ * @returns Promise avec un tableau de rappels
+ */
 export const getActiveLogbookReminders = async (date?: Date): Promise<LogbookReminder[]> => {
   try {
     const selectedDate = date || new Date();
+    const normalizedDate = normalizeToMidnight(new Date(selectedDate.getTime()));
     
-    // IMPORTANT: Convertir en chaîne de caractères sans heure
-    // puis reconvertir en Date pour normaliser
-    const formattedDate = selectedDate.toISOString().split('T')[0]; // YYYY-MM-DD
-    const normalizedDate = new Date(formattedDate + 'T12:00:00.000Z'); // Midi en UTC
+    // S'assurer que nous avons un format de date cohérent sans heure
+    const formattedDate = formatToISOLocalDate(normalizedDate);
+    console.log(`Getting active reminders for date: ${formattedDate}`);
     
-    // Requête simplifiée pour éviter les index complexes
+    // Requête pour tous les rappels non complétés
     const remindersQuery = query(
       collection(db, 'logbook_reminders'),
       where('isCompleted', '==', false)
@@ -604,27 +767,27 @@ export const getActiveLogbookReminders = async (date?: Date): Promise<LogbookRem
     
     const snapshot = await getDocs(remindersQuery);
     
-    // Après avoir récupéré tous les rappels non complétés, 
-    // nous filtrons manuellement pour trouver ceux qui correspondent à la date
+    // Filtrer pour obtenir les rappels correspondant à la date sélectionnée
     return snapshot.docs
       .map(doc => ({
         id: doc.id,
         ...doc.data()
       }))
       .filter(reminder => {
+        // Extraire juste la partie date sans l'heure
+        const remindAtDateStr = reminder.remindAt.split('T')[0];
+        
         // Si c'est une plage de dates
         if (reminder.displayRange && reminder.endDate) {
-          // Normalisons les dates de début et de fin pour éviter tout problème de fuseau horaire
-          const startDate = new Date(reminder.remindAt.split('T')[0] + 'T00:00:00.000Z');
-          const endDate = new Date(reminder.endDate.split('T')[0] + 'T23:59:59.999Z');
+          const startDateStr = reminder.remindAt.split('T')[0];
+          const endDateStr = reminder.endDate.split('T')[0];
           
-          // Vérifier si la date sélectionnée (normalisée) est dans la plage
-          // Comparer les dates directement (et non leur représentation en chaîne)
-          return normalizedDate >= startDate && normalizedDate <= endDate;
+          // Vérifier si la date sélectionnée est dans la plage (chaînes de caractères)
+          return formattedDate >= startDateStr && formattedDate <= endDateStr;
         } 
         
-        // Pour une date unique, comparer simplement les dates sans l'heure
-        return reminder.remindAt.split('T')[0] === formattedDate;
+        // Pour une date unique, comparer les chaînes de date YYYY-MM-DD
+        return remindAtDateStr === formattedDate;
       }) as LogbookReminder[];
   } catch (error) {
     console.error('Error getting active logbook reminders:', error);

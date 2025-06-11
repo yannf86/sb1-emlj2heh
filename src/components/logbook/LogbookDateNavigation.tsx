@@ -1,8 +1,7 @@
 import React from 'react';
 import { Button } from '@/components/ui/button';
 import { ChevronLeft, ChevronRight, CalendarDays } from 'lucide-react';
-import { format, addDays, subDays, isSameDay } from 'date-fns';
-import { fr } from 'date-fns/locale';
+import { formatDateForDisplay, getPreviousDay, getNextDay, isToday, normalizeToMidnight } from '@/lib/date-utils';
 
 interface LogbookDateNavigationProps {
   selectedDate: Date;
@@ -15,30 +14,24 @@ const LogbookDateNavigation: React.FC<LogbookDateNavigationProps> = ({
 }) => {
   // Go to previous day
   const goToPreviousDay = () => {
-    onDateChange(subDays(selectedDate, 1));
+    onDateChange(getPreviousDay(selectedDate));
   };
 
   // Go to next day
   const goToNextDay = () => {
-    onDateChange(addDays(selectedDate, 1));
+    onDateChange(getNextDay(selectedDate));
   };
 
   // Go to today
   const goToToday = () => {
-    onDateChange(new Date());
+    onDateChange(normalizeToMidnight(new Date()));
   };
 
-  // Format date for display
-  const formattedDate = format(selectedDate, 'EEEE d MMMM yyyy', { locale: fr });
-
-  // Check if date is today
-  const isToday = (date: Date) => {
-    return isSameDay(date, new Date());
-  };
-
-  // Calculate days relative to today
+  // Get relative day text (AUJOURD'HUI, DEMAIN, HIER, etc.)
   const getRelativeDayText = () => {
-    const today = new Date();
+    const today = normalizeToMidnight(new Date());
+    
+    // Calculer la différence en jours
     const diffTime = selectedDate.getTime() - today.getTime();
     const diffDays = Math.round(diffTime / (1000 * 60 * 60 * 24));
     
@@ -66,7 +59,7 @@ const LogbookDateNavigation: React.FC<LogbookDateNavigationProps> = ({
           </Button>
           
           <h2 className="text-xl font-semibold capitalize">
-            {formattedDate}
+            {formatDateForDisplay(selectedDate)}
           </h2>
           
           <Button

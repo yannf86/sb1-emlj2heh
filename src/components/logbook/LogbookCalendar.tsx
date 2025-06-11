@@ -2,6 +2,14 @@ import React from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { CalendarDays, ChevronLeft, ChevronRight } from 'lucide-react';
+import { 
+  formatDateForDisplay, 
+  getPreviousDay,
+  getNextDay, 
+  isToday, 
+  getWeekNumber,
+  normalizeToMidnight
+} from '@/lib/date-utils';
 
 interface LogbookCalendarProps {
   selectedDate: Date;
@@ -20,15 +28,19 @@ const LogbookCalendar: React.FC<LogbookCalendarProps> = ({
   
   // Calendar generation for the side panel
   const generateCalendar = (date: Date) => {
-    const year = date.getFullYear();
-    const month = date.getMonth();
+    // Créer une nouvelle date pour éviter de modifier l'originale
+    const calendarDate = new Date(date.getTime());
+    
+    const year = calendarDate.getFullYear();
+    const month = calendarDate.getMonth();
     
     // Get first day of month and number of days
-    const firstDay = new Date(year, month, 1).getDay();
+    const firstDay = new Date(year, month, 1);
+    const firstDayOfWeek = firstDay.getDay();
     const daysInMonth = new Date(year, month + 1, 0).getDate();
     
     // Adjust for Sunday (0) as first day of week in JS but wanting Monday (1) as first
-    const firstDayAdjusted = (firstDay === 0) ? 6 : firstDay - 1;
+    const firstDayAdjusted = (firstDayOfWeek === 0) ? 6 : firstDayOfWeek - 1;
     
     // Generate calendar days with padding for start of month
     const days = [];
@@ -65,34 +77,47 @@ const LogbookCalendar: React.FC<LogbookCalendarProps> = ({
   
   // Navigate to previous/next month
   const goToPreviousMonth = () => {
-    const newDate = new Date(selectedDate);
+    const newDate = new Date(selectedDate.getTime());
     newDate.setMonth(newDate.getMonth() - 1);
-    onDateChange(newDate);
+    // Keep day the same, but ensure it's valid for the new month
+    const day = Math.min(selectedDate.getDate(), new Date(newDate.getFullYear(), newDate.getMonth() + 1, 0).getDate());
+    newDate.setDate(day);
+    onDateChange(normalizeToMidnight(newDate));
   };
   
   const goToNextMonth = () => {
-    const newDate = new Date(selectedDate);
+    const newDate = new Date(selectedDate.getTime());
     newDate.setMonth(newDate.getMonth() + 1);
-    onDateChange(newDate);
+    // Keep day the same, but ensure it's valid for the new month
+    const day = Math.min(selectedDate.getDate(), new Date(newDate.getFullYear(), newDate.getMonth() + 1, 0).getDate());
+    newDate.setDate(day);
+    onDateChange(normalizeToMidnight(newDate));
   };
   
   // Change to specific date
   const goToDate = (year: number, month: number, day: number) => {
     const newDate = new Date(year, month, day);
-    onDateChange(newDate);
+    onDateChange(normalizeToMidnight(newDate));
   };
   
   // Go to today
   const goToToday = () => {
-    onDateChange(new Date());
+    onDateChange(normalizeToMidnight(new Date()));
   };
   
-  // Check if date is today
-  const isToday = (date: Date) => {
-    const today = new Date();
-    return date.getDate() === today.getDate() &&
-      date.getMonth() === today.getMonth() &&
-      date.getFullYear() === today.getFullYear();
+  // Check if a day is today
+  const checkIsToday = (day: number | null): boolean => {
+    if (!day) return false;
+    
+    const dateToCheck = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), day);
+    return isToday(dateToCheck);
+  };
+  
+  // Check if a day is the currently selected day
+  const isSelectedDay = (day: number | null): boolean => {
+    if (!day) return false;
+    
+    return selectedDate.getDate() === day;
   };
 
   return (
@@ -139,23 +164,15 @@ const LogbookCalendar: React.FC<LogbookCalendarProps> = ({
               return <div key={`empty-${index}`} className="h-9"></div>;
             }
             
-            const date = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), day);
-            const isSelectedDay = 
-              selectedDate.getDate() === day &&
-              selectedDate.getMonth() === date.getMonth() &&
-              selectedDate.getFullYear() === date.getFullYear();
-            
-            const isTodayDate = 
-              new Date().getDate() === day &&
-              new Date().getMonth() === date.getMonth() &&
-              new Date().getFullYear() === date.getFullYear();
+            const isTodayDate = checkIsToday(day);
+            const isSelected = isSelectedDay(day);
             
             return (
               <Button
                 key={`day-${index}`}
-                variant={isSelectedDay ? "default" : isTodayDate ? "outline" : "ghost"}
+                variant={isSelected ? "default" : isTodayDate ? "outline" : "ghost"}
                 size="sm"
-                className={`h-9 w-full ${isSelectedDay ? 'bg-brand-500 hover:bg-brand-600' : ''}`}
+                className={`h-9 w-full ${isSelected ? 'bg-brand-500 hover:bg-brand-600' : ''}`}
                 onClick={() => goToDate(
                   selectedDate.getFullYear(),
                   selectedDate.getMonth(),
@@ -181,8 +198,7 @@ const LogbookCalendar: React.FC<LogbookCalendarProps> = ({
             variant="outline" 
             size="sm"
             onClick={() => {
-              const tomorrow = new Date();
-              tomorrow.setDate(tomorrow.getDate() + 1);
+              const tomorrow = getNextDay(new Date());
               onDateChange(tomorrow);
             }}
             className="w-full"

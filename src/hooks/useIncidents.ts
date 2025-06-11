@@ -3,12 +3,12 @@ import { getIncidents, getIncident, createIncident, updateIncident, deleteIncide
 import { queryClient, invalidateIncidents } from '../lib/query-client';
 import { useToast } from './use-toast';
 
-export function useIncidents(hotelId?: string, groupId?: string) {
+export function useIncidents(hotelId?: string, statusId?: string) {
   const { toast } = useToast();
 
   return useQuery({
-    queryKey: ['incidents', { hotelId, groupId }],
-    queryFn: () => getIncidents(hotelId, groupId),
+    queryKey: ['incidents', { hotelId, statusId }],
+    queryFn: () => getIncidents(hotelId, undefined, statusId),
     onError: (error) => {
       console.error('Error loading incidents:', error);
       toast({

@@ -18,7 +18,7 @@ import { getHotelName } from '@/lib/db/hotels';
 import { getLocationLabel } from '@/lib/db/parameters-locations';
 import { getIncidentCategoryLabel } from '@/lib/db/parameters-incident-categories';
 import { getImpactLabel } from '@/lib/db/parameters-impact';
-import { getStatusLabel } from '@/lib/db/parameters-status';
+import { getStatusLabel, findStatusIdByCode } from '@/lib/db/parameters-status';
 import { getUserName } from '@/lib/db/users';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Alert, AlertDescription } from '@/components/ui/alert';
@@ -38,19 +38,22 @@ import { useHotels } from '@/hooks/useHotels';
 const IncidentsPage = () => {
   const [selectedTab, setSelectedTab] = useState('list');
   const [filterHotel, setFilterHotel] = useState('all');
-  const [filterStatus, setFilterStatus] = useState('all');
+  const [filterStatus, setFilterStatus] = useState('');
   const [filterCategory, setFilterCategory] = useState('all');
   const [filterImpact, setFilterImpact] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [filtersExpanded, setFiltersExpanded] = useState(false);
   const [selectedIncident, setSelectedIncident] = useState<any>(null);
+  const [inProgressStatusId, setInProgressStatusId] = useState<string | null>(null);
+  const [initialLoadComplete, setInitialLoadComplete] = useState(false);
   
   // React Query hooks
   const { 
     data: incidents = [], 
     isLoading: incidentsLoading, 
-    error: incidentsError 
-  } = useIncidents();
+    error: incidentsError,
+    refetch: refetchIncidents
+  } = useIncidents(filterHotel !== 'all' ? filterHotel : undefined, filterStatus !== 'all' && filterStatus !== '' ? filterStatus : undefined);
   
   const { 
     data: hotels = [], 
@@ -73,6 +76,38 @@ const IncidentsPage = () => {
   // Edit incident dialog
   const [editIncidentDialogOpen, setEditIncidentDialogOpen] = useState(false);
 
+  // Fetch the "En cours" status ID on component mount
+  useEffect(() => {
+    const getInProgressStatusId = async () => {
+      try {
+        // Try to find the status ID for "En cours" (in_progress)
+        const statusId = await findStatusIdByCode('in_progress');
+        if (statusId) {
+          setInProgressStatusId(statusId);
+          // Only set the filter status if it hasn't been set yet
+          if (!initialLoadComplete) {
+            setFilterStatus(statusId);
+          }
+        } else {
+          console.warn('Could not find status ID for "En cours"');
+          // If we can't find the specific status, default to 'all'
+          if (!initialLoadComplete) {
+            setFilterStatus('all');
+          }
+        }
+        setInitialLoadComplete(true);
+      } catch (error) {
+        console.error('Error finding in_progress status ID:', error);
+        if (!initialLoadComplete) {
+          setFilterStatus('all');
+          setInitialLoadComplete(true);
+        }
+      }
+    };
+
+    getInProgressStatusId();
+  }, [initialLoadComplete]);
+
   // Set the default hotel filter if user has only one hotel
   useEffect(() => {
     if (!hotelsLoading && hotels.length === 1 && filterHotel === 'all') {
@@ -86,7 +121,7 @@ const IncidentsPage = () => {
     if (filterHotel !== 'all' && incident.hotelId !== filterHotel) return false;
     
     // Filter by status
-    if (filterStatus !== 'all' && incident.statusId !== filterStatus) return false;
+    if (filterStatus !== 'all' && filterStatus !== '' && incident.statusId !== filterStatus) return false;
     
     // Filter by category
     if (filterCategory !== 'all' && incident.categoryId !== filterCategory) return false;
@@ -120,6 +155,8 @@ const IncidentsPage = () => {
     createIncidentMutation.mutate(formData, {
       onSuccess: () => {
         setNewIncidentDialogOpen(false);
+        // Refetch incidents to update the list
+        refetchIncidents();
       }
     });
   };
@@ -127,7 +164,8 @@ const IncidentsPage = () => {
   // Reset all filters
   const resetFilters = () => {
     setFilterHotel(hotels.length === 1 ? hotels[0].id : 'all');
-    setFilterStatus('all');
+    // Reset to "En cours" if we have the ID, otherwise to 'all'
+    setFilterStatus(inProgressStatusId || 'all');
     setFilterCategory('all');
     setFilterImpact('all');
     setSearchQuery('');
@@ -254,6 +292,8 @@ const IncidentsPage = () => {
   const handleIncidentUpdate = async () => {
     setViewIncidentDialogOpen(false);
     setEditIncidentDialogOpen(false);
+    // Refetch incidents to update the list
+    refetchIncidents();
   };
   
   // Handle save from edit form directly (not via view dialog)
@@ -292,6 +332,8 @@ const IncidentsPage = () => {
         onSuccess: () => {
           setEditIncidentDialogOpen(false);
           setSelectedIncident(null);
+          // Refetch incidents to update the list
+          refetchIncidents();
         }
       }
     );
@@ -305,6 +347,8 @@ const IncidentsPage = () => {
       onSuccess: () => {
         setViewIncidentDialogOpen(false);
         setSelectedIncident(null);
+        // Refetch incidents to update the list
+        refetchIncidents();
       }
     });
   };

@@ -5,9 +5,10 @@ import {
   getLogbookEntriesByDate, 
   createLogbookEntry, 
   updateLogbookEntry,
-  deleteLogbookEntry,
+  deleteLogbookEntry as deleteLogbookEntryFn,
   markLogbookEntryAsRead,
   markLogbookEntryAsCompleted,
+  unmarkLogbookEntryAsCompleted,
   addCommentToLogbookEntry,
   getActiveLogbookReminders,
   createLogbookReminder,
@@ -86,7 +87,7 @@ export function useDeleteLogbookEntry() {
   const { toast } = useToast();
 
   return useMutation({
-    mutationFn: deleteLogbookEntry,
+    mutationFn: deleteLogbookEntryFn,
     onSuccess: () => {
       toast({
         title: 'Consigne supprimée',
@@ -133,6 +134,30 @@ export function useMarkLogbookEntryAsCompleted() {
       toast({
         title: 'Erreur',
         description: 'Une erreur est survenue lors du marquage de la tâche comme terminée',
+        variant: 'destructive',
+      });
+    },
+  });
+}
+
+// Hook pour annuler le statut terminé d'une entrée
+export function useUnmarkLogbookEntryAsCompleted() {
+  const { toast } = useToast();
+
+  return useMutation({
+    mutationFn: (entryId: string) => unmarkLogbookEntryAsCompleted(entryId),
+    onSuccess: () => {
+      toast({
+        title: 'Statut réinitialisé',
+        description: 'La tâche n\'est plus marquée comme terminée',
+      });
+      queryClient.invalidateQueries({ queryKey: ['logbook', 'entries'] });
+    },
+    onError: (error) => {
+      console.error('Error unmarking logbook entry as completed:', error);
+      toast({
+        title: 'Erreur',
+        description: 'Une erreur est survenue lors de la réinitialisation du statut de la tâche',
         variant: 'destructive',
       });
     },
@@ -206,3 +231,6 @@ export function useMarkLogbookReminderAsCompleted() {
     },
   });
 }
+
+// Exporter la fonction deleteLogbookEntry pour une utilisation directe
+export { deleteLogbookEntry } from '../lib/db/logbook';

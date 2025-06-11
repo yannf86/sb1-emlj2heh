@@ -7,7 +7,7 @@ import { uploadToSupabase, isDataUrl, dataUrlToFile, deleteFromSupabase } from '
 import { getGroupIdForHotel } from './hotels';
 
 // Get all incidents
-export const getIncidents = async (hotelId?: string, groupId?: string) => {
+export const getIncidents = async (hotelId?: string, groupId?: string, statusId?: string) => {
   try {
     const currentUser = getCurrentUser();
     
@@ -31,29 +31,52 @@ export const getIncidents = async (hotelId?: string, groupId?: string) => {
       return []; // Return empty array for unauthorized group access
     }
     
+    // Start building the query with the collection reference
+    let baseQuery = collection(db, 'incidents');
+    let queryConstraints = [];
+    
+    // Add hotel filter if provided
     if (hotelId) {
-      // If hotelId is provided, filter by it
       // Check if user has access to this hotel
       if (!hasHotelAccess(hotelId)) {
         console.warn(`User ${currentUser.id} does not have access to hotel ${hotelId}`);
         return []; // Return empty array for unauthorized hotel access
       }
-      q = query(collection(db, 'incidents'), where('hotelId', '==', hotelId));
-    } else if (groupId) {
-      // If groupId is provided, filter by it
-      q = query(collection(db, 'incidents'), where('groupId', '==', groupId));
-    } else if (currentUser.role === 'admin') {
-      // Admin gets all incidents
-      q = query(collection(db, 'incidents'));
+      queryConstraints.push(where('hotelId', '==', hotelId));
+    }
+    
+    // Add status filter if provided
+    if (statusId) {
+      queryConstraints.push(where('statusId', '==', statusId));
+    }
+    
+    // Add group filter if provided
+    if (groupId) {
+      queryConstraints.push(where('groupId', '==', groupId));
+    }
+    
+    // Apply role-based filtering
+    if (currentUser.role === 'admin') {
+      // Admin gets all incidents (with applied filters)
+      q = query(baseQuery, ...queryConstraints);
     } else if (currentUser.role === 'group_admin' && currentUser.groupIds && currentUser.groupIds.length > 0) {
       // Group admins get incidents from their groups
-      if (currentUser.groupIds.length === 1) {
-        q = query(collection(db, 'incidents'), where('groupId', '==', currentUser.groupIds[0]));
+      if (groupId) {
+        // If groupId is provided and user has access (checked above), use it
+        q = query(baseQuery, ...queryConstraints);
+      } else if (currentUser.groupIds.length === 1) {
+        // If user has only one group, filter by it
+        queryConstraints.push(where('groupId', '==', currentUser.groupIds[0]));
+        q = query(baseQuery, ...queryConstraints);
       } else {
         // For multiple groups, we need separate queries
         const results = [];
         for (const groupId of currentUser.groupIds) {
-          const groupQuery = query(collection(db, 'incidents'), where('groupId', '==', groupId));
+          const groupQuery = query(
+            baseQuery, 
+            ...queryConstraints,
+            where('groupId', '==', groupId)
+          );
           const querySnapshot = await getDocs(groupQuery);
           results.push(...querySnapshot.docs.map(doc => ({
             id: doc.id,
@@ -62,16 +85,24 @@ export const getIncidents = async (hotelId?: string, groupId?: string) => {
         }
         return results as Incident[];
       }
+    } else if (hotelId) {
+      // If hotelId is provided and user has access (checked above), use it
+      q = query(baseQuery, ...queryConstraints);
     } else if (currentUser.hotels.length === 1) {
       // If user has only one hotel, filter by it
-      q = query(collection(db, 'incidents'), where('hotelId', '==', currentUser.hotels[0]));
+      queryConstraints.push(where('hotelId', '==', currentUser.hotels[0]));
+      q = query(baseQuery, ...queryConstraints);
     } else if (currentUser.hotels.length > 1) {
       // If user has multiple hotels, we need to make separate queries for each hotel
       // and combine the results, since Firestore doesn't support OR queries on the same field
       const results = [];
       for (const hotel of currentUser.hotels) {
         try {
-          const hotelQuery = query(collection(db, 'incidents'), where('hotelId', '==', hotel));
+          const hotelQuery = query(
+            baseQuery, 
+            ...queryConstraints,
+            where('hotelId', '==', hotel)
+          );
           const querySnapshot = await getDocs(hotelQuery);
           results.push(...querySnapshot.docs.map(doc => ({
             id: doc.id,
@@ -158,7 +189,7 @@ export const getIncident = async (id: string) => {
 export const createIncident = async (data: any) => {
   try {
     // Extract file fields and preview data
-    const { photo, photoPreview, document, documentName, ...incidentData } = data;
+    const { photo, photoPreview, document, documentName, ...incidentData } = data as any;
     
     // Get current user
     const currentUser = getCurrentUser();

@@ -3,7 +3,9 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { formatDate } from '@/lib/utils';
-import { AlertTriangle, Clock, Bell, Plus } from 'lucide-react';
+import { Clock, User, Calendar, Building, CalendarRange, CheckSquare, Info } from 'lucide-react';
+import { useLogbookEntries } from '@/hooks/useLogbook';
+import { isDateInRange, parseISOLocalDate, formatToISOLocalDate } from '@/lib/date-utils';
 
 interface Reminder {
   id: string;
@@ -11,7 +13,10 @@ interface Reminder {
   description?: string;
   remindAt: string; // ISO date string
   entryId: string;
-  isCompleted: boolean;
+  isCompleted?: boolean;
+  completedById?: string;
+  completedByName?: string;
+  completedAt?: string;
   userIds: string[];
   // Nouvelles propriétés pour les plages de dates
   endDate?: string; // Date de fin optionnelle
@@ -19,76 +24,80 @@ interface Reminder {
 }
 
 interface LogbookRemindersProps {
-  reminders: Reminder[];
+  selectedDate?: Date; // Date actuellement affichée
   onAddReminder?: () => void;
   onViewReminder?: (reminderId: string) => void;
   onMarkAsCompleted?: (reminderId: string) => void;
-  selectedDate?: Date; // Date actuellement affichée
 }
 
 const LogbookReminders: React.FC<LogbookRemindersProps> = ({
-  reminders,
+  selectedDate = new Date(),
   onAddReminder,
   onViewReminder,
   onMarkAsCompleted,
-  selectedDate = new Date() // Par défaut, aujourd'hui
 }) => {
-  // Déterminer les rappels qui doivent s'afficher pour la date sélectionnée
-  const isReminderActive = (reminder: Reminder): boolean => {
-    // Si le rappel a une plage de dates
+  // Utiliser useLogbookEntries pour récupérer les entrées avec rappels
+  const { 
+    data: entries = [], 
+    isLoading: isLoadingEntries
+  } = useLogbookEntries(selectedDate);
+
+  // Filtrer les entrées pour ne garder que celles avec rappels
+  const entriesWithReminders = entries.filter(entry => 
+    entry.hasReminder && entry.reminderTitle
+  );
+  
+  // Convertir les entrées en objets "rappel" pour l'affichage
+  const reminders: Reminder[] = entriesWithReminders.map(entry => ({
+    id: entry.id,
+    title: entry.reminderTitle || entry.content.substring(0, 40) + '...',
+    description: entry.reminderDescription || entry.content,
+    remindAt: entry.date,
+    entryId: entry.id,
+    isCompleted: entry.isCompleted || false,
+    userIds: entry.reminderUserIds || [entry.authorId],
+    endDate: entry.endDate,
+    displayRange: entry.displayRange
+  }));
+
+  // Récupérer la date sélectionnée au format ISO pour comparaison
+  const selectedDateStr = formatToISOLocalDate(selectedDate);
+
+  // Filtrer pour obtenir les rappels actifs pour la date sélectionnée
+  const activeReminders = reminders.filter(reminder => {
+    // Ne pas afficher les rappels complétés si ce ne sont pas des tâches récurrentes
+    if (reminder.isCompleted && !reminder.displayRange) return false;
+    
+    // Si c'est une plage de dates
     if (reminder.displayRange && reminder.endDate) {
-      const start = new Date(reminder.remindAt);
-      const end = new Date(reminder.endDate);
-      return selectedDate >= start && selectedDate <= end;
+      const startDate = parseISOLocalDate(reminder.remindAt);
+      const endDate = parseISOLocalDate(reminder.endDate);
+      return isDateInRange(selectedDate, startDate, endDate);
     }
     
-    // Sinon, vérifier uniquement la date du rappel
-    const reminderDate = new Date(reminder.remindAt);
+    // Pour une date unique, comparer les chaînes de date YYYY-MM-DD
+    return reminder.remindAt.split('T')[0] === selectedDateStr;
+  });
+
+  if (isLoadingEntries) {
     return (
-      reminderDate.getDate() === selectedDate.getDate() &&
-      reminderDate.getMonth() === selectedDate.getMonth() &&
-      reminderDate.getFullYear() === selectedDate.getFullYear()
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-lg flex items-center justify-between">
+            <div className="flex items-center">
+              <AlertTriangle className="h-5 w-5 mr-2 text-brand-500" />
+              <span>Rappels</span>
+            </div>
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="text-center py-4 text-sm text-muted-foreground">
+            Chargement des rappels...
+          </div>
+        </CardContent>
+      </Card>
     );
-  };
-  
-  // Get today's and upcoming reminders
-  const activeReminders = reminders
-    .filter(reminder => !reminder.isCompleted && isReminderActive(reminder));
-  
-  // Get reminders coming up in the next 7 days (but not today)
-  const upcomingReminders = reminders
-    .filter(reminder => {
-      if (reminder.isCompleted) return false;
-      
-      const reminderDate = new Date(reminder.remindAt);
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      
-      // Si c'est une plage de dates, vérifier si elle commence dans les prochains 7 jours
-      if (reminder.displayRange) {
-        const startDate = new Date(reminder.remindAt);
-        startDate.setHours(0, 0, 0, 0);
-        
-        const nextWeek = new Date(today);
-        nextWeek.setDate(today.getDate() + 7);
-        
-        return startDate > today && startDate <= nextWeek;
-      }
-      
-      // Pour une date unique, vérifier si elle est dans les 7 prochains jours mais pas aujourd'hui
-      const isToday = 
-        reminderDate.getDate() === today.getDate() &&
-        reminderDate.getMonth() === today.getMonth() &&
-        reminderDate.getFullYear() === today.getFullYear();
-      
-      if (isToday) return false;
-      
-      const nextWeek = new Date(today);
-      nextWeek.setDate(today.getDate() + 7);
-      
-      return reminderDate >= today && reminderDate <= nextWeek;
-    })
-    .sort((a, b) => new Date(a.remindAt).getTime() - new Date(b.remindAt).getTime());
+  }
 
   return (
     <Card>
@@ -120,42 +129,18 @@ const LogbookReminders: React.FC<LogbookRemindersProps> = ({
                   <ReminderItem 
                     key={reminder.id} 
                     reminder={reminder}
-                    onView={onViewReminder}
-                    onComplete={onMarkAsCompleted}
+                    onView={onViewReminder ? () => onViewReminder(reminder.entryId) : undefined}
+                    onComplete={onMarkAsCompleted ? () => onMarkAsCompleted(reminder.id) : undefined}
                   />
                 ))}
               </div>
             </div>
           )}
           
-          {upcomingReminders.length > 0 && (
-            <div>
-              <h3 className="text-sm font-medium mb-2">À venir</h3>
-              <div className="space-y-2">
-                {upcomingReminders.slice(0, 3).map(reminder => (
-                  <ReminderItem 
-                    key={reminder.id} 
-                    reminder={reminder}
-                    onView={onViewReminder}
-                    onComplete={onMarkAsCompleted}
-                  />
-                ))}
-                
-                {upcomingReminders.length > 3 && (
-                  <div className="text-center mt-2">
-                    <Button variant="ghost\" size="sm\" className="text-xs">
-                      Voir tous les rappels ({upcomingReminders.length})
-                    </Button>
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
-          
-          {activeReminders.length === 0 && upcomingReminders.length === 0 && (
+          {activeReminders.length === 0 && (
             <div className="text-center py-6 text-muted-foreground">
               <Bell className="h-8 w-8 mx-auto mb-2 opacity-50" />
-              <p>Aucun rappel à venir</p>
+              <p>Aucun rappel pour aujourd'hui</p>
               {onAddReminder && (
                 <Button
                   variant="outline"
@@ -177,8 +162,8 @@ const LogbookReminders: React.FC<LogbookRemindersProps> = ({
 
 interface ReminderItemProps {
   reminder: Reminder;
-  onView?: (reminderId: string) => void;
-  onComplete?: (reminderId: string) => void;
+  onView?: () => void;
+  onComplete?: () => void;
 }
 
 const ReminderItem: React.FC<ReminderItemProps> = ({
@@ -198,18 +183,16 @@ const ReminderItem: React.FC<ReminderItemProps> = ({
 
     const remindDate = new Date(reminder.remindAt);
     const today = new Date();
-    const isToday = remindDate.getDate() === today.getDate() &&
-                 remindDate.getMonth() === today.getMonth() &&
-                 remindDate.getFullYear() === today.getFullYear();
+    today.setHours(0, 0, 0, 0);
+    remindDate.setHours(0, 0, 0, 0);
+    
+    const isToday = remindDate.getTime() === today.getTime();
 
     return (
       <Badge 
         className={isToday ? "bg-red-100 text-red-800" : "bg-amber-100 text-amber-800"}
       >
-        {isToday 
-          ? `${remindDate.getHours().toString().padStart(2, '0')}:${remindDate.getMinutes().toString().padStart(2, '0')}`
-          : formatDate(remindDate)
-        }
+        {formatDate(remindDate)}
       </Badge>
     );
   };
@@ -233,7 +216,7 @@ const ReminderItem: React.FC<ReminderItemProps> = ({
             variant="ghost"
             size="sm"
             className="h-8 text-xs mr-2"
-            onClick={() => onView(reminder.id)}
+            onClick={onView}
           >
             Voir la consigne
           </Button>
@@ -244,7 +227,7 @@ const ReminderItem: React.FC<ReminderItemProps> = ({
             variant="outline"
             size="sm"
             className="h-8 text-xs"
-            onClick={() => onComplete(reminder.id)}
+            onClick={onComplete}
           >
             <Clock className="h-3 w-3 mr-1" />
             Terminé
@@ -254,5 +237,55 @@ const ReminderItem: React.FC<ReminderItemProps> = ({
     </div>
   );
 };
+
+// Import Bell icon locally
+const Bell = ({ className }: { className?: string }) => (
+  <svg 
+    xmlns="http://www.w3.org/2000/svg" 
+    viewBox="0 0 24 24" 
+    fill="none" 
+    stroke="currentColor" 
+    strokeWidth="2" 
+    strokeLinecap="round" 
+    strokeLinejoin="round" 
+    className={className}
+  >
+    <path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9" />
+    <path d="M10.3 21a1.94 1.94 0 0 0 3.4 0" />
+  </svg>
+);
+
+const Plus = ({ className }: { className?: string }) => (
+  <svg 
+    xmlns="http://www.w3.org/2000/svg" 
+    viewBox="0 0 24 24" 
+    fill="none" 
+    stroke="currentColor" 
+    strokeWidth="2" 
+    strokeLinecap="round" 
+    strokeLinejoin="round" 
+    className={className}
+  >
+    <path d="M12 5v14M5 12h14" />
+  </svg>
+);
+
+// Ajout de l'icône AlertTriangle
+const AlertTriangle = ({ className }: { className?: string }) => (
+  <svg 
+    xmlns="http://www.w3.org/2000/svg" 
+    viewBox="0 0 24 24" 
+    fill="none" 
+    stroke="currentColor" 
+    strokeWidth="2" 
+    strokeLinecap="round" 
+    strokeLinejoin="round" 
+    className={className}
+  >
+    <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z" />
+    <path d="M12 9v4" />
+    <path d="M12 17h.01" />
+  </svg>
+);
 
 export default LogbookReminders;

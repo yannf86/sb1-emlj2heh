@@ -3,17 +3,19 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { formatDate } from '@/lib/utils';
-import { Check, MessageSquare, Edit, Trash2, Clock, AlertTriangle, User, Home, ChevronDown, ChevronUp, Calendar } from 'lucide-react';
+import { Check, MessageSquare, Edit, Trash2, Clock, AlertTriangle, User, Home, ChevronDown, ChevronUp, Calendar, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { formatToISOLocalDate } from '@/lib/date-utils';
 
 interface LogbookEntryProps {
   entry: {
     id: string;
     date: string;
     time: string;
-    endDate?: string; // Date de fin optionnelle
-    displayRange?: boolean; // Indique si c'est une plage de dates
+    endDate?: string;
+    displayRange?: boolean;
     serviceId: string;
     serviceName: string;
     serviceIcon: string;
@@ -26,6 +28,7 @@ interface LogbookEntryProps {
     hotelId: string;
     hotelName: string;
     roomNumber?: string;
+    completedDates?: string[]; // Tableau des dates complétées
     comments?: { id: string; authorId: string; authorName: string; content: string; createdAt: string }[];
     isRead?: boolean;
   };
@@ -33,7 +36,9 @@ interface LogbookEntryProps {
   onDelete?: (entryId: string) => void;
   onMarkAsRead?: (entryId: string) => void;
   onMarkAsCompleted?: (entryId: string) => void;
+  onUnmarkAsCompleted?: (entryId: string) => void;
   onAddComment?: (entryId: string, comment: string) => void;
+  selectedDate?: Date; // Date sélectionnée pour l'affichage (pour gérer les statuts par jour)
 }
 
 const LogbookEntry: React.FC<LogbookEntryProps> = ({
@@ -42,11 +47,14 @@ const LogbookEntry: React.FC<LogbookEntryProps> = ({
   onDelete,
   onMarkAsRead,
   onMarkAsCompleted,
-  onAddComment
+  onUnmarkAsCompleted,
+  onAddComment,
+  selectedDate = new Date() // Par défaut, on utilise la date actuelle
 }) => {
   const [expanded, setExpanded] = useState(false);
   const [showComments, setShowComments] = useState(false);
   const [comment, setComment] = useState('');
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   
   // Handle importance level visual treatment
   const getImportanceStyles = () => {
@@ -78,6 +86,18 @@ const LogbookEntry: React.FC<LogbookEntryProps> = ({
       setComment('');
     }
   };
+  
+  const handleDeleteClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setShowDeleteConfirm(true);
+  };
+  
+  const handleConfirmDelete = () => {
+    if (onDelete) {
+      onDelete(entry.id);
+    }
+    setShowDeleteConfirm(false);
+  };
 
   // Formater l'affichage de la date selon qu'il s'agisse d'une plage ou d'une date unique
   const getDateDisplay = () => {
@@ -98,11 +118,36 @@ const LogbookEntry: React.FC<LogbookEntryProps> = ({
     }
   };
   
+  // Vérifier si une tâche est complétée pour une date spécifique
+  const isCompletedForDate = (checkDate: Date = selectedDate) => {
+    // Si ce n'est pas une tâche, on renvoie simplement isCompleted
+    if (!entry.isTask) {
+      return entry.isCompleted;
+    }
+
+    // Format YYYY-MM-DD de la date à vérifier
+    const dateStr = formatToISOLocalDate(checkDate);
+    
+    // Si c'est une tâche sans plage de dates, on utilise isCompleted
+    if (!entry.displayRange) {
+      return entry.isCompleted;
+    }
+    
+    // Pour les tâches récurrentes (plage de dates), vérifier si la date est dans completedDates
+    if (entry.completedDates && entry.completedDates.length > 0) {
+      return entry.completedDates.includes(dateStr);
+    }
+    
+    return false; // Par défaut, pas complété
+  };
+  
   return (
-    <Card className={cn("mb-3 overflow-hidden", cardClass, {
-      'opacity-75': entry.isCompleted,
-      'border-l-4 border-l-blue-500': !entry.isRead
-    })}>
+    <Card 
+      className={cn("mb-3 overflow-hidden", cardClass, {
+        'opacity-75': isCompletedForDate(),
+        'border-l-4 border-l-blue-500': !entry.isRead
+      })}
+    >
       <div 
         className="p-3 cursor-pointer flex items-center justify-between"
         onClick={() => setExpanded(!expanded)}
@@ -116,7 +161,7 @@ const LogbookEntry: React.FC<LogbookEntryProps> = ({
                 <AlertTriangle className="ml-2 h-4 w-4 text-amber-500" />
               )}
               {entry.roomNumber && (
-                <Badge variant="outline\" className="ml-2 text-xs">
+                <Badge variant="outline" className="ml-2 text-xs">
                   Chambre {entry.roomNumber}
                 </Badge>
               )}
@@ -128,6 +173,11 @@ const LogbookEntry: React.FC<LogbookEntryProps> = ({
               {entry.isTask && (
                 <Badge className="ml-2 bg-purple-100 text-purple-800 border-purple-200">
                   Tâche
+                </Badge>
+              )}
+              {entry.isTask && isCompletedForDate() && (
+                <Badge className="ml-2 bg-green-100 text-green-800 border-green-200">
+                  Terminé
                 </Badge>
               )}
             </div>
@@ -147,15 +197,15 @@ const LogbookEntry: React.FC<LogbookEntryProps> = ({
           <div className="border-t px-4 py-3">
             <div className="flex justify-between items-start mb-2">
               <div className="flex items-center text-sm text-muted-foreground">
-                <User className="h-3.5 w-3.5 mr-1" />
+                <User className="h-3.5 w-3.5 mr-1 text-slate-500" />
                 <span>{entry.authorName}</span>
                 <span className="mx-2">•</span>
-                <Home className="h-3.5 w-3.5 mr-1" />
+                <Home className="h-3.5 w-3.5 mr-1 text-slate-500" />
                 <span>{entry.hotelName}</span>
               </div>
               
               <div className="flex space-x-1">
-                {entry.isTask && onMarkAsCompleted && !entry.isCompleted && (
+                {entry.isTask && onMarkAsCompleted && !isCompletedForDate() && (
                   <Button 
                     variant="outline" 
                     size="sm" 
@@ -166,6 +216,20 @@ const LogbookEntry: React.FC<LogbookEntryProps> = ({
                   >
                     <Check className="h-4 w-4 mr-1" />
                     Terminer
+                  </Button>
+                )}
+
+                {entry.isTask && onUnmarkAsCompleted && isCompletedForDate() && (
+                  <Button 
+                    variant="outline" 
+                    size="sm" 
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onUnmarkAsCompleted(entry.id);
+                    }}
+                  >
+                    <X className="h-4 w-4 mr-1" />
+                    Annuler
                   </Button>
                 )}
                 
@@ -186,10 +250,7 @@ const LogbookEntry: React.FC<LogbookEntryProps> = ({
                   <Button 
                     variant="ghost" 
                     size="sm"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onDelete(entry.id);
-                    }}
+                    onClick={handleDeleteClick}
                   >
                     <Trash2 className="h-4 w-4" />
                   </Button>
@@ -197,7 +258,9 @@ const LogbookEntry: React.FC<LogbookEntryProps> = ({
               </div>
             </div>
             
-            <div className="whitespace-pre-wrap mb-4">
+            <div className={cn("whitespace-pre-wrap mb-4", {
+              "line-through text-muted-foreground": isCompletedForDate()
+            })}>
               {entry.content}
             </div>
             
@@ -252,8 +315,25 @@ const LogbookEntry: React.FC<LogbookEntryProps> = ({
               )}
             </div>
           </div>
+        
         </>
       )}
+      
+      {/* Delete confirmation dialog */}
+      <Dialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle>Confirmer la suppression</DialogTitle>
+            <DialogDescription>
+              Êtes-vous sûr de vouloir supprimer cette consigne ? Cette action est irréversible.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="pt-4">
+            <Button variant="outline" onClick={() => setShowDeleteConfirm(false)}>Annuler</Button>
+            <Button variant="destructive" onClick={handleConfirmDelete}>Supprimer</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Card>
   );
 };

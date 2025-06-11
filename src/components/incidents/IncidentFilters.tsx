@@ -8,7 +8,7 @@ import { getHotels } from '@/lib/db/hotels';
 import { getHotelIncidentCategories } from '@/lib/db/hotel-incident-categories';
 import { getIncidentCategoryParameters } from '@/lib/db/parameters-incident-categories';
 import { getImpactParameters } from '@/lib/db/parameters-impact';
-import { getStatusParameters } from '@/lib/db/parameters-status';
+import { getStatusParameters, findStatusIdByCode } from '@/lib/db/parameters-status';
 import { useToast } from '@/hooks/use-toast';
 import { getCurrentUser } from '@/lib/auth';
 
@@ -48,6 +48,7 @@ const IncidentFilters: React.FC<IncidentFiltersProps> = ({
   const [categoryParams, setCategoryParams] = useState<any[]>([]);
   const [impactParams, setImpactParams] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [inProgressStatusId, setInProgressStatusId] = useState<string | null>(null);
   const { toast } = useToast();
   const currentUser = getCurrentUser();
 
@@ -64,6 +65,17 @@ const IncidentFilters: React.FC<IncidentFiltersProps> = ({
         // Load status parameters from parameters_status collection
         const statusData = await getStatusParameters();
         setStatusParams(statusData);
+        
+        // Find the "En cours" status ID
+        const inProgressId = await findStatusIdByCode('in_progress');
+        if (inProgressId) {
+          setInProgressStatusId(inProgressId);
+          
+          // If filterStatus is empty, set it to the "En cours" status
+          if (filterStatus === '') {
+            onStatusChange(inProgressId);
+          }
+        }
         
         // Load impact parameters from parameters_impact collection
         const impactData = await getImpactParameters();
@@ -85,7 +97,7 @@ const IncidentFilters: React.FC<IncidentFiltersProps> = ({
     };
     
     loadData();
-  }, [toast, currentUser]);
+  }, [toast, currentUser, filterStatus, onStatusChange]);
   
   // When hotel selection changes, update available categories
   useEffect(() => {
@@ -164,6 +176,18 @@ const IncidentFilters: React.FC<IncidentFiltersProps> = ({
           </SelectContent>
         </Select>
         
+        <Select value={filterStatus} onValueChange={onStatusChange} disabled={statusParams.length === 0}>
+          <SelectTrigger className="w-full sm:w-[180px]">
+            <SelectValue placeholder={loading ? "Chargement..." : "Tous les statuts"} />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Tous les statuts</SelectItem>
+            {statusParams.map(status => (
+              <SelectItem key={status.id} value={status.id}>{status.label}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        
         <Button variant="outline" size="icon" onClick={() => onFiltersExpandedChange(!filtersExpanded)}>
           <SlidersHorizontal className="h-4 w-4" />
         </Button>
@@ -175,21 +199,6 @@ const IncidentFilters: React.FC<IncidentFiltersProps> = ({
       
       {filtersExpanded && (
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 p-4 border rounded-md">
-          <div>
-            <label className="text-sm font-medium mb-1 block">Statut</label>
-            <Select value={filterStatus} onValueChange={onStatusChange}>
-              <SelectTrigger>
-                <SelectValue placeholder="Tous les statuts" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Tous les statuts</SelectItem>
-                {statusParams.map(status => (
-                  <SelectItem key={status.id} value={status.id}>{status.label}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          
           <div>
             <label className="text-sm font-medium mb-1 block">Catégorie</label>
             <Select value={filterCategory} onValueChange={onCategoryChange}>
