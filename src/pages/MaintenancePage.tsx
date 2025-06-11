@@ -21,7 +21,7 @@ import { ensureMaintenanceCollection } from '@/lib/db/ensure-collections';
 import { getHotelName } from '@/lib/db/hotels';
 import { getLocationLabel } from '@/lib/db/parameters-locations';
 import { getInterventionTypeLabel } from '@/lib/db/parameters-intervention-type';
-import { getStatusLabel } from '@/lib/db/parameters-status';
+import { getStatusLabel, findStatusIdByCode } from '@/lib/db/parameters-status';
 import { getUserName } from '@/lib/db/users';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -41,7 +41,7 @@ import { useUsers } from '@/hooks/useUsers';
 const MaintenancePage = () => {
   const [selectedTab, setSelectedTab] = useState('list');
   const [filterHotel, setFilterHotel] = useState('all');
-  const [filterStatus, setFilterStatus] = useState('all');
+  const [filterStatus, setFilterStatus] = useState('');
   const [filterType, setFilterType] = useState('all');
   const [filterAssignedUser, setFilterAssignedUser] = useState('all');
   const [filterTechnician, setFilterTechnician] = useState('all');
@@ -49,6 +49,8 @@ const MaintenancePage = () => {
   const [filtersExpanded, setFiltersExpanded] = useState(false);
   const [selectedMaintenance, setSelectedMaintenance] = useState<any>(null);
   const [collectionChecked, setCollectionChecked] = useState(false);
+  const [inProgressStatusId, setInProgressStatusId] = useState<string | null>(null);
+  const [initialLoadComplete, setInitialLoadComplete] = useState(false);
   
   // React Query hooks
   const { 
@@ -93,6 +95,38 @@ const MaintenancePage = () => {
     checkCollection();
   }, [collectionChecked, refetchMaintenance]);
 
+  // Fetch the "En cours" status ID on component mount
+  useEffect(() => {
+    const getInProgressStatusId = async () => {
+      try {
+        // Try to find the status ID for "En cours" (in_progress)
+        const statusId = await findStatusIdByCode('in_progress');
+        if (statusId) {
+          setInProgressStatusId(statusId);
+          // Only set the filter status if it hasn't been set yet
+          if (!initialLoadComplete) {
+            setFilterStatus(statusId);
+          }
+        } else {
+          console.warn('Could not find status ID for "En cours"');
+          // If we can't find the specific status, default to 'all'
+          if (!initialLoadComplete) {
+            setFilterStatus('all');
+          }
+        }
+        setInitialLoadComplete(true);
+      } catch (error) {
+        console.error('Error finding in_progress status ID:', error);
+        if (!initialLoadComplete) {
+          setFilterStatus('all');
+          setInitialLoadComplete(true);
+        }
+      }
+    };
+
+    getInProgressStatusId();
+  }, [initialLoadComplete]);
+
   // Set the default hotel filter if user has only one hotel
   useEffect(() => {
     if (!hotelsLoading && hotels.length === 1 && filterHotel === 'all') {
@@ -115,7 +149,7 @@ const MaintenancePage = () => {
     if (filterHotel !== 'all' && request.hotelId !== filterHotel) return false;
     
     // Filter by status
-    if (filterStatus !== 'all' && request.statusId !== filterStatus) return false;
+    if (filterStatus !== 'all' && filterStatus !== '' && request.statusId !== filterStatus) return false;
     
     // Filter by intervention type
     if (filterType !== 'all' && request.interventionTypeId !== filterType) return false;
@@ -182,7 +216,8 @@ const MaintenancePage = () => {
   // Reset all filters
   const resetFilters = () => {
     setFilterHotel(hotels.length === 1 ? hotels[0].id : 'all');
-    setFilterStatus('all');
+    // Reset to "En cours" if we have the ID, otherwise to 'all'
+    setFilterStatus(inProgressStatusId || 'all');
     setFilterType('all');
     setFilterAssignedUser('all');
     setFilterTechnician('all');

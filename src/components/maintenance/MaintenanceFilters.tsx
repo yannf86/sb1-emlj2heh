@@ -9,6 +9,8 @@ import { getUsers } from '@/lib/db/users';
 import { getTechnicians } from '@/lib/db/technicians';
 import { useToast } from '@/hooks/use-toast';
 import { getCurrentUser } from '@/lib/auth';
+import { getStatusParameters, findStatusIdByCode } from '@/lib/db/parameters-status';
+import { getInterventionTypeParameters } from '@/lib/db/parameters-intervention-type';
 
 interface MaintenanceFiltersProps {
   searchQuery: string;
@@ -48,18 +50,20 @@ const MaintenanceFilters: React.FC<MaintenanceFiltersProps> = ({
   const [hotels, setHotels] = useState<any[]>([]);
   const [users, setUsers] = useState<any[]>([]);
   const [technicians, setTechnicians] = useState<any[]>([]);
+  const [statusParams, setStatusParams] = useState<any[]>([]);
+  const [interventionTypeParams, setInterventionTypeParams] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
+  const [inProgressStatusId, setInProgressStatusId] = useState<string | null>(null);
   const { toast } = useToast();
   const currentUser = getCurrentUser();
 
-  const statusParams = parameters.filter(p => p.type === 'status');
-  const interventionTypeParams = parameters.filter(p => p.type === 'intervention_type');
-
-  // Load hotels from Firestore
+  // Load data from Firebase collections
   useEffect(() => {
-    const loadHotels = async () => {
+    const loadData = async () => {
       try {
         setLoading(true);
+        
+        // Load hotels
         const hotelsData = await getHotels();
         
         // Filter hotels based on user's permissions
@@ -71,11 +75,33 @@ const MaintenanceFilters: React.FC<MaintenanceFiltersProps> = ({
           );
           setHotels(filteredHotels);
         }
+        
+        // Load status parameters
+        const statusData = await getStatusParameters();
+        setStatusParams(statusData);
+        
+        // Find the "En cours" status ID
+        const inProgressId = await findStatusIdByCode('in_progress');
+        if (inProgressId) {
+          setInProgressStatusId(inProgressId);
+        }
+        
+        // Load intervention type parameters
+        const interventionTypeData = await getInterventionTypeParameters();
+        setInterventionTypeParams(interventionTypeData);
+        
+        // Load users
+        const usersData = await getUsers();
+        setUsers(usersData);
+        
+        // Load technicians
+        const techniciansData = await getTechnicians();
+        setTechnicians(techniciansData);
       } catch (error) {
-        console.error('Error loading hotels:', error);
+        console.error('Error loading filters data:', error);
         toast({
           title: "Erreur",
-          description: "Impossible de charger la liste des hôtels",
+          description: "Impossible de charger les données pour les filtres",
           variant: "destructive",
         });
       } finally {
@@ -83,36 +109,8 @@ const MaintenanceFilters: React.FC<MaintenanceFiltersProps> = ({
       }
     };
     
-    loadHotels();
+    loadData();
   }, [toast, currentUser]);
-  
-  // Load users
-  useEffect(() => {
-    const loadUsers = async () => {
-      try {
-        const usersData = await getUsers();
-        setUsers(usersData);
-      } catch (error) {
-        console.error('Error loading users:', error);
-      }
-    };
-    
-    loadUsers();
-  }, []);
-
-  // Load technicians
-  useEffect(() => {
-    const loadTechnicians = async () => {
-      try {
-        const techniciansData = await getTechnicians();
-        setTechnicians(techniciansData);
-      } catch (error) {
-        console.error('Error loading technicians:', error);
-      }
-    };
-    
-    loadTechnicians();
-  }, []);
 
   return (
     <div className="flex flex-col space-y-2">
@@ -140,6 +138,18 @@ const MaintenanceFilters: React.FC<MaintenanceFiltersProps> = ({
           </SelectContent>
         </Select>
         
+        <Select value={filterStatus} onValueChange={onStatusChange} disabled={statusParams.length === 0}>
+          <SelectTrigger className="w-full sm:w-[180px]">
+            <SelectValue placeholder={loading ? "Chargement..." : "Tous les statuts"} />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Tous les statuts</SelectItem>
+            {statusParams.map(status => (
+              <SelectItem key={status.id} value={status.id}>{status.label}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        
         <Button variant="outline" size="icon" onClick={() => onFiltersExpandedChange(!filtersExpanded)}>
           <SlidersHorizontal className="h-4 w-4" />
         </Button>
@@ -151,21 +161,6 @@ const MaintenanceFilters: React.FC<MaintenanceFiltersProps> = ({
       
       {filtersExpanded && (
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2 p-4 border rounded-md">
-          <div>
-            <label className="text-sm font-medium mb-1 block">Statut</label>
-            <Select value={filterStatus} onValueChange={onStatusChange}>
-              <SelectTrigger>
-                <SelectValue placeholder="Tous les statuts" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Tous les statuts</SelectItem>
-                {statusParams.map(status => (
-                  <SelectItem key={status.id} value={status.id}>{status.label}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          
           <div>
             <label className="text-sm font-medium mb-1 block">Type d'intervention</label>
             <Select value={filterType} onValueChange={onTypeChange}>
