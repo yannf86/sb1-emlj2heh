@@ -38,9 +38,10 @@ import { useHotels } from '@/hooks/useHotels';
 const IncidentsPage = () => {
   const [selectedTab, setSelectedTab] = useState('list');
   const [filterHotel, setFilterHotel] = useState('all');
-  const [filterStatus, setFilterStatus] = useState('');
+  const [filterStatus, setFilterStatus] = useState('CZa3iy84r8pVqjVOQHNL'); // Initialisé avec l'ID du statut "En cours"
   const [filterCategory, setFilterCategory] = useState('all');
   const [filterImpact, setFilterImpact] = useState('all');
+  const [filterDateRange, setFilterDateRange] = useState('7'); // Par défaut, 7 derniers jours
   const [searchQuery, setSearchQuery] = useState('');
   const [filtersExpanded, setFiltersExpanded] = useState(false);
   const [selectedIncident, setSelectedIncident] = useState<any>(null);
@@ -90,16 +91,17 @@ const IncidentsPage = () => {
           }
         } else {
           console.warn('Could not find status ID for "En cours"');
-          // If we can't find the specific status, default to 'all'
+          // If we can't find the specific status, use the hardcoded ID
           if (!initialLoadComplete) {
-            setFilterStatus('all');
+            setFilterStatus('CZa3iy84r8pVqjVOQHNL');
           }
         }
         setInitialLoadComplete(true);
       } catch (error) {
         console.error('Error finding in_progress status ID:', error);
         if (!initialLoadComplete) {
-          setFilterStatus('all');
+          // Fallback to hardcoded ID if there's an error
+          setFilterStatus('CZa3iy84r8pVqjVOQHNL');
           setInitialLoadComplete(true);
         }
       }
@@ -115,7 +117,7 @@ const IncidentsPage = () => {
     }
   }, [hotels, hotelsLoading, filterHotel]);
 
-  // Filter incidents based on selected filters
+  // Filter incidents based on selected filters and date range
   const filteredIncidents = incidents.filter(incident => {
     // Filter by hotel
     if (filterHotel !== 'all' && incident.hotelId !== filterHotel) return false;
@@ -128,6 +130,16 @@ const IncidentsPage = () => {
     
     // Filter by impact
     if (filterImpact !== 'all' && incident.impactId !== filterImpact) return false;
+    
+    // Filter by date range
+    if (filterDateRange !== 'all') {
+      const daysAgo = parseInt(filterDateRange);
+      const cutoffDate = new Date();
+      cutoffDate.setDate(cutoffDate.getDate() - daysAgo);
+      
+      const incidentDate = new Date(incident.date);
+      if (incidentDate < cutoffDate) return false;
+    }
     
     // Search query
     if (searchQuery) {
@@ -164,10 +176,11 @@ const IncidentsPage = () => {
   // Reset all filters
   const resetFilters = () => {
     setFilterHotel(hotels.length === 1 ? hotels[0].id : 'all');
-    // Reset to "En cours" if we have the ID, otherwise to 'all'
-    setFilterStatus(inProgressStatusId || 'all');
+    // Reset to "En cours" if we have the ID, otherwise to hardcoded value
+    setFilterStatus(inProgressStatusId || 'CZa3iy84r8pVqjVOQHNL');
     setFilterCategory('all');
     setFilterImpact('all');
+    setFilterDateRange('7'); // Reset to 7 derniers jours
     setSearchQuery('');
   };
   
@@ -438,6 +451,8 @@ const IncidentsPage = () => {
         onCategoryChange={setFilterCategory}
         filterImpact={filterImpact}
         onImpactChange={setFilterImpact}
+        filterDateRange={filterDateRange}
+        onDateRangeChange={setFilterDateRange}
         filtersExpanded={filtersExpanded}
         onFiltersExpandedChange={setFiltersExpanded}
         onReset={resetFilters}

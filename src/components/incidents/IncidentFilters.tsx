@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Search, SlidersHorizontal, RefreshCw } from 'lucide-react';
+import { Search, SlidersHorizontal, RefreshCw, Calendar } from 'lucide-react';
 import { parameters } from '@/lib/data';
 import { getHotels } from '@/lib/db/hotels';
 import { getHotelIncidentCategories } from '@/lib/db/hotel-incident-categories';
@@ -23,6 +23,8 @@ interface IncidentFiltersProps {
   onCategoryChange: (value: string) => void;
   filterImpact: string;
   onImpactChange: (value: string) => void;
+  filterDateRange: string;
+  onDateRangeChange: (value: string) => void;
   filtersExpanded: boolean;
   onFiltersExpandedChange: (value: boolean) => void;
   onReset: () => void;
@@ -39,6 +41,8 @@ const IncidentFilters: React.FC<IncidentFiltersProps> = ({
   onCategoryChange,
   filterImpact,
   onImpactChange,
+  filterDateRange,
+  onDateRangeChange,
   filtersExpanded,
   onFiltersExpandedChange,
   onReset
@@ -185,6 +189,21 @@ const IncidentFilters: React.FC<IncidentFiltersProps> = ({
             {statusParams.map(status => (
               <SelectItem key={status.id} value={status.id}>{status.label}</SelectItem>
             ))}
+          </SelectContent>
+        </Select>
+        
+        <Select value={filterDateRange} onValueChange={onDateRangeChange}>
+          <SelectTrigger className="w-full sm:w-[180px]">
+            <Calendar className="mr-2 h-4 w-4" />
+            <SelectValue placeholder="Période" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="7">7 derniers jours</SelectItem>
+            <SelectItem value="30">30 derniers jours</SelectItem>
+            <SelectItem value="90">3 derniers mois</SelectItem>
+            <SelectItem value="180">6 derniers mois</SelectItem>
+            <SelectItem value="365">12 derniers mois</SelectItem>
+            <SelectItem value="all">Tous les incidents</SelectItem>
           </SelectContent>
         </Select>
         
