@@ -10,7 +10,8 @@ import {
   Check,
   Calendar,
   RefreshCw,
-  Loader2
+  Loader2,
+  Plus
 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Alert, AlertDescription } from '@/components/ui/alert';
@@ -31,12 +32,13 @@ import CompleteDialog from '@/components/checklist/CompleteDialog';
 // Import services
 import { 
   getChecklistItems, 
+  createChecklistItem, 
   completeChecklistItem, 
   uncompleteChecklistItem,
-  duplicateToNextDay
+  duplicateToNextDay,
+  createChecklistItemsFromMissions
 } from '@/lib/db/checklist';
 import { getChecklistMissionParameters } from '@/lib/db/parameters-checklist-missions';
-import { SERVICES } from '@/lib/constants';
 
 const ChecklistPage = () => {
   const [selectedDate, setSelectedDate] = useState(() => normalizeToMidnight(new Date()));
@@ -50,6 +52,8 @@ const ChecklistPage = () => {
   const [completeDialogOpen, setCompleteDialogOpen] = useState(false);
   const [duplicationInProgress, setDuplicationInProgress] = useState(false);
   const [completedPercent, setCompletedPercent] = useState<number>(0);
+  const [generateDialogOpen, setGenerateDialogOpen] = useState(false);
+  const [generateInProgress, setGenerateInProgress] = useState(false);
   
   const { toast } = useToast();
   const currentUser = getCurrentUser();
@@ -101,8 +105,14 @@ const ChecklistPage = () => {
         const items = await getChecklistItems(dateStr, filterHotel);
         setChecklistItems(items);
         
-        // Update completion percentage
-        updateCompletionPercent(items);
+        // Calculate completion percentage
+        if (items.length > 0) {
+          const completed = items.filter(item => item.completed).length;
+          const percent = Math.round((completed / items.length) * 100);
+          setCompletedPercent(percent);
+        } else {
+          setCompletedPercent(0);
+        }
       } catch (error) {
         console.error('Error loading checklist items:', error);
         setError('Impossible de charger les éléments de la checklist. Veuillez réessayer plus tard.');
@@ -113,17 +123,6 @@ const ChecklistPage = () => {
     
     loadChecklistItems();
   }, [selectedDate, filterHotel]);
-
-  // Calculate completion percentage
-  const updateCompletionPercent = (items) => {
-    if (items.length > 0) {
-      const completed = items.filter(item => item.completed).length;
-      const percent = Math.round((completed / items.length) * 100);
-      setCompletedPercent(percent);
-    } else {
-      setCompletedPercent(0);
-    }
-  };
 
   // Handle date change
   const handleDateChange = (date: Date) => {
@@ -140,13 +139,19 @@ const ChecklistPage = () => {
       }
       
       // Update the local state
+      setChecklistItems(prev => 
+        prev.map(item => 
+          item.id === itemId ? { ...item, completed } : item
+        )
+      );
+      
+      // Recalculate completion percentage
       const updatedItems = checklistItems.map(item => 
         item.id === itemId ? { ...item, completed } : item
       );
-      setChecklistItems(updatedItems);
-      
-      // Update completion percentage
-      updateCompletionPercent(updatedItems);
+      const completedCount = updatedItems.filter(item => item.completed).length;
+      const percent = Math.round((completedCount / updatedItems.length) * 100);
+      setCompletedPercent(percent);
       
     } catch (error) {
       console.error('Error updating checklist item:', error);
@@ -159,7 +164,7 @@ const ChecklistPage = () => {
   };
 
   // Handle complete day and duplicate to next day
-  const handleCompleteDay = () => {
+  const handleCompleteDay = async () => {
     if (completedPercent < 100) {
       toast({
         title: "Impossible de valider",
@@ -202,6 +207,49 @@ const ChecklistPage = () => {
       setCompleteDialogOpen(false);
     }
   };
+  
+  // Handle generate checklist items from missions
+  const handleGenerateChecklist = () => {
+    setGenerateDialogOpen(true);
+  };
+  
+  const confirmGenerateChecklist = async () => {
+    try {
+      setGenerateInProgress(true);
+      
+      const dateStr = formatToISOLocalDate(selectedDate);
+      await createChecklistItemsFromMissions(filterHotel, dateStr);
+      
+      toast({
+        title: "Check-lists créées",
+        description: "Les tâches ont été générées à partir des missions configurées",
+      });
+      
+      // Reload the checklist items
+      const items = await getChecklistItems(dateStr, filterHotel);
+      setChecklistItems(items);
+      
+      // Calculate completion percentage
+      if (items.length > 0) {
+        const completed = items.filter(item => item.completed).length;
+        const percent = Math.round((completed / items.length) * 100);
+        setCompletedPercent(percent);
+      } else {
+        setCompletedPercent(0);
+      }
+      
+    } catch (error: any) {
+      console.error('Error generating checklist items:', error);
+      toast({
+        title: "Erreur",
+        description: error.message || "Impossible de générer les check-lists",
+        variant: "destructive",
+      });
+    } finally {
+      setGenerateInProgress(false);
+      setGenerateDialogOpen(false);
+    }
+  };
 
   // Group items by service
   const groupedItems = checklistItems.reduce((groups, item) => {
@@ -214,14 +262,18 @@ const ChecklistPage = () => {
   }, {} as Record<string, any[]>);
 
   // Filter services based on search query
-  const filteredServiceIds = !searchQuery 
-    ? Object.keys(groupedItems) 
-    : Object.keys(groupedItems).filter(serviceId => 
-        groupedItems[serviceId].some(item => 
-          item.title.toLowerCase().includes(searchQuery.toLowerCase()) || 
-          (item.description?.toLowerCase()?.includes(searchQuery.toLowerCase()))
-        )
-      );
+  const filteredServiceIds = Object.keys(groupedItems).filter(serviceId => {
+    if (!searchQuery) return true;
+    
+    const query = searchQuery.toLowerCase();
+    const items = groupedItems[serviceId];
+    
+    // Check if any item in this service matches the search query
+    return items.some(item => 
+      item.title.toLowerCase().includes(query) || 
+      (item.description && item.description.toLowerCase().includes(query))
+    );
+  });
 
   if (!filterHotel) {
     return (
@@ -336,6 +388,13 @@ const ChecklistPage = () => {
                     Aucune tâche n'est définie pour cette date. Contactez votre administrateur pour 
                     configurer les check-lists pour cet hôtel.
                   </p>
+                  
+                  <div className="mt-6">
+                    <Button onClick={handleGenerateChecklist} variant="default">
+                      <Plus className="mr-2 h-4 w-4" />
+                      Générer des tâches pour cette date
+                    </Button>
+                  </div>
                 </CardContent>
               </Card>
             ) : (
@@ -398,6 +457,62 @@ const ChecklistPage = () => {
         onConfirm={confirmCompleteDay}
         loading={duplicationInProgress}
       />
+      
+      {/* Generate Checklist Dialog */}
+      <Dialog open={generateDialogOpen} onOpenChange={setGenerateDialogOpen}>
+        <DialogContent className="sm:max-w-[500px]">
+          <DialogHeader>
+            <DialogTitle>Générer des check-lists</DialogTitle>
+            <DialogDescription>
+              Générer des check-lists à partir des missions configurées
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="py-6">
+            <p>
+              Voulez-vous générer les tâches de check-list pour la date du <strong>{formatDate(selectedDate)}</strong> ?
+            </p>
+            
+            <p className="mt-2 text-sm text-muted-foreground">
+              Cette action va créer automatiquement des tâches basées sur les missions configurées
+              dans les paramètres pour cet hôtel.
+            </p>
+            
+            <Alert className="mt-4" variant="default">
+              <AlertDescription>
+                Si des missions sont déjà définies pour cet hôtel dans les paramètres,
+                elles seront utilisées pour générer les tâches de check-list.
+              </AlertDescription>
+            </Alert>
+          </div>
+          
+          <DialogFooter>
+            <Button 
+              variant="outline" 
+              onClick={() => setGenerateDialogOpen(false)}
+              disabled={generateInProgress}
+            >
+              Annuler
+            </Button>
+            <Button 
+              onClick={confirmGenerateChecklist}
+              disabled={generateInProgress}
+            >
+              {generateInProgress ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Génération...
+                </>
+              ) : (
+                <>
+                  <Plus className="mr-2 h-4 w-4" />
+                  Générer les check-lists
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

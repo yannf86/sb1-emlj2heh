@@ -7,11 +7,15 @@ import { db } from '../firebase';
  */
 export const getChecklistMissionParameters = async () => {
   try {
+    console.log('Fetching all checklist mission parameters');
     const q = query(
       collection(db, 'parameters_checklist_mission'),
       where('active', '==', true)
     );
+    
     const querySnapshot = await getDocs(q);
+    console.log(`Found ${querySnapshot.size} active checklist mission parameters`);
+    
     return querySnapshot.docs.map(doc => ({
       id: doc.id,
       ...doc.data()
@@ -29,16 +33,57 @@ export const getChecklistMissionParameters = async () => {
  */
 export const getChecklistMissionParametersByHotel = async (hotelId: string) => {
   try {
-    const q = query(
-      collection(db, 'parameters_checklist_mission'),
-      where('hotelIds', 'array-contains', hotelId),
-      where('active', '==', true)
+    console.log(`Fetching missions for hotel ID: ${hotelId}`);
+    
+    // Récupérer toutes les missions pour voir si on en a
+    const allMissions = await getDocs(collection(db, 'parameters_checklist_mission'));
+    console.log(`Total missions found: ${allMissions.size}`);
+    
+    // Log les hotelIds de chaque mission pour débogage
+    allMissions.docs.forEach(doc => {
+      const data = doc.data();
+      console.log(`Mission ${doc.id} (${data.title}): hotelIds =`, 
+        Array.isArray(data.hotelIds) ? data.hotelIds : 'Not an array');
+    });
+    
+    // Tester d'abord la requête avec array-contains
+    try {
+      const q = query(
+        collection(db, 'parameters_checklist_mission'),
+        where('hotelIds', 'array-contains', hotelId),
+        where('active', '==', true)
+      );
+      
+      const querySnapshot = await getDocs(q);
+      console.log(`Found ${querySnapshot.size} missions with array-contains query`);
+      
+      if (querySnapshot.size > 0) {
+        return querySnapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data()
+        }));
+      }
+    } catch (error) {
+      console.warn('Error with array-contains query:', error);
+    }
+    
+    // Si la première requête échoue ou ne renvoie rien, essayer une approche différente
+    console.log('Trying alternative approach - fetching all missions and filtering in memory');
+    
+    const allMissionsSnapshot = await getDocs(
+      query(collection(db, 'parameters_checklist_mission'), where('active', '==', true))
     );
-    const querySnapshot = await getDocs(q);
-    return querySnapshot.docs.map(doc => ({
-      id: doc.id,
-      ...doc.data()
-    }));
+    
+    const filteredMissions = allMissionsSnapshot.docs
+      .map(doc => ({ id: doc.id, ...doc.data() }))
+      .filter(mission => {
+        // S'assurer que hotelIds existe et est un tableau
+        const hotelIds = Array.isArray(mission.hotelIds) ? mission.hotelIds : [];
+        return hotelIds.includes(hotelId);
+      });
+    
+    console.log(`Found ${filteredMissions.length} missions after manual filtering`);
+    return filteredMissions;
   } catch (error) {
     console.error('Error getting checklist mission parameters by hotel:', error);
     throw error;
@@ -69,13 +114,20 @@ export const getChecklistMissionParametersByService = async (serviceId: string) 
 };
 
 /**
- * Create a new checklist mission parameter and associated items for today
+ * Create a new checklist mission parameter
  * @param data Checklist mission parameter data
  * @returns ID of the created parameter
  */
 export const createChecklistMissionParameter = async (data: any) => {
   try {
-    // Create the checklist mission parameter
+    // Assurez-vous que hotelIds est bien un tableau
+    if (data.hotelIds && !Array.isArray(data.hotelIds)) {
+      data.hotelIds = [data.hotelIds];
+    }
+    
+    // Log pour débogage
+    console.log('Creating checklist mission with data:', data);
+    
     const docRef = await addDoc(collection(db, 'parameters_checklist_mission'), {
       ...data,
       active: true,
@@ -83,34 +135,7 @@ export const createChecklistMissionParameter = async (data: any) => {
       updatedAt: new Date().toISOString()
     });
     
-    // Create checklist items for today in each hotel
-    if (data.hotelIds && data.hotelIds.length > 0) {
-      const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD format
-      
-      // Import the createChecklistItem function
-      const { createChecklistItem } = await import('./checklist');
-      
-      // Create a checklist item for each hotel
-      const createPromises = data.hotelIds.map(hotelId => 
-        createChecklistItem({
-          title: data.title,
-          description: data.description || null,
-          hotelId,
-          serviceId: data.serviceId,
-          date: today,
-          completed: false,
-          missionId: docRef.id,
-          isPermanent: data.isPermanent || false,
-          imageUrl: data.imageUrl || null,
-          attachmentPath: data.attachmentPath || null,
-          orderIndex: data.order || 0
-        })
-      );
-      
-      // Wait for all items to be created (even if some fail)
-      await Promise.allSettled(createPromises);
-    }
-    
+    console.log(`Created mission with ID: ${docRef.id}`);
     return docRef.id;
   } catch (error) {
     console.error('Error creating checklist mission parameter:', error);
@@ -125,11 +150,18 @@ export const createChecklistMissionParameter = async (data: any) => {
  */
 export const updateChecklistMissionParameter = async (id: string, data: any) => {
   try {
+    // Assurez-vous que hotelIds est bien un tableau
+    if (data.hotelIds && !Array.isArray(data.hotelIds)) {
+      data.hotelIds = [data.hotelIds];
+    }
+    
     const docRef = doc(db, 'parameters_checklist_mission', id);
     await updateDoc(docRef, {
       ...data,
       updatedAt: new Date().toISOString()
     });
+    
+    console.log(`Updated mission with ID: ${id}`);
   } catch (error) {
     console.error('Error updating checklist mission parameter:', error);
     throw error;
@@ -143,6 +175,7 @@ export const updateChecklistMissionParameter = async (id: string, data: any) => 
 export const deleteChecklistMissionParameter = async (id: string) => {
   try {
     await deleteDoc(doc(db, 'parameters_checklist_mission', id));
+    console.log(`Deleted mission with ID: ${id}`);
   } catch (error) {
     console.error('Error deleting checklist mission parameter:', error);
     throw error;

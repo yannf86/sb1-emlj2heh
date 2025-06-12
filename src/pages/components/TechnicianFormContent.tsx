@@ -1,7 +1,7 @@
 import React, { useRef, useEffect } from 'react';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { modules } from '@/lib/modules';
+import { modules } from '@/lib/data';
 import { useTechnicianForm } from './TechnicianFormContext';
 import { getCurrentUser } from '@/lib/auth';
 

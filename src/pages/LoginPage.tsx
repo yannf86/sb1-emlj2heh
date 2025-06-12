@@ -6,9 +6,9 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { login, isAuthenticated } from '@/lib/auth';
-import { Alert, AlertDescription } from '@/components/ui/alert';
 
 import { useToast } from '@/hooks/use-toast';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 
 const LoginPage = () => {
   // State for user login
@@ -31,16 +31,12 @@ const LoginPage = () => {
   // Check authentication status on mount
   useEffect(() => {
     const checkAuth = () => {
-      try {
-        if (isAuthenticated()) {
-          navigate('/dashboard', { replace: true });
-          return;
-        }
-      } catch (error) {
-        console.error("Error checking authentication:", error);
-      } finally {
-        setCheckingAuth(false);
+      if (isAuthenticated()) {
+        navigate('/dashboard', { replace: true });
+        return;
       }
+      
+      setCheckingAuth(false);
     };
     
     // Short delay to ensure auth state is ready
@@ -73,25 +69,20 @@ const LoginPage = () => {
       return;
     }
     
-    try {
-      // Perform login (passing username to validate it matches)
-      const result = await login(email, password, username);
-      
-      if (result.success) {
-        toast({
-          title: "Connexion réussie",
-          description: `Bienvenue, ${username}`,
-        });
-        navigate('/dashboard');
-      } else {
-        setErrorMessage(result.message || "Identifiants incorrects");
-      }
-    } catch (error) {
-      console.error("Error during login:", error);
-      setErrorMessage("Une erreur s'est produite lors de la connexion");
-    } finally {
-      setLoading(false);
+    // Perform login (passing username to validate it matches)
+    const result = await login(email, password, username);
+    
+    if (result.success) {
+      toast({
+        title: "Connexion réussie",
+        description: `Bienvenue, ${username}`,
+      });
+      navigate('/dashboard');
+    } else {
+      setErrorMessage(result.message || "Identifiants incorrects");
     }
+    
+    setLoading(false);
   };
 
   // Show loading state while checking authentication

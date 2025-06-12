@@ -1,8 +1,21 @@
-import { collection, addDoc, getDocs, query, where, doc, getDoc, updateDoc, deleteDoc, orderBy, Timestamp, writeBatch } from 'firebase/firestore';
+import { 
+  collection, 
+  addDoc, 
+  getDocs, 
+  query, 
+  where, 
+  doc, 
+  getDoc, 
+  updateDoc, 
+  deleteDoc, 
+  orderBy, 
+  Timestamp, 
+  writeBatch,
+  limit
+} from 'firebase/firestore';
 import { db } from '../firebase';
 import { getCurrentUser } from '../auth';
 import { getChecklistMissionParametersByHotel } from './parameters-checklist-missions';
-import { SERVICES } from '../constants';
 
 // Interface for checklist items
 interface ChecklistItem {
@@ -34,6 +47,7 @@ interface ChecklistItem {
  */
 export const getChecklistItems = async (date: string, hotelId: string) => {
   try {
+    console.log(`Getting checklist items for date ${date} and hotel ${hotelId}`);
     const q = query(
       collection(db, 'checklist_items'),
       where('date', '==', date),
@@ -42,6 +56,7 @@ export const getChecklistItems = async (date: string, hotelId: string) => {
     );
     
     const querySnapshot = await getDocs(q);
+    console.log(`Found ${querySnapshot.docs.length} checklist items`);
     return querySnapshot.docs.map(doc => ({
       id: doc.id,
       ...doc.data()
@@ -64,6 +79,8 @@ export const createChecklistItem = async (data: Omit<ChecklistItem, 'id'>) => {
       throw new Error('User not authenticated');
     }
     
+    console.log('Creating single checklist item:', data);
+    
     const docRef = await addDoc(collection(db, 'checklist_items'), {
       ...data,
       completed: false,
@@ -71,6 +88,8 @@ export const createChecklistItem = async (data: Omit<ChecklistItem, 'id'>) => {
       updatedAt: new Date().toISOString(),
       createdBy: currentUser.id
     });
+    
+    console.log('Successfully created checklist item with ID:', docRef.id);
     
     return docRef.id;
   } catch (error) {
@@ -197,11 +216,7 @@ export const deleteChecklistItem = async (id: string) => {
  */
 export const getServiceInfo = async (serviceId: string) => {
   try {
-    // D'abord vérifier dans la liste prédéfinie (plus rapide)
-    const hardcodedService = SERVICES.find(s => s.id === serviceId);
-    if (hardcodedService) return hardcodedService;
-    
-    // Sinon essayer Firebase
+    // Essayer d'abord de récupérer depuis logbook_services
     const docRef = doc(db, 'logbook_services', serviceId);
     const docSnap = await getDoc(docRef);
     
@@ -213,11 +228,33 @@ export const getServiceInfo = async (serviceId: string) => {
       };
     }
     
-    // Fallback
-    return { name: 'Service inconnu', icon: '📋' };
+    // Si non trouvé, essayer avec les services prédéfinis
+    const predefinedServices = {
+      'reception': { name: 'Réception', icon: '👥' },
+      'housekeeping': { name: 'Housekeeping', icon: '🛏️' },
+      'pdj': { name: 'Petit déjeuner', icon: '🍳' },
+      'restaurant': { name: 'Restaurant', icon: '🍽️' },
+      'technical': { name: 'Technique', icon: '🔧' },
+      'security': { name: 'Sécurité', icon: '🔒' },
+      'important': { name: 'Important', icon: '⚠️' },
+      'direction': { name: 'Direction', icon: '👑' }
+    };
+    
+    if (predefinedServices[serviceId]) {
+      return predefinedServices[serviceId];
+    }
+    
+    // Fallback default
+    return {
+      name: 'Service',
+      icon: '📋'
+    };
   } catch (error) {
     console.error('Error getting service info:', error);
-    return { name: 'Service inconnu', icon: '📋' };
+    return {
+      name: 'Service',
+      icon: '📋'
+    };
   }
 };
 
@@ -310,8 +347,11 @@ export const createChecklistItemsFromMissions = async (hotelId: string, date: st
       throw new Error('User not authenticated');
     }
     
+    console.log(`Generating checklist items for hotel ${hotelId} on date ${date}`);
+    
     // Get missions for this hotel
     const missions = await getChecklistMissionParametersByHotel(hotelId);
+    console.log(`Found ${missions.length} missions for hotel`, missions);
     
     // Check if items already exist for this date
     const existingQuery = query(
@@ -321,41 +361,89 @@ export const createChecklistItemsFromMissions = async (hotelId: string, date: st
     );
     
     const existingSnapshot = await getDocs(existingQuery);
+    console.log(`Found ${existingSnapshot.size} existing items for this date`);
     
     // If items already exist, don't create new ones
     if (!existingSnapshot.empty) {
       throw new Error('Des tâches existent déjà pour cette date');
     }
     
-    // Create items in a batch
-    const batch = writeBatch(db);
+    console.log('Creating new checklist items from missions');
     const newItemIds: string[] = [];
     
-    missions.forEach((mission, index) => {
-      // Create a new document reference
-      const newDocRef = doc(collection(db, 'checklist_items'));
+    // Créer les tâches une à la fois au lieu d'utiliser un batch
+    // Cela pourrait aider à identifier les problèmes plus facilement
+    
+    // Si la liste des missions est vide, créer au moins une tâche par défaut
+    if (missions.length === 0) {
+      console.log('No missions found, creating a default task');
       
-      // Add the document to the batch
-      batch.set(newDocRef, {
-        title: mission.title,
-        description: mission.description || null,
+      const docRef = await addDoc(collection(db, 'checklist_items'), {
+        title: 'Vérification quotidienne',
+        description: 'Vérification générale à effectuer quotidiennement',
         hotelId: hotelId,
-        serviceId: mission.serviceId,
+        serviceId: 'reception', // Service par défaut
         date: date,
         completed: false,
-        missionId: mission.id,
-        isPermanent: mission.isPermanent || false,
-        orderIndex: index,
+        isPermanent: true,
+        orderIndex: 0,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
         createdBy: currentUser.id
       });
       
-      newItemIds.push(newDocRef.id);
-    });
+      console.log(`Created default checklist item with ID: ${docRef.id}`);
+      newItemIds.push(docRef.id);
+    } else {
+      for (let i = 0; i < missions.length; i++) {
+        const mission = missions[i];
+        console.log(`Creating task ${i+1}/${missions.length} for mission: ${mission.title}`);
+        
+        try {
+          const docRef = await addDoc(collection(db, 'checklist_items'), {
+            title: mission.title,
+            description: mission.description || null,
+            hotelId: hotelId,
+            serviceId: mission.serviceId,
+            date: date,
+            completed: false,
+            missionId: mission.id,
+            isPermanent: mission.isPermanent || false,
+            imageUrl: mission.imageUrl || null,
+            attachmentPath: mission.attachmentPath || null,
+            orderIndex: i,
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+            createdBy: currentUser.id
+          });
+          
+          console.log(`Successfully created checklist item with ID: ${docRef.id}`);
+          newItemIds.push(docRef.id);
+        } catch (itemError) {
+          console.error(`Error creating item for mission ${mission.title}:`, itemError);
+          // Continue with other missions even if this one fails
+        }
+      }
+    }
     
-    // Commit the batch
-    await batch.commit();
+    console.log(`Created ${newItemIds.length} checklist items`);
+    
+    // Vérifier si les documents sont correctement créés dans Firestore
+    setTimeout(async () => {
+      try {
+        console.log('Verifying if items were created in Firestore...');
+        const verificationQuery = query(
+          collection(db, 'checklist_items'),
+          where('date', '==', date),
+          where('hotelId', '==', hotelId)
+        );
+        
+        const verificationSnapshot = await getDocs(verificationQuery);
+        console.log(`Verification: Found ${verificationSnapshot.size} items in Firestore for date ${date} and hotel ${hotelId}`);
+      } catch (verificationError) {
+        console.error('Error during verification:', verificationError);
+      }
+    }, 2000);
     
     return newItemIds;
   } catch (error) {

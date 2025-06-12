@@ -44,7 +44,7 @@ export const getIncidents = async (hotelId?: string, groupId?: string, statusId?
       }
       queryConstraints.push(where('hotelId', '==', hotelId));
     }
-    
+
     // Add status filter if provided
     if (statusId) {
       queryConstraints.push(where('statusId', '==', statusId));
@@ -471,7 +471,8 @@ export const deleteIncident = async (id: string) => {
     const docSnap = await getDoc(docRef);
     
     if (!docSnap.exists()) {
-      throw new Error('Incident not found');
+      console.warn(`Incident with ID ${id} not found - may have already been deleted`);
+      return; // Return early instead of throwing an error
     }
     
     const oldData = docSnap.data();
