@@ -29,6 +29,7 @@ import { getGroups } from '@/lib/db/groups';
 import { queryClient } from '@/lib/query-client';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { modules } from '@/lib/modules';
+import { useHotels } from '@/hooks/useHotels';
 
 // Gamification
 import { GamificationProvider } from '@/components/gamification/GamificationContext';
@@ -51,7 +52,18 @@ const UserLevelBadge = () => {
 
 const DashboardLayout = () => {
   const [collapsed, setCollapsed] = useState(false);
-  const [darkMode, setDarkMode] = useState(false);
+  const [darkMode, setDarkMode] = useState(() => {
+    // Initialize darkMode from localStorage or system preference
+    if (typeof localStorage !== 'undefined') {
+      const savedTheme = localStorage.getItem('theme');
+      if (savedTheme) {
+        return savedTheme === 'dark';
+      }
+      // If no saved theme, check system preference
+      return window.matchMedia('(prefers-color-scheme: dark)').matches;
+    }
+    return false; // Default to light mode
+  });
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [gamificationOpen, setGamificationOpen] = useState(false);
   const [selectedGroup, setSelectedGroup] = useState<string | null>(null);
@@ -59,6 +71,7 @@ const DashboardLayout = () => {
   const location = useLocation();
   const navigate = useNavigate();
   const currentUser = getCurrentUser();
+  const { data: hotels = [] } = useHotels();
   
   // Reset inactivity timer on any user interaction with the dashboard
   useEffect(() => {
@@ -81,11 +94,15 @@ const DashboardLayout = () => {
   
   // Toggle dark mode
   useEffect(() => {
+    // Apply dark mode class to document once on mount and when darkMode changes
     if (darkMode) {
       document.documentElement.classList.add('dark');
     } else {
       document.documentElement.classList.remove('dark');
     }
+    
+    // Save preference to localStorage
+    localStorage.setItem('theme', darkMode ? 'dark' : 'light');
   }, [darkMode]);
   
   // Load available groups
@@ -455,8 +472,8 @@ const DashboardLayout = () => {
               <span className="text-sm font-medium dark:text-white">
                 {currentUser?.role === 'admin' ? 'Tous les hôtels' : 
                   currentUser?.hotels.length === 1 ? 
-                    hotels.find(h => h.id === currentUser.hotels[0])?.name : 
-                    `${currentUser?.hotels.length} hôtels`
+                    hotels.find(h => h.id === currentUser.hotels[0])?.name || currentUser.hotels[0] : 
+                    `${currentUser?.hotels.length || 0} hôtels`
                 }
               </span>
             </div>

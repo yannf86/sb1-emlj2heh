@@ -43,6 +43,7 @@ export const login = async (email: string, password: string, username: string): 
     const querySnapshot = await getDocs(q);
     
     if (querySnapshot.empty) {
+      console.error("No user found with email:", email);
       await firebaseSignOut(auth);
       return { success: false, message: "Utilisateur non trouvé" };
     }
@@ -52,12 +53,14 @@ export const login = async (email: string, password: string, username: string): 
       const matchingUser = querySnapshot.docs.find(doc => doc.data().name === username);
       
       if (!matchingUser) {
+        console.error("Username does not match:", username);
         await firebaseSignOut(auth);
         return { success: false, message: "Le nom d'utilisateur ne correspond pas" };
       }
       
       const userData = matchingUser.data();
       if (!userData.active) {
+        console.error("User account is disabled:", userData.name);
         await firebaseSignOut(auth);
         return { success: false, message: "Compte désactivé" };
       }
@@ -78,11 +81,13 @@ export const login = async (email: string, password: string, username: string): 
       const userData = querySnapshot.docs[0].data();
       
       if (userData.name !== username) {
+        console.error("Username does not match:", username, "vs", userData.name);
         await firebaseSignOut(auth);
         return { success: false, message: "Le nom d'utilisateur ne correspond pas" };
       }
       
       if (!userData.active) {
+        console.error("User account is disabled:", userData.name);
         await firebaseSignOut(auth);
         return { success: false, message: "Compte désactivé" };
       }
@@ -255,6 +260,12 @@ export const getCurrentUser = (): AuthUser | null => {
   if (storedUser) {
     try {
       currentUser = JSON.parse(storedUser);
+      // Make sure critical fields are initialized
+      if (currentUser) {
+        if (!currentUser.hotels) currentUser.hotels = [];
+        if (!currentUser.modules) currentUser.modules = [];
+        if (!currentUser.groupIds) currentUser.groupIds = [];
+      }
       return currentUser;
     } catch (e) {
       sessionStorage.removeItem('currentUser');

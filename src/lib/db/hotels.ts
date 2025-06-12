@@ -1,4 +1,4 @@
-import { collection, getDocs, query, where, doc, getDoc, updateDoc, addDoc } from 'firebase/firestore';
+import { collection, addDoc, getDocs, query, where, doc, getDoc, updateDoc, deleteDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import type { Hotel } from '../schema';
 import { getCurrentUser, hasHotelAccess, hasGroupAccess } from '../auth';
@@ -8,34 +8,70 @@ export const getHotels = async () => {
   try {
     const currentUser = getCurrentUser();
     
-    // Get all hotels from Firestore
-    const querySnapshot = await getDocs(collection(db, 'hotels'));
-    const allHotels = querySnapshot.docs.map(doc => ({
-      id: doc.id,
-      ...doc.data()
-    })) as Hotel[];
-    
-    // If no user is logged in or user is system admin (role='admin'), return all hotels
-    if (!currentUser || currentUser.role === 'admin') return allHotels;
-    
-    // For group_admin, return all hotels in their groups
-    if (currentUser.role === 'group_admin' && currentUser.groupIds && currentUser.groupIds.length > 0) {
-      return allHotels.filter(hotel => 
-        hotel.groupId && currentUser.groupIds.includes(hotel.groupId)
-      );
+    // If no current user, return empty array without throwing an error
+    if (!currentUser) {
+      console.warn('No current user found when loading hotels');
+      return [];
     }
     
-    // For both hotel_admin and standard users, filter hotels based on their assigned hotels
-    return allHotels.filter(hotel => currentUser.hotels.includes(hotel.id));
+    let q;
+    
+    // Build query based on user role, hotel permissions
+    if (currentUser.role === 'admin') {
+      // Admin users can see all hotels
+      q = query(collection(db, 'hotels'));
+    } else if (currentUser.role === 'group_admin' && currentUser.groupIds && currentUser.groupIds.length > 0) {
+      // Group admins can see hotels in their groups
+      q = query(collection(db, 'hotels'), where('groupId', 'in', currentUser.groupIds.slice(0, 10)));
+    } else if (currentUser.hotels && currentUser.hotels.length > 0) {
+      // Standard users and hotel admins can only see their assigned hotels
+      // Note: We can't use "in" queries with more than 10 items, so we use a different approach for users with many hotels
+      if (currentUser.hotels.length <= 10) {
+        q = query(collection(db, 'hotels'), where('id', 'in', currentUser.hotels));
+      } else {
+        // For users with more than 10 hotels, get all hotels and filter in memory
+        q = query(collection(db, 'hotels'));
+      }
+    } else {
+      // User has no hotels assigned, return empty array
+      console.warn(`User ${currentUser.id} has no hotels assigned`);
+      return [];
+    }
+    
+    try {
+      const querySnapshot = await getDocs(q);
+      let hotelsData = querySnapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }));
+      
+      // If we fetched all hotels due to the 10-item limit, filter in memory
+      if (currentUser.role !== 'admin' && currentUser.hotels && currentUser.hotels.length > 10) {
+        hotelsData = hotelsData.filter(hotel => currentUser.hotels.includes(hotel.id));
+      }
+      
+      return hotelsData as Hotel[];
+    } catch (error) {
+      console.error('Firebase error getting hotels:', error);
+      // Return empty array instead of throwing error
+      return [];
+    }
   } catch (error) {
     console.error('Error getting hotels:', error);
-    throw error;
+    // Return empty array instead of throwing
+    return [];
   }
 };
 
 // Get hotel by ID
-export const getHotelById = async (hotelId: string): Promise<Hotel | null> => {
+export const getHotelById = async (hotelId: string) => {
   try {
+    // Si l'ID est vide ou null, retourner null immédiatement
+    if (!hotelId) {
+      console.warn('Empty hotel ID provided to getHotelById');
+      return null;
+    }
+    
     const currentUser = getCurrentUser();
     if (!currentUser) {
       throw new Error('User not authenticated');
@@ -102,7 +138,7 @@ export const getHotelsByGroup = async (groupId: string) => {
     })) as Hotel[];
   } catch (error) {
     console.error('Error getting hotels by group:', error);
-    throw error;
+    return []; // Return empty array instead of throwing
   }
 };
 
@@ -158,35 +194,48 @@ export const getHotelsByIds = async (hotelIds: string[]) => {
     }
     
     // For hotel_admin and standard users, filter by direct hotel access
-    const accessibleHotelIds = hotelIds.filter(id => currentUser.hotels.includes(id));
-    
-    const hotels: Hotel[] = [];
-    for (const hotelId of accessibleHotelIds) {
-      const hotelRef = doc(db, 'hotels', hotelId);
-      const hotelSnap = await getDoc(hotelRef);
-      if (hotelSnap.exists()) {
-        hotels.push({
-          id: hotelSnap.id,
-          ...hotelSnap.data()
-        } as Hotel);
+    if (currentUser.hotels && currentUser.hotels.length > 0) {
+      const accessibleHotelIds = hotelIds.filter(id => currentUser.hotels.includes(id));
+      
+      const hotels: Hotel[] = [];
+      for (const hotelId of accessibleHotelIds) {
+        const hotelRef = doc(db, 'hotels', hotelId);
+        const hotelSnap = await getDoc(hotelRef);
+        if (hotelSnap.exists()) {
+          hotels.push({
+            id: hotelSnap.id,
+            ...hotelSnap.data()
+          } as Hotel);
+        }
       }
+      
+      return hotels;
     }
     
-    return hotels;
+    // User has no hotel access
+    return [];
   } catch (error) {
     console.error('Error getting hotels by IDs:', error);
-    throw error;
+    return []; // Return empty array instead of throwing
   }
 };
 
 // Get hotel name by ID
 export const getHotelName = async (hotelId: string): Promise<string> => {
   try {
+    // Check if hotelId is valid
+    if (!hotelId) {
+      console.warn('Invalid hotelId provided to getHotelName:', hotelId);
+      return 'Inconnu';
+    }
+    
     const docRef = doc(db, 'hotels', hotelId);
     const docSnap = await getDoc(docRef);
     if (docSnap.exists()) {
       return docSnap.data().name;
     }
+    
+    // Return 'Inconnu' if not found
     return 'Inconnu';
   } catch (error) {
     console.error('Error getting hotel name:', error);
@@ -288,6 +337,8 @@ export const updateHotel = async (hotelId: string, hotelData: Partial<Hotel>) =>
 // Get group ID for a hotel
 export const getGroupIdForHotel = async (hotelId: string): Promise<string | null> => {
   try {
+    if (!hotelId) return null;
+    
     const docRef = doc(db, 'hotels', hotelId);
     const docSnap = await getDoc(docRef);
     if (docSnap.exists() && docSnap.data().groupId) {
