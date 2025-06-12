@@ -1,5 +1,5 @@
 import { useQuery, useMutation } from '@tanstack/react-query';
-import { getMaintenanceRequests, getMaintenanceRequest, createMaintenanceRequest, updateMaintenanceRequest, deleteMaintenanceRequest, getMaintenanceRequestsByTechnician } from '../lib/db/maintenance';
+import { getMaintenanceRequests, getMaintenanceRequest, createMaintenanceRequest, updateMaintenanceRequest, deleteMaintenanceRequest, getMaintenanceRequestsByHotel } from '../lib/db/maintenance';
 import { queryClient, invalidateMaintenanceRequests } from '../lib/query-client';
 import { useToast } from './use-toast';
 
@@ -38,18 +38,18 @@ export function useMaintenanceRequest(id: string) {
   });
 }
 
-export function useMaintenanceRequestsByTechnician(technicianId: string) {
+export function useMaintenanceRequestsByHotel(hotelId: string) {
   const { toast } = useToast();
 
   return useQuery({
-    queryKey: ['maintenance', 'technician', technicianId],
-    queryFn: () => getMaintenanceRequestsByTechnician(technicianId),
-    enabled: !!technicianId, // Only run query if technicianId is provided
+    queryKey: ['maintenance', 'hotel', hotelId],
+    queryFn: () => getMaintenanceRequestsByHotel(hotelId),
+    enabled: !!hotelId, // Only run query if hotelId is provided
     onError: (error) => {
-      console.error(`Error loading maintenance requests for technician ${technicianId}:`, error);
+      console.error(`Error loading maintenance requests for hotel ${hotelId}:`, error);
       toast({
         title: 'Erreur',
-        description: 'Impossible de charger les demandes de maintenance pour ce technicien',
+        description: 'Impossible de charger les demandes de maintenance pour cet hôtel',
         variant: 'destructive',
       });
     },

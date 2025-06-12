@@ -10,14 +10,12 @@ import { getHotelLocations } from '@/lib/db/parameters-locations';
 import { getInterventionTypeParameters } from '@/lib/db/parameters-intervention-type';
 import { getStatusParameters } from '@/lib/db/parameters-status';
 import { getCurrentUser } from '@/lib/auth';
-import { getUsersByHotel, getUsers } from '@/lib/db/users';
-import { getTechniciansByHotel, getTechnicians } from '@/lib/db/technicians';
+import { getUsers, getUsersByHotel } from '@/lib/db/users';
 import { useDate } from '@/hooks/use-date';
 import { useToast } from '@/hooks/use-toast';
 import { findStatusIdByCode } from '@/lib/db/parameters-status';
-import { Loader2, Image, X } from 'lucide-react';
-import { Switch } from '@/components/ui/switch';
-import { uploadToSupabase, isDataUrl, dataUrlToFile, deleteFromSupabase } from '@/lib/supabase';
+import { Loader2, Image } from 'lucide-react';
+import { uploadToSupabase, isDataUrl, dataUrlToFile } from '../supabase';
 import PhotoDisplay from '@/components/maintenance/PhotoDisplay';
 
 interface MaintenanceFormProps {
@@ -44,8 +42,7 @@ const MaintenanceForm: React.FC<MaintenanceFormProps> = ({
       return {
         ...maintenance,
         photoBeforePreview: maintenance.photoBefore || '',
-        photoAfterPreview: maintenance.photoAfter || '',
-        hasQuote: !!maintenance.quoteUrl
+        photoAfterPreview: maintenance.photoAfter || ''
       };
     } else {
       return {
@@ -55,14 +52,11 @@ const MaintenanceForm: React.FC<MaintenanceFormProps> = ({
         locationId: '',
         interventionTypeId: '',
         description: '',
-        photoBeforePreview: '',
         photoBefore: null,
-        photoAfterPreview: '',
+        photoBeforePreview: '',
         photoAfter: null,
-        hasQuote: false,
-        quoteFile: null,
+        photoAfterPreview: '',
         assignedUserId: '',
-        technicianIds: [],
         statusId: '',
         estimatedAmount: '',
         finalAmount: '',
@@ -82,27 +76,8 @@ const MaintenanceForm: React.FC<MaintenanceFormProps> = ({
   const [filteredUsers, setFilteredUsers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingLocations, setLoadingLocations] = useState(false);
-  const [technicians, setTechnicians] = useState<any[]>([]);
-  const [loadingTechnicians, setLoadingTechnicians] = useState(false);
   const [photoBeforeUploading, setPhotoBeforeUploading] = useState(false);
   const [photoAfterUploading, setPhotoAfterUploading] = useState(false);
-  const [quoteFileUploading, setQuoteFileUploading] = useState(false);
-  const [inProgressStatusId, setInProgressStatusId] = useState<string | null>(null);
-
-  // Charger les paramètres et les statuts nécessaires
-  useEffect(() => {
-    const loadStatus = async () => {
-      try {
-        // Trouver l'ID du statut "En cours"
-        const inProgressId = await findStatusIdByCode('in_progress');
-        setInProgressStatusId(inProgressId);
-      } catch (error) {
-        console.error("Erreur lors du chargement du statut 'En cours':", error);
-      }
-    };
-    
-    loadStatus();
-  }, []);
 
   // Load all data on mount
   useEffect(() => {
@@ -126,12 +101,16 @@ const MaintenanceForm: React.FC<MaintenanceFormProps> = ({
         const allUsers = await getUsers();
         setUsers(allUsers);
         
-        // Load technicians
-        const allTechnicians = await getTechnicians();
-        setTechnicians(allTechnicians);
+        // Filter users based on selected hotel
+        if (maintenance?.hotelId) {
+          const hotelUsers = await getUsersByHotel(maintenance.hotelId);
+          setFilteredUsers(hotelUsers);
+        } else {
+          setFilteredUsers(allUsers);
+        }
         
-        // Load locations for the current hotel if editing
-        if (isEditing && maintenance?.hotelId) {
+        // Load locations for the current hotel
+        if (maintenance?.hotelId) {
           await loadLocationsForHotel(maintenance.hotelId);
         }
       } catch (error) {
@@ -148,74 +127,6 @@ const MaintenanceForm: React.FC<MaintenanceFormProps> = ({
     
     loadData();
   }, [maintenance?.hotelId, toast]);
-
-  // Set default values for edit mode when a devis has been accepted
-  useEffect(() => {
-    if (isEditing && maintenance) {
-      // Déterminer si le devis a été accepté
-      const isQuoteAccepted = 
-        (maintenance.quoteStatus === 'accepted') || 
-        (maintenance.quoteAccepted === true);
-      
-      if (isQuoteAccepted) {
-        // Mettre à jour le statut par défaut à "En cours"
-        if (inProgressStatusId) {
-          setFormData(prev => ({
-            ...prev,
-            statusId: inProgressStatusId
-          }));
-        }
-        
-        // Définir la date de début comme date d'acceptation du devis
-        if (maintenance.quoteAcceptedDate && !maintenance.startDate) {
-          const acceptedDate = new Date(maintenance.quoteAcceptedDate);
-          setFormData(prev => ({
-            ...prev,
-            startDate: acceptedDate.toISOString().split('T')[0]
-          }));
-        }
-        
-        // Définir le montant estimé comme montant du devis accepté
-        if (maintenance.quoteAmount && !maintenance.estimatedAmount) {
-          setFormData(prev => ({
-            ...prev,
-            estimatedAmount: maintenance.quoteAmount.toString()
-          }));
-        }
-      }
-      
-      // Si on a des quotes dans le nouveau format
-      if (maintenance.quotes && Array.isArray(maintenance.quotes) && maintenance.quotes.length > 0) {
-        const acceptedQuote = maintenance.quotes.find(q => q.status === 'accepted');
-        if (acceptedQuote) {
-          // Mettre à jour le statut par défaut à "En cours"
-          if (inProgressStatusId) {
-            setFormData(prev => ({
-              ...prev,
-              statusId: inProgressStatusId
-            }));
-          }
-          
-          // Définir la date de début comme date d'acceptation du devis
-          if (acceptedQuote.statusUpdatedAt && !maintenance.startDate) {
-            const acceptedDate = new Date(acceptedQuote.statusUpdatedAt);
-            setFormData(prev => ({
-              ...prev,
-              startDate: acceptedDate.toISOString().split('T')[0]
-            }));
-          }
-          
-          // Définir le montant estimé comme montant du devis accepté
-          if (acceptedQuote.amount && !maintenance.estimatedAmount) {
-            setFormData(prev => ({
-              ...prev,
-              estimatedAmount: acceptedQuote.amount.toString()
-            }));
-          }
-        }
-      }
-    }
-  }, [isEditing, maintenance, inProgressStatusId]);
 
   // Load locations when hotel changes
   const loadLocationsForHotel = async (hotelId: string) => {
@@ -240,33 +151,9 @@ const MaintenanceForm: React.FC<MaintenanceFormProps> = ({
     }
   };
   
-  // Load technicians when hotel changes
-  const loadTechniciansForHotel = async (hotelId: string) => {
-    if (!hotelId) {
-      setTechnicians([]);
-      return;
-    }
-
-    try {
-      setLoadingTechnicians(true);
-      const techniciansData = await getTechniciansByHotel(hotelId);
-      setTechnicians(techniciansData);
-    } catch (error) {
-      console.error('Error loading technicians:', error);
-      toast({
-        title: "Erreur",
-        description: "Impossible de charger les techniciens pour cet hôtel",
-        variant: "destructive",
-      });
-    } finally {
-      setLoadingTechnicians(false);
-    }
-  };
-  
   useEffect(() => {
     if (formData.hotelId) {
       loadLocationsForHotel(formData.hotelId);
-      loadTechniciansForHotel(formData.hotelId);
     }
   }, [formData.hotelId]);
   
@@ -298,7 +185,7 @@ const MaintenanceForm: React.FC<MaintenanceFormProps> = ({
     loadFilteredUsers();
   }, [formData.hotelId, users, toast]);
 
-  // Use the date hook for maintenance date
+  // Use the date hook for incident date
   const maintenanceDate = useDate({
     defaultDate: formData.date,
     defaultTime: formData.time,
@@ -329,31 +216,11 @@ const MaintenanceForm: React.FC<MaintenanceFormProps> = ({
   // Handle select changes
   const handleSelectChange = (name: string, value: string | null) => {
     if (name === 'hotelId') {
-      // When hotel changes, reset locationId and assignedUserId
+      // When hotel changes, reset locationId
       setFormData(prev => ({
         ...prev,
         [name]: value,
         locationId: '',
-        assignedUserId: ''
-      }));
-    } else if (name === 'technicianIds') {
-      // Handle multiple technicians selection
-      let updatedTechnicianIds = [...(formData.technicianIds || [])];
-      
-      if (value === 'none') {
-        // "None" selected - clear all technicians
-        updatedTechnicianIds = [];
-      } else if (updatedTechnicianIds.includes(value)) {
-        // Technician already selected - remove it
-        updatedTechnicianIds = updatedTechnicianIds.filter(id => id !== value);
-      } else if (value) {
-        // Add new technician
-        updatedTechnicianIds.push(value);
-      }
-      
-      setFormData(prev => ({
-        ...prev,
-        technicianIds: updatedTechnicianIds
       }));
     } else {
       setFormData(prev => ({
@@ -361,14 +228,6 @@ const MaintenanceForm: React.FC<MaintenanceFormProps> = ({
         [name]: value
       }));
     }
-  };
-
-  // Handle switch changes
-  const handleSwitchChange = (name: string, checked: boolean) => {
-    setFormData(prev => ({
-      ...prev,
-      [name]: checked
-    }));
   };
 
   // Handle file upload - photoBefore
@@ -487,58 +346,9 @@ const MaintenanceForm: React.FC<MaintenanceFormProps> = ({
     }
   };
 
-  // Handle file upload - quoteFile
-  const handleQuoteFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    try {
-      setQuoteFileUploading(true);
-      
-      // Validate file size (5MB max)
-      if (file.size > 5 * 1024 * 1024) {
-        toast({
-          title: "Fichier trop volumineux",
-          description: "La taille du fichier ne doit pas dépasser 5MB",
-          variant: "destructive",
-        });
-        return;
-      }
-
-      // Validate file type
-      if (!file.type.match(/pdf|msword|vnd.openxmlformats-officedocument.wordprocessingml.document/)) {
-        toast({
-          title: "Format de fichier incorrect",
-          description: "Veuillez sélectionner un fichier PDF ou DOC/DOCX",
-          variant: "destructive",
-        });
-        return;
-      }
-
-      setFormData(prev => ({
-        ...prev,
-        quoteFile: file
-      }));
-      setQuoteFileUploading(false);
-    } catch (error) {
-      setQuoteFileUploading(false);
-      console.error('Error handling file upload:', error);
-      toast({
-        title: "Erreur",
-        description: "Une erreur est survenue lors du traitement du fichier",
-        variant: "destructive",
-      });
-    }
-  };
-
   // Handle delete photoBefore
   const handleDeletePhotoBefore = async () => {
     try {
-      // If we have an existing photo URL, delete it from storage
-      if (maintenance?.photoBefore) {
-        await deleteFromSupabase(maintenance.photoBefore);
-      }
-      
       // Update form data
       setFormData(prev => ({
         ...prev,
@@ -558,11 +368,6 @@ const MaintenanceForm: React.FC<MaintenanceFormProps> = ({
   // Handle delete photoAfter
   const handleDeletePhotoAfter = async () => {
     try {
-      // If we have an existing photo URL, delete it from storage
-      if (maintenance?.photoAfter) {
-        await deleteFromSupabase(maintenance.photoAfter);
-      }
-      
       // Update form data
       setFormData(prev => ({
         ...prev,
@@ -574,30 +379,6 @@ const MaintenanceForm: React.FC<MaintenanceFormProps> = ({
       toast({
         title: "Erreur",
         description: "Une erreur est survenue lors de la suppression de la photo",
-        variant: "destructive",
-      });
-    }
-  };
-
-  // Handle delete quote file
-  const handleDeleteQuoteFile = async () => {
-    try {
-      // If we have an existing quote URL, delete it from storage
-      if (maintenance?.quoteUrl) {
-        await deleteFromSupabase(maintenance.quoteUrl);
-      }
-      
-      // Update form data
-      setFormData(prev => ({
-        ...prev,
-        quoteFile: null,
-        quoteUrl: ''
-      }));
-    } catch (error) {
-      console.error('Error deleting quote file:', error);
-      toast({
-        title: "Erreur",
-        description: "Une erreur est survenue lors de la suppression du fichier",
         variant: "destructive",
       });
     }
@@ -676,6 +457,16 @@ const MaintenanceForm: React.FC<MaintenanceFormProps> = ({
     }
   }, [endDate.date]);
 
+  // Reset locationId when hotel changes
+  useEffect(() => {
+    if (!isEditing) {
+      setFormData(prev => ({
+        ...prev,
+        locationId: '',
+      }));
+    }
+  }, [formData.hotelId, isEditing]);
+
   if (loading) {
     return (
       <Dialog open={isOpen} onOpenChange={onClose}>
@@ -697,7 +488,9 @@ const MaintenanceForm: React.FC<MaintenanceFormProps> = ({
       <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>
-            {isEditing ? 'Modifier l\'intervention' : 'Nouvelle Intervention Technique'}
+            {isEditing 
+              ? 'Modifier l\'intervention' 
+              : 'Nouvelle Intervention Technique'}
           </DialogTitle>
           <DialogDescription>
             {isEditing
@@ -909,102 +702,6 @@ const MaintenanceForm: React.FC<MaintenanceFormProps> = ({
             </div>
           </div>
           
-          <div className="space-y-2">
-            <Label htmlFor="technicianIds">Techniciens</Label>
-            <Select 
-              value={formData.technicianIds && formData.technicianIds.length > 0 ? 'selected' : 'none'} 
-              onValueChange={(value) => handleSelectChange('technicianIds', value)}
-            >
-              <SelectTrigger id="technicianIds">
-                <SelectValue placeholder="Sélectionner des techniciens" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="none">Aucun technicien</SelectItem>
-                <SelectItem value="selected" disabled>{formData.technicianIds?.length || 0} technicien(s) sélectionné(s)</SelectItem>
-                <div className="border-t my-1"></div>
-                {technicians.map(tech => (
-                  <div key={tech.id} className="p-2 border-b last:border-b-0">
-                    <div className="flex items-center">
-                      <input 
-                        type="checkbox" 
-                        id={`tech-${tech.id}`}
-                        checked={formData.technicianIds?.includes(tech.id) || false}
-                        onChange={() => handleSelectChange('technicianIds', tech.id)}
-                        className="h-4 w-4 rounded border-gray-300 text-brand-600 focus:ring-brand-500"
-                      />
-                      <label htmlFor={`tech-${tech.id}`} className="ml-2 text-sm">
-                        <div className="font-medium">{tech.name}</div>
-                        {tech.company && <div className="text-xs text-muted-foreground">{tech.company}</div>}
-                      </label>
-                    </div>
-                  </div>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          
-          <div className="space-y-4 border-t pt-4">
-            <div className="flex items-center space-x-2">
-              <Switch 
-                id="hasQuote" 
-                checked={formData.hasQuote}
-                onCheckedChange={(checked) => handleSwitchChange('hasQuote', checked)}
-              />
-              <Label htmlFor="hasQuote">Devis disponible</Label>
-            </div>
-            
-            {formData.hasQuote && (
-              <>
-                <div className="space-y-2">
-                  <Label htmlFor="quoteFile">Fichier du devis</Label>
-                  <div className="flex items-center justify-center w-full">
-                    <label className="flex flex-col items-center justify-center w-full h-24 border-2 border-dashed rounded-lg cursor-pointer bg-gray-50 hover:bg-gray-100">
-                      <div className="flex flex-col items-center justify-center pt-5 pb-6">
-                        <Image className="w-6 h-6 mb-2 text-gray-400" />
-                        <p className="text-xs text-gray-500">Cliquez pour uploader le devis</p>
-                        <p className="text-xs text-gray-500">PDF, DOC, DOCX (MAX. 5MB)</p>
-                      </div>
-                      <input 
-                        type="file" 
-                        className="hidden" 
-                        accept=".pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-                        onChange={handleQuoteFileUpload}
-                      />
-                    </label>
-                  </div>
-                  {formData.quoteFile && (
-                    <div className="flex justify-between items-center mt-2 p-2 bg-blue-50 rounded">
-                      <p className="text-sm text-blue-600">
-                        Fichier sélectionné: {formData.quoteFile.name} ({(formData.quoteFile.size / 1024).toFixed(0)} KB)
-                      </p>
-                      <Button 
-                        variant="destructive" 
-                        size="sm"
-                        onClick={() => setFormData(prev => ({ ...prev, quoteFile: null }))}
-                      >
-                        <X className="h-4 w-4" />
-                      </Button>
-                    </div>
-                  )}
-                </div>
-                
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="quoteAmount">Montant du devis (€)</Label>
-                    <Input
-                      id="quoteAmount"
-                      name="quoteAmount"
-                      type="number"
-                      placeholder="0.00"
-                      value={formData.quoteAmount || ''}
-                      onChange={handleFormChange}
-                    />
-                  </div>
-                </div>
-              </>
-            )}
-          </div>
-          
           <div className="space-y-4 border-t pt-4">
             <h3 className="font-medium">Dates et coûts</h3>
             
@@ -1076,13 +773,13 @@ const MaintenanceForm: React.FC<MaintenanceFormProps> = ({
           <Button 
             variant="outline" 
             onClick={onClose}
-            disabled={photoBeforeUploading || photoAfterUploading || quoteFileUploading}
+            disabled={photoBeforeUploading || photoAfterUploading}
           >
             Annuler
           </Button>
           <Button 
             onClick={handleSubmit}
-            disabled={photoBeforeUploading || photoAfterUploading || quoteFileUploading}
+            disabled={photoBeforeUploading || photoAfterUploading}
           >
             {isEditing ? 'Enregistrer les modifications' : 'Créer l\'intervention'}
           </Button>

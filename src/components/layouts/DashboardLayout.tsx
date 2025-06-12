@@ -20,13 +20,15 @@ import {
   Sun,
   Trophy,
   Truck,
-  BookOpen
+  BookOpen,
+  Wrench,
+  CheckSquare
 } from 'lucide-react';
 import { getCurrentUser, logout, resetInactivityTimer } from '@/lib/auth';
-import { hotels } from '@/lib/data';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { getGroups } from '@/lib/db/groups';
 import { queryClient } from '@/lib/query-client';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { modules } from '@/lib/modules';
 
 // Gamification
 import { GamificationProvider } from '@/components/gamification/GamificationContext';
@@ -113,9 +115,11 @@ const DashboardLayout = () => {
   // Array of navigation items
   const navItems = [
     { icon: <LayoutDashboard size={20} />, label: 'Tableau de Bord', path: 'dashboard', moduleId: 'mod1' },
-    { icon: <BookOpen size={20} />, label: 'Cahier de Consignes', path: 'logbook', moduleId: 'mod12' }, // Module Cahier de Consignes
+    { icon: <BookOpen size={20} />, label: 'Cahier de Consignes', path: 'logbook', moduleId: 'mod12' },
+    { icon: <CheckSquare size={20} />, label: 'Check-list', path: 'checklist', moduleId: 'mod13' },
     { icon: <AlertTriangle size={20} />, label: 'Suivi Incidents', path: 'incidents', moduleId: 'mod2' },
     { icon: <Tool size={20} />, label: 'Suivi Technique', path: 'maintenance', moduleId: 'mod3' },
+    { icon: <Wrench size={20} />, label: 'Techniciens', path: 'technicians', moduleId: 'mod3' },
     { icon: <ClipboardCheck size={20} />, label: 'Visites Qualité', path: 'quality', moduleId: 'mod4' },
     { icon: <Search size={20} />, label: 'Objets Trouvés', path: 'lost-found', moduleId: 'mod5' },
     { icon: <FileText size={20} />, label: 'Procédures', path: 'procedures', moduleId: 'mod6' },

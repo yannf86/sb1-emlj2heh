@@ -5,7 +5,6 @@ import { getCurrentUser } from '../auth';
 import { uploadToSupabase, isDataUrl, dataUrlToFile } from '../supabase';
 import { deleteFile } from './file-upload';
 import { removeDummyDoc } from './ensure-collections';
-import { sendMaintenanceEmailNotifications } from '../email';
 import { getHotelName } from './hotels';
 import { getLocationLabel } from './parameters-locations';
 import { getInterventionTypeLabel } from './parameters-intervention-type';
@@ -126,7 +125,7 @@ export const getMaintenanceRequest = async (id: string) => {
 export const createMaintenanceRequest = async (data: Omit<Maintenance, 'id' | 'createdAt' | 'updatedAt'>) => {
   try {
     // Extract file fields if present
-    const { photoBefore, photoBeforePreview, photoAfter, photoAfterPreview, quoteFile, hasQuote, ...maintenanceData } = data as any;
+    const { photoBefore, photoBeforePreview, photoAfter, photoAfterPreview, ...maintenanceData } = data as any;
     
     // Get current user
     const currentUser = getCurrentUser();
@@ -154,10 +153,7 @@ export const createMaintenanceRequest = async (data: Omit<Maintenance, 'id' | 'c
         changes: { type: 'initial_creation' }
       }],
       // Initialize emailsSent to track notifications
-      emailsSent: {},
-      hasQuote: !!hasQuote,
-      // CORRECTION: Marquer explicitement comme non soumis par défaut
-      quoteSubmitted: false
+      emailsSent: {}
     };
     
     // Upload photoBefore to Supabase if present
@@ -207,34 +203,7 @@ export const createMaintenanceRequest = async (data: Omit<Maintenance, 'id' | 'c
         }
       }
     }
-    
-    // Upload quote file to Supabase if present
-    if (hasQuote && quoteFile instanceof File) {
-      try {
-        console.log('Uploading quote file to Supabase');
-        const quoteUrl = await uploadToSupabase(quoteFile, 'devis');
-        payload.quoteUrl = quoteUrl;
-        // MODIFICATION: Ne marquer comme soumis que si un fichier de devis est fourni
-        payload.quoteSubmitted = true;
-      } catch (error) {
-        console.error('Error uploading quote file to Supabase:', error);
-        throw new Error(`Failed to upload quote file: ${error instanceof Error ? error.message : String(error)}`);
-      }
-    }
 
-    // Make sure technicianIds is always an array, even if empty
-    if (!payload.technicianIds) {
-      payload.technicianIds = [];
-    }
-    
-    // Make sure the legacy technicianId is included in the technicianIds array if present
-    if (payload.technicianId && !payload.technicianIds.includes(payload.technicianId)) {
-      payload.technicianIds.push(payload.technicianId);
-    }
-    
-    // CORRECTION: Ne pas définir quoteStatus par défaut pour une nouvelle demande
-    // Supprimer les lignes qui définissent quoteStatus = 'pending'
-    
     // Create maintenance request in Firestore
     console.log("Creating maintenance request with payload", payload);
     const docRef = await addDoc(collection(db, 'maintenance'), payload);
@@ -262,9 +231,7 @@ const trackChanges = (oldData: any, newData: any) => {
         key === 'photoBefore' || 
         key === 'photoBeforePreview' || 
         key === 'photoAfter' || 
-        key === 'photoAfterPreview' || 
-        key === 'quoteFile' || 
-        key === 'hasQuote' ||
+        key === 'photoAfterPreview' ||
         key === 'emailsSent' ||
         typeof value === 'function') {
       continue;
@@ -332,38 +299,13 @@ export const updateMaintenanceRequest = async (id: string, data: Partial<Mainten
     }
     
     // Extract file fields if present
-    const { photoBefore, photoBeforePreview, photoAfter, photoAfterPreview, quoteFile, hasQuote, emailsSent, ...maintenanceData } = data as any;
+    const { photoBefore, photoBeforePreview, photoAfter, photoAfterPreview, emailsSent, ...maintenanceData } = data as any;
     
     // Create update payload
     const payload: any = { ...maintenanceData };
     
-    // Update hasQuote field if provided
-    if (hasQuote !== undefined) {
-      payload.hasQuote = hasQuote;
-    }
-    
     // Track what has changed
     const changes = trackChanges(oldData, payload);
-    
-    // Check for changes in technicians assignment
-    let newTechnicians: string[] = [];
-    
-    // Determine which technicians are newly added
-    if (payload.technicianIds) {
-      // Existing technicians
-      const oldTechnicianIds = oldData.technicianIds || 
-                            (oldData.technicianId ? [oldData.technicianId] : []);
-      
-      // Find new technicians
-      newTechnicians = payload.technicianIds.filter(
-        (id: string) => !oldTechnicianIds.includes(id)
-      );
-    }
-    
-    // Make sure legacy technicianId is included in technicianIds array if present
-    if (payload.technicianId && payload.technicianIds && !payload.technicianIds.includes(payload.technicianId)) {
-      payload.technicianIds.push(payload.technicianId);
-    }
     
     // Upload photoBefore to Supabase if present
     if (photoBefore instanceof File) {
@@ -471,57 +413,6 @@ export const updateMaintenanceRequest = async (id: string, data: Partial<Mainten
       changes['photoAfter'] = { old: oldData.photoAfter || null, new: 'Updated' };
     }
     
-    // Upload quote file to Supabase if present
-    if (quoteFile instanceof File) {
-      try {
-        console.log('Uploading updated quote file to Supabase');
-        const quoteUrl = await uploadToSupabase(quoteFile, 'devis');
-        
-        // Delete old quote if exists
-        if (oldData.quoteUrl) {
-          await deleteFile(oldData.quoteUrl);
-        }
-        
-        payload.quoteUrl = quoteUrl;
-        changes['quoteUrl'] = { old: oldData.quoteUrl || null, new: 'Updated' };
-        
-        // MODIFICATION: Ne marquer comme soumis que si un fichier de devis est uploadé
-        if (!oldData.quoteSubmitted) {
-          payload.quoteSubmitted = true;
-          changes['quoteSubmitted'] = { old: oldData.quoteSubmitted || false, new: true };
-        }
-      } catch (error) {
-        console.error('Error uploading quote file to Supabase during update:', error);
-        throw new Error(`Failed to upload quote file: ${error instanceof Error ? error.message : String(error)}`);
-      }
-    }
-    
-    // Handle the hasQuote flag - if it's false, clear quote-related fields
-    if (hasQuote === false) {
-      // Delete the quote file if it exists
-      if (oldData.quoteUrl) {
-        await deleteFile(oldData.quoteUrl);
-      }
-      
-      payload.quoteUrl = null;
-      payload.quoteAmount = null;
-      payload.quoteStatus = null;
-      payload.quoteSubmitted = false;  // CORRECTION: Mettre aussi quoteSubmitted à false
-      
-      // Track these changes
-      if (oldData.quoteUrl) changes['quoteUrl'] = { old: oldData.quoteUrl, new: null };
-      if (oldData.quoteAmount) changes['quoteAmount'] = { old: oldData.quoteAmount, new: null };
-      if (oldData.quoteStatus) changes['quoteStatus'] = { old: oldData.quoteStatus, new: null };
-      if (oldData.quoteSubmitted) changes['quoteSubmitted'] = { old: oldData.quoteSubmitted, new: false };
-    }
-    
-    // Handle compatibility with old quoteAccepted boolean field
-    if (payload.quoteStatus === 'accepted') {
-      payload.quoteAccepted = true;
-    } else if (payload.quoteStatus === 'rejected') {
-      payload.quoteAccepted = false;
-    }
-    
     // Create a history entry if there are changes
     if (Object.keys(changes).length > 0) {
       const historyEntry = {
@@ -554,38 +445,6 @@ export const updateMaintenanceRequest = async (id: string, data: Partial<Mainten
     // Update the document in Firestore
     await updateDoc(docRef, cleanPayload);
     console.log('Maintenance request updated successfully');
-    
-    // If there are new technicians added, send them notifications
-    if (newTechnicians.length > 0) {
-      try {
-        console.log(`Sending notifications to ${newTechnicians.length} new technicians:`, newTechnicians);
-        const notificationResult = await sendMaintenanceEmailNotifications(
-          id,
-          oldData.hotelId,
-          newTechnicians,
-          'new_quote_request'
-        );
-        
-        // Update the emailsSent tracking in the document
-        const emailsUpdate: Record<string, boolean> = {};
-        newTechnicians.forEach(techId => {
-          emailsUpdate[`emailsSent.${techId}.new_quote_request`] = true;
-        });
-        
-        if (Object.keys(emailsUpdate).length > 0) {
-          await updateDoc(docRef, emailsUpdate);
-        }
-        
-        if (notificationResult) {
-          console.log('Notifications sent successfully');
-        } else {
-          console.warn('Some notifications may have failed to send');
-        }
-      } catch (emailError) {
-        console.error('Error sending notification emails to technicians:', emailError);
-        // Continue without failing the operation
-      }
-    }
     
     return id;
   } catch (error) {
@@ -643,15 +502,6 @@ export const deleteMaintenanceRequest = async (id: string) => {
       }
     }
     
-    if (oldData.quoteUrl) {
-      try {
-        await deleteFile(oldData.quoteUrl);
-        console.log('Quote file deleted successfully');
-      } catch (error) {
-        console.error('Error deleting quote file:', error);
-      }
-    }
-    
     // Add deletion to history
     const historyEntry = {
       timestamp: new Date().toISOString(),
@@ -678,16 +528,16 @@ export const deleteMaintenanceRequest = async (id: string) => {
   }
 };
 
-// Get maintenance requests by technician ID
-export const getMaintenanceRequestsByTechnician = async (technicianId: string) => {
+// Get maintenance requests by hotel ID
+export const getMaintenanceRequestsByHotel = async (hotelId: string) => {
   try {
-    if (!technicianId) {
-      throw new Error('Technician ID is required');
+    if (!hotelId) {
+      throw new Error('Hotel ID is required');
     }
     
     const maintenanceQuery = query(
       collection(db, 'maintenance'),
-      where('technicianIds', 'array-contains', technicianId)
+      where('hotelId', '==', hotelId)
     );
     
     const snapshot = await getDocs(maintenanceQuery);
@@ -697,7 +547,7 @@ export const getMaintenanceRequestsByTechnician = async (technicianId: string) =
       ...doc.data()
     })) as Maintenance[];
   } catch (error) {
-    console.error('Error getting maintenance requests by technician:', error);
+    console.error('Error getting maintenance requests by hotel:', error);
     throw error;
   }
 };

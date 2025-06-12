@@ -1,10 +1,11 @@
 import React, { useState } from 'react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Settings, ListChecks, Building, Trophy } from 'lucide-react';
+import { Settings, ListChecks, Building, Trophy, CheckSquare } from 'lucide-react';
 import { 
   ParametersTab, 
   HotelsTab, 
-  GamificationTab 
+  GamificationTab,
+  ChecklistMissionsTab 
 } from '@/components/settings/tabs';
 import { getCurrentUser } from '@/lib/auth';
 
@@ -30,10 +31,15 @@ const SettingsPage = () => {
       </div>
       
       <Tabs defaultValue="parameters">
-        <TabsList className={`grid ${isSystemAdmin ? "grid-cols-3" : "grid-cols-1"} lg:w-[600px]`}>
+        <TabsList className={`grid ${isSystemAdmin ? "grid-cols-4" : "grid-cols-2"} lg:w-[600px]`}>
           <TabsTrigger value="parameters">
             <ListChecks className="mr-2 h-4 w-4" />
             Paramètres
+          </TabsTrigger>
+          
+          <TabsTrigger value="checklist-missions">
+            <CheckSquare className="mr-2 h-4 w-4" />
+            Missions Check-list
           </TabsTrigger>
           
           {/* Les onglets suivants ne sont visibles que pour les admin système */}
@@ -54,6 +60,10 @@ const SettingsPage = () => {
         
         <TabsContent value="parameters">
           <ParametersTab />
+        </TabsContent>
+        
+        <TabsContent value="checklist-missions">
+          <ChecklistMissionsTab />
         </TabsContent>
         
         {isSystemAdmin && (

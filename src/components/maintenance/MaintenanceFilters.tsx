@@ -3,10 +3,8 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Search, SlidersHorizontal, RefreshCw, User, Wrench } from 'lucide-react';
-import { parameters } from '@/lib/data';
 import { getHotels } from '@/lib/db/hotels';
 import { getUsers } from '@/lib/db/users';
-import { getTechnicians } from '@/lib/db/technicians';
 import { useToast } from '@/hooks/use-toast';
 import { getCurrentUser } from '@/lib/auth';
 import { getStatusParameters, findStatusIdByCode } from '@/lib/db/parameters-status';
@@ -21,10 +19,8 @@ interface MaintenanceFiltersProps {
   onStatusChange: (value: string) => void;
   filterType: string;
   onTypeChange: (value: string) => void;
-  filterAssignedUser: string; // NOUVEAU: filtre par utilisateur assigné
-  onAssignedUserChange: (value: string) => void; // NOUVEAU: fonction pour changer l'utilisateur assigné
-  filterTechnician: string; // NOUVEAU: filtre par technicien
-  onTechnicianChange: (value: string) => void; // NOUVEAU: fonction pour changer le technicien
+  filterAssignedUser: string;
+  onAssignedUserChange: (value: string) => void;
   filtersExpanded: boolean;
   onFiltersExpandedChange: (value: boolean) => void;
   onReset: () => void;
@@ -41,15 +37,12 @@ const MaintenanceFilters: React.FC<MaintenanceFiltersProps> = ({
   onTypeChange,
   filterAssignedUser,
   onAssignedUserChange,
-  filterTechnician,
-  onTechnicianChange,
   filtersExpanded,
   onFiltersExpandedChange,
   onReset
 }) => {
   const [hotels, setHotels] = useState<any[]>([]);
   const [users, setUsers] = useState<any[]>([]);
-  const [technicians, setTechnicians] = useState<any[]>([]);
   const [statusParams, setStatusParams] = useState<any[]>([]);
   const [interventionTypeParams, setInterventionTypeParams] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
@@ -66,7 +59,7 @@ const MaintenanceFilters: React.FC<MaintenanceFiltersProps> = ({
         // Load hotels
         const hotelsData = await getHotels();
         
-        // Filter hotels based on user's permissions
+        // Filter hotels based on user permissions
         if (currentUser?.role === 'admin') {
           setHotels(hotelsData);
         } else if (currentUser) {
@@ -74,9 +67,11 @@ const MaintenanceFilters: React.FC<MaintenanceFiltersProps> = ({
             currentUser.hotels.includes(hotel.id)
           );
           setHotels(filteredHotels);
+        } else {
+          setHotels([]);
         }
         
-        // Load status parameters
+        // Load status parameters from parameters_status collection
         const statusData = await getStatusParameters();
         setStatusParams(statusData);
         
@@ -84,19 +79,20 @@ const MaintenanceFilters: React.FC<MaintenanceFiltersProps> = ({
         const inProgressId = await findStatusIdByCode('in_progress');
         if (inProgressId) {
           setInProgressStatusId(inProgressId);
+          
+          // If filterStatus is empty, set it to the "En cours" status
+          if (filterStatus === '') {
+            onStatusChange(inProgressId);
+          }
         }
         
-        // Load intervention type parameters
+        // Load impact parameters from parameters_impact collection
         const interventionTypeData = await getInterventionTypeParameters();
         setInterventionTypeParams(interventionTypeData);
         
         // Load users
         const usersData = await getUsers();
         setUsers(usersData);
-        
-        // Load technicians
-        const techniciansData = await getTechnicians();
-        setTechnicians(techniciansData);
       } catch (error) {
         console.error('Error loading filters data:', error);
         toast({
@@ -110,7 +106,7 @@ const MaintenanceFilters: React.FC<MaintenanceFiltersProps> = ({
     };
     
     loadData();
-  }, [toast, currentUser]);
+  }, [toast, currentUser, filterStatus, onStatusChange]);
 
   return (
     <div className="flex flex-col space-y-2">
@@ -160,7 +156,7 @@ const MaintenanceFilters: React.FC<MaintenanceFiltersProps> = ({
       </div>
       
       {filtersExpanded && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2 p-4 border rounded-md">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 p-4 border rounded-md">
           <div>
             <label className="text-sm font-medium mb-1 block">Type d'intervention</label>
             <Select value={filterType} onValueChange={onTypeChange}>
@@ -190,27 +186,6 @@ const MaintenanceFilters: React.FC<MaintenanceFiltersProps> = ({
                 <SelectItem value="none">Non assigné</SelectItem>
                 {users.map(user => (
                   <SelectItem key={user.id} value={user.id}>{user.name}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          
-          <div>
-            <label className="text-sm font-medium mb-1 block flex items-center">
-              <Wrench className="h-4 w-4 mr-1 text-muted-foreground" />
-              Technicien
-            </label>
-            <Select value={filterTechnician} onValueChange={onTechnicianChange}>
-              <SelectTrigger>
-                <SelectValue placeholder="Tous les techniciens" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Tous les techniciens</SelectItem>
-                <SelectItem value="none">Non assigné</SelectItem>
-                {technicians.map(tech => (
-                  <SelectItem key={tech.id} value={tech.id}>
-                    {tech.name}{tech.company ? ` (${tech.company})` : ''}
-                  </SelectItem>
                 ))}
               </SelectContent>
             </Select>

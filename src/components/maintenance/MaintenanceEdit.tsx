@@ -4,8 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Switch } from '@/components/ui/switch';
-import { Loader2, Image, X, FileUp } from 'lucide-react';
+import { Loader2, Image } from 'lucide-react';
 import { users } from '@/lib/data';
 import { Maintenance, MaintenanceEditFormData } from './types/maintenance.types';
 import { getHotels } from '@/lib/db/hotels';
@@ -14,8 +13,7 @@ import { getInterventionTypeParameters } from '@/lib/db/parameters-intervention-
 import { getStatusParameters } from '@/lib/db/parameters-status';
 import { useToast } from '@/hooks/use-toast';
 import { updateMaintenanceRequest } from '@/lib/db/maintenance';
-import { deleteFromSupabase } from '@/lib/supabase';
-import QuoteFileDisplay from './QuoteFileDisplay';
+import { deleteFromSupabase } from '../../lib/supabase';
 import PhotoDisplay from './PhotoDisplay';
 
 interface MaintenanceEditProps {
@@ -35,7 +33,8 @@ const MaintenanceEdit: React.FC<MaintenanceEditProps> = ({
     ...maintenance,
     photoBeforePreview: maintenance.photoBefore || '',
     photoAfterPreview: maintenance.photoAfter || '',
-    quoteFile: null
+    photoBefore: null,
+    photoAfter: null
   });
   
   const [hotels, setHotels] = useState<any[]>([]);
@@ -54,26 +53,6 @@ const MaintenanceEdit: React.FC<MaintenanceEditProps> = ({
     user.role === 'admin' || 
     (user.hotels && user.hotels.includes(formData.hotelId))
   );
-
-  // Initialize the quote status from legacy data if needed
-  useEffect(() => {
-    if (!formData.quoteStatus && formData.quoteAccepted !== undefined) {
-      setFormData(prev => ({
-        ...prev,
-        quoteStatus: formData.quoteAccepted ? 'accepted' : 'rejected'
-      }));
-    } else if (!formData.quoteStatus && formData.quoteUrl) {
-      setFormData(prev => ({
-        ...prev,
-        quoteStatus: 'pending'
-      }));
-    } else if (!formData.quoteStatus) {
-      setFormData(prev => ({
-        ...prev,
-        quoteStatus: 'pending'
-      }));
-    }
-  }, [formData.quoteStatus, formData.quoteAccepted, formData.quoteUrl]);
 
   // Load data on mount
   useEffect(() => {
@@ -130,16 +109,8 @@ const MaintenanceEdit: React.FC<MaintenanceEditProps> = ({
     }));
   };
 
-  // Handle switch changes
-  const handleSwitchChange = (name: string, value: boolean) => {
-    setFormData(prev => ({
-      ...prev,
-      [name]: value
-    }));
-  };
-
   // Handle file uploads
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>, fileType: 'photoBefore' | 'photoAfter' | 'quoteFile') => {
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>, fileType: 'photoBefore' | 'photoAfter') => {
     const file = e.target.files?.[0];
     if (!file) return;
 
@@ -192,11 +163,6 @@ const MaintenanceEdit: React.FC<MaintenanceEditProps> = ({
           });
         };
         reader.readAsDataURL(file);
-      } else if (fileType === 'quoteFile') {
-        setFormData(prev => ({
-          ...prev,
-          quoteFile: file
-        }));
       }
     } catch (error) {
       if (fileType === 'photoBefore') setPhotoBeforeUploading(false);
@@ -283,45 +249,6 @@ const MaintenanceEdit: React.FC<MaintenanceEditProps> = ({
       toast({
         title: "Erreur",
         description: "Une erreur est survenue lors de la suppression de la photo",
-        variant: "destructive",
-      });
-    }
-  };
-
-  // Handle delete quote file
-  const handleDeleteQuoteFile = async () => {
-    try {
-      // If we have an existing quote URL, delete it from Supabase
-      if (maintenance?.quoteUrl) {
-        console.log('🗑️ Deleting quote file from Supabase:', maintenance.quoteUrl);
-        const success = await deleteFromSupabase(maintenance.quoteUrl);
-        if (success) {
-          console.log('✅ Quote file deleted successfully from Supabase');
-          toast({
-            title: "Devis supprimé",
-            description: "Le fichier de devis a été supprimé avec succès",
-          });
-        } else {
-          console.error('❌ Failed to delete quote file from Supabase');
-          toast({
-            title: "Avertissement",
-            description: "Le devis a été retiré du formulaire mais peut-être pas du stockage",
-            variant: "destructive",
-          });
-        }
-      }
-      
-      // Update form data
-      setFormData(prev => ({
-        ...prev,
-        quoteUrl: '',
-        quoteFile: null
-      }));
-    } catch (error) {
-      console.error('Error deleting quote file:', error);
-      toast({
-        title: "Erreur",
-        description: "Une erreur est survenue lors de la suppression du fichier de devis",
         variant: "destructive",
       });
     }
@@ -561,120 +488,9 @@ const MaintenanceEdit: React.FC<MaintenanceEditProps> = ({
           </div>
           
           <div className="space-y-4 border-t pt-4">
-            <div className="flex items-center space-x-2">
-              <Switch 
-                id="hasQuote" 
-                checked={Boolean(formData.quoteUrl || formData.quoteFile)}
-                onCheckedChange={(checked) => {
-                  if (!checked && formData.quoteUrl) {
-                    handleDeleteQuoteFile();
-                  } else {
-                    handleSwitchChange('quoteUrl', checked);
-                  }
-                }}
-              />
-              <Label htmlFor="hasQuote">Devis disponible</Label>
-            </div>
-            
-            {(formData.quoteUrl || formData.quoteFile) && (
-              <>
-                {/* Affiche le fichier de devis existant */}
-                {formData.quoteUrl && !formData.quoteFile && (
-                  <QuoteFileDisplay 
-                    quoteUrl={formData.quoteUrl}
-                    onDelete={handleDeleteQuoteFile}
-                  />
-                )}
-
-                <div className="space-y-2">
-                  <Label htmlFor="quoteFile">Fichier du devis {formData.quoteUrl ? '(remplacer)' : ''}</Label>
-                  <div className="flex items-center justify-center w-full">
-                    <label className="flex flex-col items-center justify-center w-full h-24 border-2 border-dashed rounded-lg cursor-pointer bg-gray-50 hover:bg-gray-100">
-                      <div className="flex flex-col items-center justify-center pt-5 pb-6">
-                        <FileUp className="w-6 h-6 mb-2 text-gray-400" />
-                        <p className="text-xs text-gray-500">Cliquez pour uploader le devis</p>
-                        <p className="text-xs text-gray-500">PDF, DOC, DOCX (MAX. 5MB)</p>
-                      </div>
-                      <input 
-                        type="file" 
-                        className="hidden" 
-                        accept=".pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-                        onChange={(e) => handleFileUpload(e, 'quoteFile')}
-                      />
-                    </label>
-                  </div>
-                  {formData.quoteFile && (
-                    <div className="flex justify-between items-center mt-2 p-2 bg-blue-50 rounded">
-                      <p className="text-sm text-blue-600">
-                        Fichier sélectionné: {formData.quoteFile.name} ({(formData.quoteFile.size / 1024).toFixed(0)} KB)
-                      </p>
-                      <Button 
-                        variant="destructive" 
-                        size="sm"
-                        onClick={() => setFormData(prev => ({ ...prev, quoteFile: null }))}
-                      >
-                        <X className="h-4 w-4" />
-                      </Button>
-                    </div>
-                  )}
-                </div>
-                
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="quoteAmount">Montant du devis (€)</Label>
-                    <Input
-                      id="quoteAmount"
-                      name="quoteAmount"
-                      type="number"
-                      placeholder="0.00"
-                      value={formData.quoteAmount || ''}
-                      onChange={handleFormChange}
-                    />
-                  </div>
-                  
-                  <div className="space-y-2">
-                    <Label htmlFor="quoteStatus">Statut du devis</Label>
-                    <Select
-                      value={formData.quoteStatus || 'pending'}
-                      onValueChange={(value) => handleSelectChange('quoteStatus', value as 'pending' | 'accepted' | 'rejected')}
-                    >
-                      <SelectTrigger id="quoteStatus">
-                        <SelectValue placeholder="Sélectionner un statut" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="pending">En attente</SelectItem>
-                        <SelectItem value="accepted">Accepté</SelectItem>
-                        <SelectItem value="rejected">Refusé</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
-              </>
-            )}
-          </div>
-          
-          <div className="space-y-4 border-t pt-4">
             <h3 className="font-medium">Assignation</h3>
             
             <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="technicianId">Technicien</Label>
-                <Select 
-                  value={formData.technicianId || "unassigned"} 
-                  onValueChange={(value) => handleSelectChange('technicianId', value === "unassigned" ? null : value)}
-                >
-                  <SelectTrigger id="technicianId">
-                    <SelectValue placeholder="Sélectionner un technicien" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="unassigned">Non assigné</SelectItem>
-                    {availableStaff.map(user => (
-                      <SelectItem key={user.id} value={user.id}>{user.name}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              
               <div className="space-y-2">
                 <Label htmlFor="statusId">Statut</Label>
                 <Select 
@@ -692,6 +508,24 @@ const MaintenanceEdit: React.FC<MaintenanceEditProps> = ({
                         <SelectItem key={status.id} value={status.id}>{status.label}</SelectItem>
                       ))
                     )}
+                  </SelectContent>
+                </Select>
+              </div>
+              
+              <div className="space-y-2">
+                <Label htmlFor="assignedUserId">Utilisateur assigné</Label>
+                <Select 
+                  value={formData.assignedUserId || "unassigned"} 
+                  onValueChange={(value) => handleSelectChange('assignedUserId', value === "unassigned" ? null : value)}
+                >
+                  <SelectTrigger id="assignedUserId">
+                    <SelectValue placeholder="Sélectionner un utilisateur" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="unassigned">Non assigné</SelectItem>
+                    {availableStaff.map(user => (
+                      <SelectItem key={user.id} value={user.id}>{user.name}</SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </div>

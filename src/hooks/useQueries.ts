@@ -73,11 +73,7 @@ export function useOptimizedQueries() {
         break;
         
       case '/maintenance':
-        // Précharger les données connexes pour l'écran maintenance
-        queryClient.prefetchQuery({ 
-          queryKey: ['technicians'],
-          queryFn: () => import('../lib/db/technicians').then(module => module.getTechnicians())
-        });
+        // No additional prefetching needed for maintenance
         break;
         
       case '/lost-found':
@@ -85,6 +81,14 @@ export function useOptimizedQueries() {
         queryClient.prefetchQuery({ 
           queryKey: ['parameters', 'lost_item_type'],
           queryFn: () => import('../lib/db/parameters-lost-item-type').then(module => module.getLostItemTypeParameters())
+        });
+        break;
+        
+      case '/technicians':
+        // Précharger les données pour l'écran techniciens
+        queryClient.prefetchQuery({ 
+          queryKey: ['technicians'],
+          queryFn: () => import('../lib/db/technicians').then(module => module.getTechnicians())
         });
         break;
         

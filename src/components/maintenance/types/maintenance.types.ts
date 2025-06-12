@@ -9,9 +9,7 @@ export interface Maintenance {
   interventionTypeId: string;
   description: string;
   receivedById: string;
-  technicianId?: string; // Pour rétrocompatibilité
-  technicianIds?: string[]; // Nouveau: liste des techniciens
-  assignedUserId?: string; // NOUVEAU: utilisateur interne assigné
+  assignedUserId?: string; // Utilisateur interne assigné
   statusId: string;
   estimatedAmount?: number;
   finalAmount?: number;
@@ -19,15 +17,9 @@ export interface Maintenance {
   endDate?: string;
   photoBefore?: string;
   photoAfter?: string;
-  quoteUrl?: string;
-  quoteAmount?: number;
-  quoteStatus?: 'pending' | 'accepted' | 'rejected';  // Remplace quoteAccepted avec 3 états possibles
-  quoteAccepted?: boolean; // Ancien champ pour rétrocompatibilité
-  quoteAcceptedDate?: string;
-  quoteAcceptedById?: string;
   comments?: string;
-  quotes?: MaintenanceQuote[]; // Nouveau: tableau de devis
-  emailsSent?: { [key: string]: boolean }; // NOUVEAU: suivi des emails envoyés
+  quotes?: MaintenanceQuote[]; // Tableau de devis
+  emailsSent?: { [key: string]: boolean }; // Suivi des emails envoyés
   createdAt: string;
   updatedAt: string;
   createdBy?: string;
@@ -67,13 +59,11 @@ export interface MaintenanceFormData {
   hotelId: string;
   locationId: string;
   interventionTypeId: string;
-  assignedUserId?: string; // NOUVEAU: utilisateur interne assigné
+  assignedUserId?: string; // Utilisateur interne assigné
   photoBefore: File | null;
   photoBeforePreview: string;
-  hasQuote: boolean;
-  quoteFile: File | null;
-  quoteAmount: string;
-  quoteStatus: 'pending' | 'accepted' | 'rejected';
+  photoAfter: File | null;
+  photoAfterPreview: string;
 }
 
 export interface MaintenanceFilters {
@@ -81,8 +71,7 @@ export interface MaintenanceFilters {
   filterHotel: string;
   filterStatus: string;
   filterType: string;
-  filterAssignedUser: string; // NOUVEAU: filtre par utilisateur assigné
-  filterTechnician: string; // NOUVEAU: filtre par technicien
+  filterAssignedUser: string; // Filtre par utilisateur assigné
   filtersExpanded: boolean;
 }
 
@@ -91,5 +80,4 @@ export interface MaintenanceEditFormData extends Maintenance {
   photoBeforePreview: string;
   photoAfter: File | null;
   photoAfterPreview: string;
-  quoteFile: File | null;
 }

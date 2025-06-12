@@ -8,7 +8,6 @@ import {
   Plus, 
   RefreshCw, 
   SlidersHorizontal,
-  Wrench, 
   FileText,
   Loader2
 } from 'lucide-react';
@@ -35,7 +34,6 @@ import MaintenanceFilters from '@/components/maintenance/MaintenanceFilters';
 // Import hooks
 import { useMaintenanceRequests, useCreateMaintenanceRequest, useUpdateMaintenanceRequest, useDeleteMaintenanceRequest } from '@/hooks/useMaintenance';
 import { useHotels } from '@/hooks/useHotels';
-import { useTechnicians } from '@/hooks/useTechnicians';
 import { useUsers } from '@/hooks/useUsers';
 
 const MaintenancePage = () => {
@@ -44,7 +42,6 @@ const MaintenancePage = () => {
   const [filterStatus, setFilterStatus] = useState('');
   const [filterType, setFilterType] = useState('all');
   const [filterAssignedUser, setFilterAssignedUser] = useState('all');
-  const [filterTechnician, setFilterTechnician] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [filtersExpanded, setFiltersExpanded] = useState(false);
   const [selectedMaintenance, setSelectedMaintenance] = useState<any>(null);
@@ -69,11 +66,6 @@ const MaintenancePage = () => {
     data: users = [], 
     isLoading: usersLoading 
   } = useUsers();
-  
-  const {
-    data: technicians = [],
-    isLoading: techniciansLoading
-  } = useTechnicians();
   
   const createMaintenanceMutation = useCreateMaintenanceRequest();
   const updateMaintenanceMutation = useUpdateMaintenanceRequest();
@@ -159,21 +151,6 @@ const MaintenancePage = () => {
     if (filterAssignedUser !== 'all' && filterAssignedUser !== 'none' && 
         request.assignedUserId !== filterAssignedUser) return false;
     
-    // Filter by technician
-    if (filterTechnician === 'none' && 
-        (request.technicianId || (request.technicianIds && request.technicianIds.length > 0))) {
-      return false;
-    }
-    
-    if (filterTechnician !== 'all' && filterTechnician !== 'none') {
-      // Check in both technicianId (legacy) and technicianIds array
-      const inTechnicianId = request.technicianId === filterTechnician;
-      const inTechnicianIds = request.technicianIds && 
-                             request.technicianIds.includes(filterTechnician);
-      
-      if (!inTechnicianId && !inTechnicianIds) return false;
-    }
-    
     // Search query
     if (searchQuery) {
       const query = searchQuery.toLowerCase();
@@ -220,7 +197,6 @@ const MaintenancePage = () => {
     setFilterStatus(inProgressStatusId || 'all');
     setFilterType('all');
     setFilterAssignedUser('all');
-    setFilterTechnician('all');
     setSearchQuery('');
   };
   
@@ -333,7 +309,7 @@ const MaintenancePage = () => {
     );
   };
   
-  if (maintenanceLoading || hotelsLoading || usersLoading || techniciansLoading) {
+  if (maintenanceLoading || hotelsLoading || usersLoading) {
     return (
       <div className="flex items-center justify-center h-64">
         <div className="text-center">
@@ -417,8 +393,6 @@ const MaintenancePage = () => {
         onTypeChange={setFilterType}
         filterAssignedUser={filterAssignedUser}
         onAssignedUserChange={setFilterAssignedUser}
-        filterTechnician={filterTechnician}
-        onTechnicianChange={setFilterTechnician}
         filtersExpanded={filtersExpanded}
         onFiltersExpandedChange={setFiltersExpanded}
         onReset={resetFilters}
