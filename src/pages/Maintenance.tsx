@@ -249,15 +249,40 @@ export default function Maintenance() {
   };
 
   const confirmDelete = async () => {
-    if (!interventionToDelete) return;
+    if (!interventionToDelete) {
+      console.log('Aucune intervention à supprimer');
+      return;
+    }
     
     try {
-      await technicalInterventionsService.deleteIntervention(interventionToDelete.id);
-      await loadData();
+      setLoading(true);
+      const idToDelete = interventionToDelete.id;
+      console.log(`Début de la suppression de l'intervention: ${idToDelete}`);
+      
+      // Fermer le modal avant de procéder à la suppression
+      setIsDeleteModalOpen(false);
       setInterventionToDelete(null);
+      
+      // Procéder à la suppression
+      await technicalInterventionsService.deleteIntervention(idToDelete);
+      console.log(`Suppression de l'intervention ${idToDelete} réussie`);
+      
+      // Recharger les données après un court délai pour s'assurer que Firebase a bien enregistré les changements
+      setTimeout(async () => {
+        try {
+          await loadData();
+          console.log('Données rechargées après suppression');
+          alert('Intervention supprimée avec succès');
+        } catch (reloadError) {
+          console.error('Erreur lors du rechargement des données:', reloadError);
+        } finally {
+          setLoading(false);
+        }
+      }, 500);
     } catch (error) {
-      console.error('Error deleting intervention:', error);
-      alert('Erreur lors de la suppression de l\'intervention');
+      console.error('Erreur lors de la suppression:', error);
+      alert(`Erreur lors de la suppression: ${error instanceof Error ? error.message : 'Erreur inconnue'}`);
+      setLoading(false);
     }
   };
 

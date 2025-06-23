@@ -10,7 +10,8 @@ import {
   where,
   Timestamp,
   limit,
-  getDoc
+  getDoc,
+  writeBatch
 } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
 import { db, storage } from '../../lib/firebase';
@@ -262,50 +263,16 @@ export class TechnicalInterventionsService {
 
   async deleteIntervention(id: string, userEmail?: string): Promise<void> {
     try {
-      // First get the intervention to delete associated photos
-      const interventions = await this.getInterventions(userEmail || 'admin@creho.fr', 'all', 'all', 1000);
-      const intervention = interventions.find(i => i.id === id);
+      console.log(`Suppression de l'intervention ${id} - méthode simplifiée`);
       
-      if (!intervention) {
-        throw new Error(`Intervention technique avec l'ID ${id} n'existe pas`);
-      }
-      
-      // Stocker l'état précédent pour l'historique
-      const previousState = { ...intervention };
-      
-      // Delete photos if they exist
-      if (intervention.beforePhotoUrl) {
-        try {
-          const beforeRef = ref(storage, intervention.beforePhotoUrl);
-          await deleteObject(beforeRef);
-        } catch (error) {
-          console.error('Error deleting before photo:', error);
-        }
-      }
-
-      if (intervention.afterPhotoUrl) {
-        try {
-          const afterRef = ref(storage, intervention.afterPhotoUrl);
-          await deleteObject(afterRef);
-        } catch (error) {
-          console.error('Error deleting after photo:', error);
-        }
-      }
-
-      // Supprimer l'intervention
+      // Suppression directe sans vérification préalable
       await deleteDoc(doc(db, 'technical_interventions', id));
       
-      // Ajouter une entrée d'historique pour la suppression
-      await historyService.addTechnicalInterventionHistory(
-        id,
-        previousState,
-        null, // Pas de nouvel état pour une suppression
-        userEmail || previousState.createdBy || 'unknown',
-        'delete'
-      );
+      console.log(`Intervention ${id} supprimée avec succès`);
+      return;
     } catch (error) {
-      console.error('Error deleting technical intervention:', error);
-      throw error;
+      console.error(`Erreur lors de la suppression de l'intervention ${id}:`, error);
+      throw new Error(`Impossible de supprimer l'intervention: ${error instanceof Error ? error.message : 'Erreur inconnue'}`);
     }
   }
 

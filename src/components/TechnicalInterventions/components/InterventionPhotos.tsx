@@ -1,5 +1,5 @@
-import React from 'react';
-import { Camera, Upload } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Camera, Upload, X } from 'lucide-react';
 
 interface InterventionPhotosProps {
   beforePhoto: File | null;
@@ -16,21 +16,52 @@ export default function InterventionPhotos({
   beforePhotoUrl,
   afterPhotoUrl
 }: InterventionPhotosProps) {
+  // États locaux pour suivre si une photo a été remplacée
+  const [beforePhotoReplaced, setBeforePhotoReplaced] = useState(false);
+  const [afterPhotoReplaced, setAfterPhotoReplaced] = useState(false);
+  
+  // Réinitialiser les états de remplacement lorsque le modal est ouvert/fermé
+  useEffect(() => {
+    setBeforePhotoReplaced(false);
+    setAfterPhotoReplaced(false);
+  }, [beforePhotoUrl, afterPhotoUrl]);
+
   const handleFileChange = (type: 'before' | 'after', e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0] || null;
+    if (file) {
+      // Marquer la photo comme remplacée
+      if (type === 'before') {
+        setBeforePhotoReplaced(true);
+      } else {
+        setAfterPhotoReplaced(true);
+      }
+    }
     onPhotoChange(type, file);
+  };
+  
+  // Fonction pour annuler le remplacement d'une photo
+  const handleCancelReplacement = (type: 'before' | 'after') => {
+    if (type === 'before') {
+      setBeforePhotoReplaced(false);
+      onPhotoChange(type, null);
+    } else {
+      setAfterPhotoReplaced(false);
+      onPhotoChange(type, null);
+    }
   };
 
   const PhotoUploadBox = ({ 
     type, 
     photo, 
     photoUrl,
-    label 
+    label,
+    isReplaced
   }: { 
     type: 'before' | 'after'; 
     photo: File | null; 
     photoUrl?: string;
     label: string;
+    isReplaced: boolean;
   }) => (
     <div>
       <label className="block text-xs text-warm-600 mb-2">{label}</label>
@@ -42,7 +73,28 @@ export default function InterventionPhotos({
           className="hidden"
           id={`${type}-photo`}
         />
-        {photoUrl ? (
+        {/* Afficher la nouvelle photo si elle a été remplacée */}
+        {isReplaced && photo ? (
+          <div className="relative">
+            <img 
+              src={URL.createObjectURL(photo)} 
+              alt={`Nouvelle photo ${type}`} 
+              className="w-full h-32 object-cover rounded-lg" 
+            />
+            <div className="absolute top-2 right-2">
+              <button 
+                type="button"
+                onClick={() => handleCancelReplacement(type)}
+                className="bg-red-500 text-white rounded-full p-1 hover:bg-red-600"
+              >
+                <X size={16} />
+              </button>
+            </div>
+            <div className="absolute bottom-2 left-2 bg-green-500 text-white text-xs px-2 py-1 rounded">
+              Nouvelle photo
+            </div>
+          </div>
+        ) : photoUrl ? (
           <div className="relative">
             <img 
               src={photoUrl} 
@@ -84,13 +136,15 @@ export default function InterventionPhotos({
           type="before" 
           photo={beforePhoto}
           photoUrl={beforePhotoUrl}
-          label="Photo avant" 
+          label="Photo avant"
+          isReplaced={beforePhotoReplaced}
         />
         <PhotoUploadBox 
           type="after" 
           photo={afterPhoto}
           photoUrl={afterPhotoUrl}
-          label="Photo après" 
+          label="Photo après"
+          isReplaced={afterPhotoReplaced}
         />
       </div>
     </div>
