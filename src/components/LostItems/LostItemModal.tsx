@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, Upload, Calendar, Clock, Camera, Trash2, ExternalLink, Download } from 'lucide-react';
+import { X, Upload, Calendar, Clock, Trash2, ExternalLink, Download, History } from 'lucide-react';
 import { LostItem } from '../../types/lostItems';
 import { Parameter, Hotel } from '../../types/parameters';
 import { User } from '../../types/users';
@@ -10,6 +10,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { useUserPermissions } from '../../hooks/useUserPermissions';
 import { storage } from '../../lib/firebase';
 import { ref, getDownloadURL } from 'firebase/storage';
+import LostItemHistoryModal from './LostItemHistoryModal';
 
 interface LostItemModalProps {
   isOpen: boolean;
@@ -50,11 +51,12 @@ export default function LostItemModal({
   const [filteredLocations, setFilteredLocations] = useState<Parameter[]>([]);
   const [filteredUsers, setFilteredUsers] = useState<User[]>([]);
   const [photo, setPhoto] = useState<File | null>(null);
-  const [loading, setLoading] = useState(false);
   const [imageUrl, setImageUrl] = useState<string>('');
   const [imageLoading, setImageLoading] = useState<boolean>(false);
   const [imageError, setImageError] = useState<boolean>(false);
+  const [loading, setLoading] = useState<boolean>(false);
   const [deletePhoto, setDeletePhoto] = useState<boolean>(false);
+  const [isHistoryModalOpen, setIsHistoryModalOpen] = useState<boolean>(false);
 
   // Fonction pour obtenir la date et l'heure actuelles
   const getCurrentDateTime = () => {
@@ -720,6 +722,16 @@ export default function LostItemModal({
             >
               Annuler
             </button>
+            {isEdit && lostItem && (
+              <button
+                type="button"
+                onClick={() => setIsHistoryModalOpen(true)}
+                className="flex-1 px-4 py-2 border border-warm-300 text-warm-700 rounded-lg hover:bg-warm-50 transition-colors"
+              >
+                <History className="w-4 h-4 mr-2 inline" />
+                Historique
+              </button>
+            )}
             <button
               type="submit"
               disabled={loading}
@@ -729,6 +741,15 @@ export default function LostItemModal({
             </button>
           </div>
         </form>
+
+        {/* Modal d'historique */}
+        {lostItem && (
+          <LostItemHistoryModal
+            isOpen={isHistoryModalOpen}
+            onClose={() => setIsHistoryModalOpen(false)}
+            lostItem={lostItem}
+          />
+        )}
       </div>
     </div>
   );

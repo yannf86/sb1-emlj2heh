@@ -9,13 +9,13 @@ export interface HistoryChange {
 export interface HistoryEntry {
   id: string;
   entityId?: string; // Pour compatibilité avec l'ancien format
-  entityType?: 'incident' | 'lostItem' | 'maintenance' | 'technical_intervention'; // Pour compatibilité avec l'ancien format
+  entityType?: 'incident' | 'lostItem' | 'maintenance' | 'technical_intervention' | 'lost_item'; // Pour compatibilité avec l'ancien format
   
   // Nouveau format
   action: 'create' | 'update' | 'delete';
   changes?: HistoryChange[] | Record<string, any>;
   type?: string;
-  timestamp: Date | Timestamp;
+  timestamp: Date | { toDate: () => Date; seconds: number; nanoseconds: number; };
   userId: string;
   
   // Champs pour l'ancien format

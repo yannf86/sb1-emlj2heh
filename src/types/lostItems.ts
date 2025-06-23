@@ -16,6 +16,7 @@ export interface LostItem {
   createdAt: Date;
   updatedAt: Date;
   createdBy: string;
+  updatedById?: string; // ID de l'utilisateur qui a mis à jour l'objet
 }
 
 export interface LostItemStats {

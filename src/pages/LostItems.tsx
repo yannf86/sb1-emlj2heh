@@ -2,9 +2,11 @@ import { useState, useEffect } from 'react';
 import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import { Link } from 'react-router-dom';
 import Layout from '../components/Layout/Layout';
 import LostItemModal from '../components/LostItems/LostItemModal';
 import LostItemDetailModal from '../components/LostItems/LostItemDetailModal';
+import LostItemHistoryModal from '../components/LostItems/LostItemHistoryModal';
 import LostItemAnalytics from '../components/LostItems/LostItemAnalytics';
 import ConfirmDeleteModal from '../components/common/ConfirmDeleteModal';
 import {
@@ -20,7 +22,8 @@ import {
   User,
   CheckCircle,
   Package,
-  MapPin
+  MapPin,
+  History
 } from 'lucide-react';
 import { LostItem } from '../types/lostItems';
 import { Parameter, Hotel } from '../types/parameters';
@@ -47,6 +50,7 @@ export default function LostItems() {
   const [selectedLostItem, setSelectedLostItem] = useState<LostItem | null>(null);
   const [isEditMode, setIsEditMode] = useState(false);
   const [activeTab, setActiveTab] = useState('list');
+  const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
 
   // États pour le modal de confirmation de suppression
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
@@ -156,6 +160,11 @@ export default function LostItems() {
   const openDetailModal = (lostItem: LostItem) => {
     setSelectedLostItem(lostItem);
     setIsDetailModalOpen(true);
+  };
+
+  const openHistoryModal = (lostItem: LostItem) => {
+    setSelectedLostItem(lostItem);
+    setIsHistoryModalOpen(true);
   };
 
   const openCreateModal = () => {
@@ -382,6 +391,13 @@ export default function LostItems() {
                 <FileText className="w-4 h-4 mr-2" />
                 PDF
               </button>
+              <Link 
+                to="/lost-items-history"
+                className="flex items-center px-3 py-2 text-warm-600 border border-warm-300 rounded-lg hover:bg-warm-50 transition-colors"
+              >
+                <History className="w-4 h-4 mr-2" />
+                Historique
+              </Link>
               <button
                 onClick={openCreateModal}
                 className="flex items-center px-4 py-2 bg-creho-500 text-white rounded-lg hover:bg-creho-600 transition-colors"
@@ -585,10 +601,16 @@ export default function LostItems() {
                               <Edit className="w-4 h-4" />
                             </button>
                             <button
+                              onClick={() => openHistoryModal(item)}
+                              className="text-amber-600 hover:text-amber-900 transition-colors"
+                              title="Historique des modifications"
+                            >
+                              <History className="w-4 h-4" />
+                            </button>
+                            <button
                               onClick={() => openDeleteModal(item)}
                               className={`${isSystemAdmin ? 'text-red-600 hover:text-red-900' : 'text-red-300 cursor-not-allowed'} transition-colors`}
                               title={isSystemAdmin ? 'Supprimer' : 'Seuls les administrateurs peuvent supprimer'}
-                              disabled={!isSystemAdmin}
                             >
                               <Trash2 className="w-4 h-4" />
                             </button>
@@ -628,15 +650,19 @@ export default function LostItems() {
 
       <ConfirmDeleteModal
         isOpen={isDeleteModalOpen}
-        onClose={() => {
-          setIsDeleteModalOpen(false);
-          setItemToDelete(null);
-        }}
+        onClose={() => setIsDeleteModalOpen(false)}
         onConfirm={handleDeleteLostItem}
-        title="Confirmer la suppression"
-        message="Êtes-vous sûr de vouloir supprimer cet objet trouvé ?"
-        itemName={itemToDelete?.description}
+        title="Supprimer l'objet trouvé"
+        message={`Êtes-vous sûr de vouloir supprimer cet objet trouvé ? Cette action est irréversible.`}
       />
+
+      {selectedLostItem && (
+        <LostItemHistoryModal
+          isOpen={isHistoryModalOpen}
+          onClose={() => setIsHistoryModalOpen(false)}
+          lostItem={selectedLostItem}
+        />
+      )}
     </Layout>
   );
 }

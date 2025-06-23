@@ -1,6 +1,14 @@
 import { useState, useEffect } from 'react';
 import { TechnicalIntervention, TechnicalQuote } from '../types/maintenance';
 
+// Fonction pour obtenir l'heure actuelle au format HH:MM
+const getCurrentTime = (): string => {
+  const now = new Date();
+  const hours = String(now.getHours()).padStart(2, '0');
+  const minutes = String(now.getMinutes()).padStart(2, '0');
+  return `${hours}:${minutes}`;
+};
+
 export interface InterventionFormData {
   date: Date;
   time: string;
@@ -23,7 +31,7 @@ export interface InterventionFormData {
 export function useInterventionForm(intervention?: TechnicalIntervention | null) {
   const [formData, setFormData] = useState<InterventionFormData>({
     date: new Date(),
-    time: '',
+    time: getCurrentTime(), // Utiliser l'heure actuelle par défaut
     hotelId: '',
     location: '',
     interventionTypeId: '',

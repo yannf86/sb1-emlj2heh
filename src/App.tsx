@@ -23,6 +23,7 @@ const Housekeeping = React.lazy(() => import('./pages/Housekeeping'));
 const Planning = React.lazy(() => import('./pages/Planning'));
 const MailAutomation = React.lazy(() => import('./pages/MailAutomation'));
 const Chat = React.lazy(() => import('./pages/Chat'));
+const LostItemsHistoryPage = React.lazy(() => import('./pages/LostItemsHistoryPage'));
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   const { currentUser } = useAuth();
@@ -49,6 +50,7 @@ function AppRoutes() {
         <Route path="/maintenance" element={<Maintenance />} />
         <Route path="/technicians" element={<Technicians />} />
         <Route path="/lost-items" element={<LostItems />} />
+        <Route path="/lost-items-history" element={<LostItemsHistoryPage />} />
         
         {/* Nouveaux modules */}
         <Route path="/hr" element={<HumanResources />} />

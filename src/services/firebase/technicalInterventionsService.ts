@@ -1,20 +1,6 @@
-import {
-  collection,
-  getDocs,
-  doc,
-  addDoc,
-  updateDoc,
-  deleteDoc,
-  query,
-  orderBy,
-  where,
-  Timestamp,
-  limit,
-  getDoc,
-  writeBatch
-} from 'firebase/firestore';
-import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
 import { db, storage } from '../../lib/firebase';
+import { collection, doc, getDocs, getDoc, addDoc, updateDoc, deleteDoc, query, where, orderBy, Timestamp, limit } from 'firebase/firestore';
+import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
 import { TechnicalIntervention, TechnicalStats, TechnicalAnalytics } from '../../types/maintenance';
 import { permissionsService } from './permissionsService';
 import { historyService } from './historyService';
@@ -261,7 +247,7 @@ export class TechnicalInterventionsService {
     }
   }
 
-  async deleteIntervention(id: string, userEmail?: string): Promise<void> {
+  async deleteIntervention(id: string): Promise<void> {
     try {
       console.log(`Suppression de l'intervention ${id} - méthode simplifiée`);
       

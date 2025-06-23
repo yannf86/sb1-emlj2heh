@@ -15,6 +15,7 @@ import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage
 import { db, storage } from '../../lib/firebase';
 import { LostItem, LostItemStats, LostItemAnalytics } from '../../types/lostItems';
 import { permissionsService } from './permissionsService';
+import { historyService } from './historyService';
 
 class LostItemsService {
   // Collection Firestore pour les objets trouvés
@@ -320,6 +321,21 @@ class LostItemsService {
       console.log(`📝 [LostItemsService] Ajout d'un objet trouvé dans la collection: ${LostItemsService.COLLECTION_NAME}`);
       const docRef = await addDoc(collection(db, LostItemsService.COLLECTION_NAME), firestoreData);
       
+      // Enregistrer l'historique de création
+      try {
+        await historyService.addLostItemHistory(
+          docRef.id,
+          null, // Pas d'état précédent pour une création
+          firestoreData,
+          lostItem.foundById,
+          'create'
+        );
+        console.log(`📝 [LostItemsService] Historique de création enregistré pour l'objet trouvé: ${docRef.id}`);
+      } catch (historyError) {
+        console.error('❌ Erreur lors de l\'enregistrement de l\'historique de création:', historyError);
+        // On ne propage pas cette erreur pour ne pas bloquer la création de l'objet
+      }
+      
       return docRef.id;
     } catch (error) {
       console.error('❌ Error adding lost item:', error);
@@ -450,43 +466,90 @@ class LostItemsService {
         console.log(`📸 [LostItemsService] Nouvelle photo uploadée: ${updateData.photoUrl}`);
       }
 
+      // Mettre à jour le document
       await updateDoc(docRef, updateData);
-      console.log(`✅ [LostItemsService] Objet trouvé mis à jour avec succès: ${id}`);
+      console.log(`📝 [LostItemsService] Objet trouvé mis à jour avec succès: ${id}`);
+      
+      // Enregistrer l'historique de modification
+      try {
+        await historyService.addLostItemHistory(
+          id,
+          currentItem,
+          { ...currentItem, ...updateData },
+          lostItem.updatedById || currentItem.updatedById || currentItem.foundById,
+          'update'
+        );
+        console.log(`📝 [LostItemsService] Historique de modification enregistré pour l'objet trouvé: ${id}`);
+      } catch (historyError) {
+        console.error('❌ Erreur lors de l\'enregistrement de l\'historique de modification:', historyError);
+        // On ne propage pas cette erreur pour ne pas bloquer la mise à jour de l'objet
+      }
     } catch (error) {
-      console.error('❌ Erreur lors de la mise à jour de l\'objet trouvé:', error);
+      console.error(' Erreur lors de la mise à jour de l\'objet trouvé:', error);
       throw error;
     }
   }
 
-  async deleteLostItem(id: string): Promise<void> {
+  async deleteLostItem(id: string, userId: string): Promise<void> {
     try {
-      // Récupérer l'objet à supprimer pour accéder à sa photo
+      // Récupérer d'abord l'objet pour avoir les données complètes (notamment l'URL de la photo)
       const docRef = doc(db, LostItemsService.COLLECTION_NAME, id);
       const docSnap = await getDoc(docRef);
       
-      if (docSnap.exists()) {
-        const item = docSnap.data() as LostItem;
-        
-        // Supprimer la photo associée si elle existe
-        if (item?.photoUrl) {
-          try {
-            console.log(`🗑️ [LostItemsService] Suppression de la photo: ${item.photoUrl}`);
-            const photoRef = ref(storage, item.photoUrl);
-            await deleteObject(photoRef);
-            console.log('✅ [LostItemsService] Photo supprimée avec succès');
-          } catch (error) {
-            console.error('❌ Erreur lors de la suppression de la photo:', error);
-          }
-        }
-
-        // Supprimer le document
-        await deleteDoc(docRef);
-        console.log(`✅ [LostItemsService] Objet trouvé supprimé avec succès: ${id}`);
-      } else {
-        console.warn(`⚠️ [LostItemsService] Tentative de suppression d'un objet inexistant: ${id}`);
+      if (!docSnap.exists()) {
+        throw new Error(`Objet trouvé avec l'ID ${id} n'existe pas`);
       }
+      
+      const lostItem = docSnap.data() as LostItem;
+      
+      // Enregistrer l'historique de suppression avant de supprimer l'objet
+      try {
+        await historyService.addLostItemHistory(
+          id,
+          lostItem,
+          null, // Pas d'état suivant pour une suppression
+          userId,
+          'delete'
+        );
+        console.log(` [LostItemsService] Historique de suppression enregistré pour l'objet trouvé: ${id}`);
+      } catch (historyError) {
+        console.error(' Erreur lors de l\'enregistrement de l\'historique de suppression:', historyError);
+        // On ne propage pas cette erreur pour ne pas bloquer la suppression de l'objet
+      }
+      
+      // Si l'objet a une photo, la supprimer du stockage
+      if (lostItem.photoUrl) {
+        try {
+          // Extraire le chemin de stockage à partir de l'URL complète
+          let storagePath = lostItem.photoUrl;
+          
+          // Si l'URL commence par https://firebasestorage.googleapis.com, c'est une URL complète
+          if (storagePath.startsWith('https://firebasestorage.googleapis.com')) {
+            // Extraire le chemin après /o/ et avant ?
+            const match = storagePath.match(/\/o\/(.+?)\?/);
+            if (match && match[1]) {
+              // Décoder l'URL
+              storagePath = decodeURIComponent(match[1]);
+            } else {
+              console.warn(' [LostItemsService] Impossible d\'extraire le chemin de stockage de l\'URL:', storagePath);
+            }
+          }
+          
+          console.log(` [LostItemsService] Suppression de la photo: ${storagePath}`);
+          const photoRef = ref(storage, storagePath);
+          await deleteObject(photoRef);
+          console.log(' [LostItemsService] Photo supprimée avec succès');
+        } catch (photoError) {
+          console.error(' Erreur lors de la suppression de la photo:', photoError);
+          // On continue malgré l'erreur de suppression de la photo
+        }
+      }
+      
+      // Supprimer le document
+      await deleteDoc(docRef);
+      console.log(` [LostItemsService] Objet trouvé supprimé avec succès: ${id}`);
     } catch (error) {
-      console.error('❌ Erreur lors de la suppression de l\'objet trouvé:', error);
+      console.error(' Erreur lors de la suppression de l\'objet trouvé:', error);
       throw error;
     }
   }

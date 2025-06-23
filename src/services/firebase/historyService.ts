@@ -7,13 +7,10 @@ import {
   getDocs,
   Timestamp,
   getDoc,
-  doc,
-  DocumentData,
-  QueryDocumentSnapshot
+  doc
 } from 'firebase/firestore';
 import { db } from '../../lib/firebase';
-import { HistoryEntry, HistoryChange } from '../../types/history';
-import { usersService } from './usersService';
+import { HistoryEntry } from '../../types/history';
 
 class HistoryService {
   /**
@@ -65,6 +62,54 @@ class HistoryService {
   }
   
   /**
+   * Ajoute une entrée d'historique pour un objet trouvé
+   */
+  async addLostItemHistory(
+    lostItemId: string,
+    previousState: any,
+    newState: any,
+    userId: string,
+    operation: 'create' | 'update' | 'delete'
+  ): Promise<string> {
+    try {
+      // Récupérer les informations de l'utilisateur
+      const userDoc = await getDoc(doc(db, 'users', userId));
+      const userData = userDoc.exists() ? userDoc.data() : null;
+      
+      // Utiliser le nom complet ou le nom d'affichage, ou l'email comme fallback, ou l'ID comme dernier recours
+      let userName = 'Utilisateur inconnu';
+      if (userData) {
+        userName = userData.name || userData.displayName || userData.email || `Utilisateur ${userId.substring(0, 8)}...`;
+      }
+      
+      // Déterminer les champs qui ont été modifiés
+      const changedFields = this.detectChangedFields(previousState, newState);
+      
+      const historyEntry: Omit<HistoryEntry, 'id'> = {
+        entityId: lostItemId,
+        entityType: 'lost_item',
+        previousState,
+        newState,
+        changedFields,
+        userId,
+        userName: userName,
+        userEmail: userData?.email || 'Email inconnu',
+        timestamp: Timestamp.now(),
+        operation,
+        action: operation
+      };
+      
+      const docRef = await addDoc(collection(db, 'history'), historyEntry);
+      console.log(`Entrée d'historique créée pour l'objet trouvé avec l'ID: ${docRef.id}`);
+      
+      return docRef.id;
+    } catch (error) {
+      console.error('Erreur lors de l\'ajout d\'une entrée d\'historique pour un objet trouvé:', error);
+      throw error;
+    }
+  }
+
+  /**
    * Ajoute une entrée d'historique pour une intervention technique
    */
   async addTechnicalInterventionHistory(
@@ -112,6 +157,61 @@ class HistoryService {
     }
   }
   
+  /**
+   * Récupère l'historique d'un objet trouvé
+   */
+  async getLostItemHistory(lostItemId: string): Promise<HistoryEntry[]> {
+    try {
+      console.log(`[HistoryService] Récupération de l'historique pour l'objet trouvé: ${lostItemId}`);
+      
+      const q = query(
+        collection(db, 'history'),
+        where('entityType', '==', 'lost_item'),
+        where('entityId', '==', lostItemId),
+        orderBy('timestamp', 'desc')
+      );
+      
+      const querySnapshot = await getDocs(q);
+      console.log(`[HistoryService] Nombre d'entrées d'historique trouvées: ${querySnapshot.size}`);
+      
+      return querySnapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data(),
+        timestamp: doc.data().timestamp?.toDate() || new Date()
+      })) as HistoryEntry[];
+    } catch (error) {
+      console.error('Erreur lors de la récupération de l\'historique d\'un objet trouvé:', error);
+      return [];
+    }
+  }
+
+  /**
+   * Récupère l'historique de tous les objets trouvés
+   */
+  async getAllLostItemsHistory(): Promise<HistoryEntry[]> {
+    try {
+      console.log(`[HistoryService] Récupération de l'historique de tous les objets trouvés`);
+      
+      const q = query(
+        collection(db, 'history'),
+        where('entityType', '==', 'lost_item'),
+        orderBy('timestamp', 'desc')
+      );
+      
+      const querySnapshot = await getDocs(q);
+      console.log(`[HistoryService] Nombre total d'entrées d'historique trouvées: ${querySnapshot.size}`);
+      
+      return querySnapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data(),
+        timestamp: doc.data().timestamp?.toDate() || new Date()
+      })) as HistoryEntry[];
+    } catch (error) {
+      console.error('Erreur lors de la récupération de l\'historique de tous les objets trouvés:', error);
+      return [];
+    }
+  }
+
   /**
    * Récupère l'historique d'un incident
    */
@@ -282,6 +382,140 @@ class HistoryService {
     }
   }
   
+  /**
+   * Ajoute une entrée d'historique pour un objet trouvé
+   */
+  async addLostItemHistory(
+    lostItemId: string,
+    previousState: any,
+    newState: any,
+    userId: string,
+    operation: 'create' | 'update' | 'delete'
+  ): Promise<string> {
+    try {
+      // Récupérer les informations de l'utilisateur
+      const userDoc = await getDoc(doc(db, 'users', userId));
+      const userData = userDoc.exists() ? userDoc.data() : null;
+      
+      // Utiliser le nom complet ou le nom d'affichage, ou l'email comme fallback, ou l'ID comme dernier recours
+      let userName = 'Utilisateur inconnu';
+      if (userData) {
+        userName = userData.name || userData.displayName || userData.email || `Utilisateur ${userId.substring(0, 8)}...`;
+      }
+      
+      // Déterminer les champs qui ont été modifiés
+      const changedFields = this.detectChangedFields(previousState, newState);
+      
+      const historyEntry: Omit<HistoryEntry, 'id'> = {
+        entityId: lostItemId,
+        entityType: 'lost_item',
+        previousState,
+        newState,
+        changedFields,
+        userId,
+        userName: userName,
+        userEmail: userData?.email || 'Email inconnu',
+        timestamp: Timestamp.now(),
+        operation,
+        action: operation
+      };
+      
+      const docRef = await addDoc(collection(db, 'history'), historyEntry);
+      console.log(`Entrée d'historique créée avec l'ID: ${docRef.id}`);
+      
+      return docRef.id;
+    } catch (error) {
+      console.error('Erreur lors de l\'ajout d\'une entrée d\'historique:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Récupère l'historique d'un objet trouvé
+   */
+  async getLostItemHistory(lostItemId: string): Promise<HistoryEntry[]> {
+    try {
+      console.log(`[HistoryService] Récupération de l'historique pour l'objet trouvé: ${lostItemId}`);
+      
+      // Vérifier si la collection existe déjà
+      const collectionRef = collection(db, 'history');
+      
+      // Essayer d'abord de récupérer tous les documents de la collection
+      const allDocsQuery = query(collectionRef);
+      const allDocsSnapshot = await getDocs(allDocsQuery);
+      
+      console.log(`[HistoryService] Nombre total de documents dans la collection history: ${allDocsSnapshot.size}`);
+      
+      // Filtrer manuellement les documents pour trouver ceux qui sont liés à l'objet trouvé
+      const filteredDocs = allDocsSnapshot.docs.filter((doc) => {
+        const data = doc.data();
+        
+        // Vérifier si le document est lié à l'objet trouvé
+        if (data.entityId === lostItemId && data.entityType === 'lostItem') {
+          return true;
+        }
+        
+        // Vérifier si l'ID de l'objet trouvé est dans les changes
+        if (data.changes) {
+          if (Array.isArray(data.changes)) {
+            for (const change of data.changes) {
+              if (change.new === lostItemId || change.old === lostItemId) {
+                return true;
+              }
+            }
+          } else if (typeof data.changes === 'object') {
+            const changesStr = JSON.stringify(data.changes);
+            if (changesStr.includes(lostItemId)) {
+              return true;
+            }
+          }
+        }
+        
+        // Vérifier si le document est lié à l'objet trouvé d'une autre manière
+        const docStr = JSON.stringify(data);
+        return docStr.includes(lostItemId);
+      });
+      
+      console.log(`[HistoryService] Après filtrage manuel - nombre de documents liés à l'objet trouvé: ${filteredDocs.length}`);
+      
+      // Trier les documents par timestamp (du plus récent au plus ancien)
+      const sortedEntries = filteredDocs.sort((a, b) => {
+        const timestampA = a.data().timestamp;
+        const timestampB = b.data().timestamp;
+        
+        if (!timestampA) return 1;
+        if (!timestampB) return -1;
+        
+        const dateA = timestampA instanceof Timestamp ? timestampA.toMillis() : new Date(timestampA).getTime();
+        const dateB = timestampB instanceof Timestamp ? timestampB.toMillis() : new Date(timestampB).getTime();
+        
+        return dateB - dateA; // Ordre décroissant (du plus récent au plus ancien)
+      });
+      
+      const history: HistoryEntry[] = [];
+      sortedEntries.forEach((doc) => {
+        const data = doc.data();
+        console.log('[HistoryService] Document lié à l\'objet trouvé:', data);
+        
+        // Convertir les timestamps Firestore en objets Date
+        const timestamp = data.timestamp instanceof Timestamp 
+          ? data.timestamp.toDate() 
+          : data.timestamp;
+        
+        history.push({
+          id: doc.id,
+          ...data,
+          timestamp
+        } as HistoryEntry);
+      });
+      
+      return history;
+    } catch (error) {
+      console.error('Erreur lors de la récupération de l\'historique:', error);
+      throw error;
+    }
+  }
+
   /**
    * Détecte les champs qui ont été modifiés entre deux états
    */

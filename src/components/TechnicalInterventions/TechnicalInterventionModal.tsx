@@ -81,21 +81,44 @@ export default function TechnicalInterventionModal({
     checkAdminStatus();
   }, [currentUser?.email]);
   
-  // Filtrer les hôtels selon les permissions utilisateur
+  // Filtrer les hôtels selon les permissions utilisateur et définir l'hôtel par défaut
   useEffect(() => {
     if (hotels.length > 0 && initialized && accessibleHotels.length > 0) {
+      let userHotels: Hotel[] = [];
+      
       if (accessibleHotels.includes('all')) {
         // Admin système - accès à tous les hôtels
+        userHotels = hotels;
         setFilteredHotels(hotels);
       } else {
         // Utilisateur standard - accès uniquement aux hôtels autorisés
-        const userHotels = hotels.filter(hotel => accessibleHotels.includes(hotel.id));
+        userHotels = hotels.filter(hotel => accessibleHotels.includes(hotel.id));
         setFilteredHotels(userHotels);
         
         // Si l'hôtel actuellement sélectionné n'est pas dans la liste des hôtels autorisés
         if (formData.hotelId && !accessibleHotels.includes(formData.hotelId)) {
           // Réinitialiser la sélection d'hôtel
           updateFormData({ hotelId: '' });
+        }
+      }
+      
+      // Définir l'hôtel par défaut en mode création
+      if (!isEdit && !intervention && !formData.hotelId && userHotels.length > 0) {
+        console.log('Définition de l\'hôtel par défaut pour une nouvelle intervention');
+        
+        // Si l'utilisateur n'a accès qu'à un seul hôtel, le sélectionner automatiquement
+        if (userHotels.length === 1) {
+          console.log('Un seul hôtel accessible, sélection automatique:', userHotels[0].name);
+          updateFormData({ hotelId: userHotels[0].id });
+        } 
+        // Si l'utilisateur a accès à plusieurs hôtels, sélectionner le premier
+        else if (accessibleHotels.length > 0 && accessibleHotels[0] !== 'all') {
+          const defaultHotelId = accessibleHotels[0];
+          const defaultHotel = hotels.find(h => h.id === defaultHotelId);
+          if (defaultHotel) {
+            console.log('Sélection du premier hôtel de l\'utilisateur:', defaultHotel.name);
+            updateFormData({ hotelId: defaultHotelId });
+          }
         }
       }
     }

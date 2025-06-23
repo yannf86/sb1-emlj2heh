@@ -64,9 +64,21 @@ export default function IncidentModal({
     bookingOrigin: string;
   }
 
+  // Fonction pour obtenir l'heure actuelle au format HH:MM
+  const getCurrentTime = (): string => {
+    const now = new Date();
+    const hours = String(now.getHours()).padStart(2, '0');
+    const minutes = String(now.getMinutes()).padStart(2, '0');
+    console.log(`Génération de l'heure actuelle: ${hours}:${minutes}`);
+    return `${hours}:${minutes}`;
+  };
+  
+  // Heure actuelle pour l'initialisation du formulaire
+  const [defaultTime] = useState(getCurrentTime());
+
   const [formData, setFormData] = useState<IncidentFormData>({
     date: new Date(),
-    time: '',
+    time: defaultTime, // Heure actuelle par défaut
     hotelId: '',
     location: '',
     categoryId: '',
@@ -117,7 +129,12 @@ export default function IncidentModal({
   useEffect(() => {
     if (isOpen) {
       console.log('Modal ouvert, chargement des paramètres...');
-      loadParameters().then(() => {
+      // Réinitialiser l'état pour éviter les données résiduelles
+      setHotels([]);
+      setCurrentUserData(null);
+      
+      loadParameters().then((success) => {
+        console.log('Paramètres chargés avec succès:', success);
         if (incident) {
           console.log('Mode édition, préremplissage avec les données de l\'incident');
           console.log('Valeur du champ location dans l\'incident:', incident.location);
@@ -138,10 +155,10 @@ export default function IncidentModal({
             photoURL: incident.photoURL || '',
             resolutionDescription: incident.resolutionDescription || '',
             resolutionType: incident.resolutionType || '',
-            commercialGesture: incident.commercialGesture || 0,
+            commercialGesture: incident.actualCost || 0, // Utilisation de actualCost au lieu de commercialGesture
             clientSatisfactionId: incident.clientSatisfactionId || '',
             receivedById: incident.receivedById || '',
-            concludedBy: incident.concludedBy || '',
+            concludedBy: incident.assignedTo || '', // Utilisation de assignedTo au lieu de concludedBy
             statusId: incident.statusId || 'CZa3iy84r8pVqjVOQHNL',
             showPdfViewer: false,
             
@@ -160,11 +177,25 @@ export default function IncidentModal({
           // Log pour débogage
           console.log('FormData après initialisation en mode édition:', { location: originalLocation });
         } else {
-          console.log('Mode création, initialisation du formulaire vide');
+          console.log('Mode création, initialisation du formulaire');
+          
+          // Trouver l'hôtel par défaut pour l'utilisateur connecté
+          let defaultHotelId = '';
+          if (currentUserData && currentUserData.hotels && currentUserData.hotels.length > 0) {
+            defaultHotelId = currentUserData.hotels[0];
+            console.log('Hôtel par défaut défini:', defaultHotelId);
+          } else if (accessibleHotels.length === 1 && hotels.length === 1) {
+            defaultHotelId = hotels[0].id;
+            console.log('Un seul hôtel accessible, sélectionné par défaut:', defaultHotelId);
+          }
+          
+          // Utiliser l'heure par défaut définie lors de l'initialisation du composant
+          console.log('Utilisation de l\'heure par défaut:', defaultTime);
+          
           setFormData({
             date: new Date(),
-            time: '',
-            hotelId: '',
+            time: defaultTime, // Utiliser l'heure par défaut
+            hotelId: defaultHotelId, // Hôtel par défaut
             location: '',
             categoryId: '',
             impactId: '',
@@ -175,7 +206,7 @@ export default function IncidentModal({
             resolutionType: '',
             commercialGesture: 0,
             clientSatisfactionId: '',
-            receivedById: '',
+            receivedById: currentUserData && currentUserData.id ? currentUserData.id : '', // Utilisateur actuel par défaut
             concludedBy: '',
             statusId: 'CZa3iy84r8pVqjVOQHNL', // En cours
             showPdfViewer: false,
@@ -212,7 +243,44 @@ export default function IncidentModal({
     }
   }, [isEdit, incident, filteredLocations]);
 
-  // Filtrer les catégories et lieux quand l'hôtel change
+  // Effet spécifique pour initialiser les valeurs par défaut après le chargement des données
+  useEffect(() => {
+    // Ne s'exécute que lorsque les données sont chargées et qu'on est en mode création
+    if (!incident && currentUserData && hotels.length > 0 && isOpen) {
+      console.log('Initialisation des valeurs par défaut après chargement des données');
+      
+      // Déterminer l'hôtel par défaut
+      let defaultHotelId = '';
+      if (currentUserData.hotels && currentUserData.hotels.length > 0) {
+        defaultHotelId = currentUserData.hotels[0];
+        console.log('Hôtel par défaut défini depuis utilisateur:', defaultHotelId);
+      } else if (hotels.length === 1) {
+        defaultHotelId = hotels[0].id;
+        console.log('Un seul hôtel accessible, sélectionné par défaut:', defaultHotelId);
+      }
+      
+      // Définir les valeurs par défaut immédiatement
+      setFormData(prev => ({
+        ...prev,
+        hotelId: defaultHotelId,
+        receivedById: currentUserData.id,
+        time: defaultTime
+      }));
+      
+      // Force une mise à jour après un court délai pour s'assurer que les valeurs sont appliquées
+      setTimeout(() => {
+        console.log('Mise à jour forcée des valeurs par défaut');
+        setFormData(prev => ({
+          ...prev,
+          hotelId: defaultHotelId,
+          receivedById: currentUserData.id,
+          time: defaultTime
+        }));
+      }, 100);
+    }
+  }, [incident, currentUserData, hotels, defaultTime, isOpen]);
+
+  // Effet pour filtrer les catégories, lieux et utilisateurs en fonction de l'hôtel sélectionné
   useEffect(() => {
     if (formData.hotelId && currentUserData) {
       console.log('Filtrage des données pour l\'hôtel:', formData.hotelId);
@@ -303,15 +371,8 @@ export default function IncidentModal({
       
       // Trouver l'utilisateur connecté par son email
       const loggedInUser = usersData.find(user => user.email === currentUser?.email);
+      console.log('Utilisateur connecté trouvé:', loggedInUser?.name || 'Non trouvé');
       setCurrentUserData(loggedInUser || null);
-      
-      // Si nous sommes en mode création (pas en mode édition), préremplir avec l'utilisateur connecté
-      if (!incident && loggedInUser) {
-        setFormData(prev => ({
-          ...prev,
-          receivedById: loggedInUser.id
-        }));
-      }
 
       // Filtrer les hôtels selon le rôle de l'utilisateur
       let accessibleHotels: Hotel[] = [];
@@ -330,6 +391,7 @@ export default function IncidentModal({
         accessibleHotels = allHotelsData;
       }
 
+      console.log('Hôtels accessibles:', accessibleHotels.length);
       setHotels(accessibleHotels);
       setCategories(categoriesData.filter(p => p.active));
       setImpacts(impactsData.filter(p => p.active));
@@ -339,23 +401,9 @@ export default function IncidentModal({
       setBookingOrigins(bookingOriginsData.filter(p => p.active));
       setSatisfactionTypes(satisfactionData.filter(p => p.active));
       setUsers(usersData.filter(u => u.active));
-
-      // Si nous sommes en mode création (pas en mode édition)
-      if (!incident) {
-        // Si l'utilisateur a des hôtels assignés, sélectionner son premier hôtel
-        if (loggedInUser && loggedInUser.hotels && loggedInUser.hotels.length > 0 && !formData.hotelId) {
-          const userFirstHotel = loggedInUser.hotels[0];
-          console.log('Préremplissage automatique de l\'hôtel avec:', userFirstHotel);
-          setFormData(prev => ({ ...prev, hotelId: userFirstHotel }));
-        }
-        // Sinon, si l'utilisateur n'a accès qu'à un seul hôtel, le sélectionner automatiquement
-        else if (accessibleHotels.length === 1 && !formData.hotelId) {
-          console.log('Préremplissage avec le seul hôtel accessible:', accessibleHotels[0].id);
-          setFormData(prev => ({ ...prev, hotelId: accessibleHotels[0].id }));
-        }
-      }
       
-      // Retourner une promesse résolue pour indiquer que le chargement est terminé
+      // Ne pas définir les valeurs par défaut ici, c'est géré par un useEffect séparé
+
       return Promise.resolve(true);
     } catch (error) {
       console.error('Erreur lors du chargement des paramètres:', error);
@@ -604,7 +652,7 @@ export default function IncidentModal({
                 <input
                   type="time"
                   required
-                  value={formData.time}
+                  value={formData.time || defaultTime}
                   onChange={(e) => setFormData({ ...formData, time: e.target.value })}
                   className="pl-10 pr-4 py-2 w-full border border-warm-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-creho-500"
                 />
