@@ -190,12 +190,15 @@ export class LogbookService {
   // LogbookReminders
   async getLogbookReminders(): Promise<LogbookReminder[]> {
     try {
-      const cacheKey = 'logbook-reminders';
-      const cached = LogbookService.getFromCache<LogbookReminder[]>(cacheKey);
-      if (cached) {
-        return cached;
-      }
+      // Désactiver le cache pour le débogage
+      // const cacheKey = 'all-logbook-reminders';
+      // const cached = LogbookService.getFromCache<LogbookReminder[]>(cacheKey);
+      // if (cached) {
+      //   return cached;
+      // }
 
+      console.log('Fetching all logbook reminders from Firestore');
+      
       const q = query(
         collection(db, 'logbook_reminders'),
         orderBy('startDate', 'asc'),
@@ -203,20 +206,50 @@ export class LogbookService {
       );
       
       const querySnapshot = await getDocs(q);
+      console.log(`Found ${querySnapshot.docs.length} reminders in Firestore`);
       
       const reminders = querySnapshot.docs.map(doc => {
         const data = doc.data();
-        return {
+        
+        // Conversion explicite des dates
+        let startDate: Date;
+        if (data.startDate instanceof Timestamp) {
+          startDate = data.startDate.toDate();
+        } else if (data.startDate && typeof data.startDate.toDate === 'function') {
+          startDate = data.startDate.toDate();
+        } else {
+          startDate = new Date(data.startDate);
+        }
+        
+        // Conversion de la date de fin (si elle existe)
+        let endDate: Date | undefined = undefined;
+        if (data.endDate) {
+          if (data.endDate instanceof Timestamp) {
+            endDate = data.endDate.toDate();
+          } else if (data.endDate && typeof data.endDate.toDate === 'function') {
+            endDate = data.endDate.toDate();
+          } else {
+            endDate = new Date(data.endDate);
+          }
+        }
+        
+        const reminder: LogbookReminder = {
           id: doc.id,
-          ...data,
-          startDate: data.startDate instanceof Timestamp ? data.startDate.toDate() : new Date(data.startDate),
-          endDate: data.endDate instanceof Timestamp ? data.endDate.toDate() : data.endDate ? new Date(data.endDate) : undefined,
+          entryId: data.entryId,
+          title: data.title,
+          description: data.description,
+          startDate: startDate,
+          endDate: endDate,
+          active: data.active === undefined ? true : data.active,
           createdAt: data.createdAt instanceof Timestamp ? data.createdAt.toDate() : new Date(data.createdAt),
           updatedAt: data.updatedAt instanceof Timestamp ? data.updatedAt.toDate() : new Date(data.updatedAt),
         };
-      }) as LogbookReminder[];
+        
+        console.log(`Reminder: ${reminder.title}, startDate: ${startDate.toISOString()}, endDate: ${endDate?.toISOString() || 'none'}`);
+        return reminder;
+      });
 
-      LogbookService.setCache(cacheKey, reminders);
+      // LogbookService.setCache(cacheKey, reminders);
       return reminders;
     } catch (error) {
       console.error('Error getting logbook reminders:', error);
@@ -284,7 +317,15 @@ export class LogbookService {
         const startDate = new Date(entryStart.getFullYear(), entryStart.getMonth(), entryStart.getDate());
         const endDate = new Date(entryEnd.getFullYear(), entryEnd.getMonth(), entryEnd.getDate());
         
-        return targetDate >= startDate && targetDate <= endDate;
+        // Vérifier si la date cible est exactement égale à la date de début
+        // ou si elle est entre la date de début et de fin (pour les plages de dates)
+        if (entry.endDate) {
+          // Si c'est une plage de dates, la consigne doit être affichée uniquement pour la date de début
+          return targetDate.getTime() === startDate.getTime();
+        } else {
+          // Si c'est une date unique, la consigne doit être affichée uniquement pour cette date
+          return targetDate.getTime() === startDate.getTime();
+        }
       });
 
       LogbookService.setCache(cacheKey, filteredEntries);
@@ -297,29 +338,67 @@ export class LogbookService {
 
   async getRemindersForDate(date: Date): Promise<LogbookReminder[]> {
     try {
-      const dateKey = date.toISOString().split('T')[0];
-      const cacheKey = `reminders-for-date-${dateKey}`;
-      const cached = LogbookService.getFromCache<LogbookReminder[]>(cacheKey);
-      if (cached) {
-        return cached;
-      }
-
+      // Désactiver complètement le cache pour le débogage
       const reminders = await this.getLogbookReminders();
+      console.log(`Nombre total de rappels récupérés: ${reminders.length}`);
       
-      const filteredReminders = reminders.filter(reminder => {
-        const reminderStart = new Date(reminder.startDate);
-        const reminderEnd = reminder.endDate ? new Date(reminder.endDate) : reminderStart;
+      // APPROCHE SIMPLIFIÉE: Utiliser les dates brutes sans conversion
+      const now = new Date();
+      console.log(`Date et heure actuelles: ${now.toISOString()}`);
+      
+      // Filtrer les rappels en deux étapes distinctes
+      const activeReminders = [];
+      
+      for (const reminder of reminders) {
+        console.log(`\n--- Analyse du rappel: ${reminder.title} ---`);
+        console.log(`Date de début: ${reminder.startDate instanceof Date ? reminder.startDate.toISOString() : 'Non-Date'}`);
+        console.log(`Date de fin: ${reminder.endDate instanceof Date ? reminder.endDate.toISOString() : 'Non-Date ou undefined'}`);
+        console.log(`Actif: ${reminder.active}`);
         
-        // Normaliser les dates pour la comparaison
+        // ÉTAPE 1: Vérifier si le rappel est expiré
+        if (reminder.endDate) {
+          // Convertir en dates JavaScript si ce n'est pas déjà le cas
+          const endDate = reminder.endDate instanceof Date ? reminder.endDate : new Date(reminder.endDate);
+          
+          // Comparer les dates avec l'heure
+          if (now > endDate) {
+            console.log(`RAPPEL EXPIRÉ: ${reminder.title} - Date de fin ${endDate.toISOString()} < Aujourd'hui ${now.toISOString()}`);
+            continue; // Ignorer ce rappel et passer au suivant
+          }
+          
+          // Si la date de fin est aujourd'hui, vérifier si l'heure de fin est déjà passée
+          const endDateDay = new Date(endDate.getFullYear(), endDate.getMonth(), endDate.getDate());
+          const todayDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+          
+          if (endDateDay.getTime() === todayDay.getTime()) {
+            console.log(`Le rappel ${reminder.title} se termine aujourd'hui à ${endDate.getHours()}:${endDate.getMinutes()}`);
+            console.log(`Heure actuelle: ${now.getHours()}:${now.getMinutes()}`);
+          }
+        }
+        
+        // ÉTAPE 2: Vérifier si la date sélectionnée est dans la plage du rappel
+        const startDate = reminder.startDate instanceof Date ? reminder.startDate : new Date(reminder.startDate);
+        const endDate = reminder.endDate instanceof Date ? reminder.endDate : 
+                       (reminder.endDate ? new Date(reminder.endDate) : startDate);
+        
+        // Normaliser la date sélectionnée (sans l'heure)
         const targetDate = new Date(date.getFullYear(), date.getMonth(), date.getDate());
-        const startDate = new Date(reminderStart.getFullYear(), reminderStart.getMonth(), reminderStart.getDate());
-        const endDate = new Date(reminderEnd.getFullYear(), reminderEnd.getMonth(), reminderEnd.getDate());
         
-        return targetDate >= startDate && targetDate <= endDate && reminder.active;
-      });
-
-      LogbookService.setCache(cacheKey, filteredReminders);
-      return filteredReminders;
+        // Normaliser les dates du rappel (sans l'heure)
+        const normalizedStartDate = new Date(startDate.getFullYear(), startDate.getMonth(), startDate.getDate());
+        const normalizedEndDate = new Date(endDate.getFullYear(), endDate.getMonth(), endDate.getDate());
+        
+        // Vérifier si la date cible est dans la plage
+        if (targetDate >= normalizedStartDate && targetDate <= normalizedEndDate && reminder.active) {
+          console.log(`RAPPEL AJOUTÉ: ${reminder.title} - Date cible ${targetDate.toISOString()} est entre ${normalizedStartDate.toISOString()} et ${normalizedEndDate.toISOString()}`);
+          activeReminders.push(reminder);
+        } else {
+          console.log(`RAPPEL IGNORÉ: ${reminder.title} - Date cible ${targetDate.toISOString()} n'est pas dans la plage ou rappel inactif`);
+        }
+      }
+      
+      console.log(`Nombre final de rappels pour la date ${date.toISOString().split('T')[0]}: ${activeReminders.length}`);
+      return activeReminders;
     } catch (error) {
       console.error('Error getting reminders for date:', error);
       throw error;

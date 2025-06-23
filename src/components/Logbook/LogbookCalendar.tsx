@@ -77,17 +77,40 @@ export default function LogbookCalendar({ currentDate, onDateChange, reminders }
   const hasReminders = (day: number | null) => {
     if (!day) return false;
     
+    // Date du jour sélectionné dans le calendrier
     const date = new Date(currentYear, currentMonth, day);
+    
+    // Date actuelle (aujourd'hui) pour vérifier si les rappels sont expirés
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const todayTimestamp = today.getTime();
+    
     return reminders.some(reminder => {
-      const reminderStart = new Date(reminder.startDate);
-      const reminderEnd = reminder.endDate ? new Date(reminder.endDate) : reminderStart;
-      
       // Normaliser les dates pour la comparaison
-      const targetDate = new Date(date.getFullYear(), date.getMonth(), date.getDate());
-      const startDate = new Date(reminderStart.getFullYear(), reminderStart.getMonth(), reminderStart.getDate());
-      const endDate = new Date(reminderEnd.getFullYear(), reminderEnd.getMonth(), reminderEnd.getDate());
+      const reminderStart = new Date(reminder.startDate);
+      reminderStart.setHours(0, 0, 0, 0);
+      const startTimestamp = reminderStart.getTime();
       
-      return targetDate >= startDate && targetDate <= endDate && reminder.active;
+      const reminderEnd = reminder.endDate ? new Date(reminder.endDate) : new Date(reminderStart);
+      reminderEnd.setHours(0, 0, 0, 0);
+      const endTimestamp = reminderEnd.getTime();
+      
+      // Date cible (jour sélectionné dans le calendrier)
+      const targetDate = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+      targetDate.setHours(0, 0, 0, 0);
+      const targetTimestamp = targetDate.getTime();
+      
+      // 1. Vérifier si aujourd'hui est APRÈS la date de fin du rappel
+      // Si c'est le cas, le rappel ne doit plus être visible nulle part
+      if (todayTimestamp > endTimestamp) {
+        return false;
+      }
+      
+      // 2. Vérifier si la date cible est entre la date de début et la date de fin
+      const isWithinDateRange = targetTimestamp >= startTimestamp && targetTimestamp <= endTimestamp;
+      
+      // Le rappel est visible si la date est dans la plage et qu'il est actif
+      return isWithinDateRange && reminder.active;
     });
   };
 
@@ -98,16 +121,40 @@ export default function LogbookCalendar({ currentDate, onDateChange, reminders }
     }
   };
 
-  // Obtenir les rappels pour aujourd'hui
+  // Obtenir les rappels pour la date sélectionnée (currentDate)
+  const selectedDateReminders = reminders.filter(reminder => {
+    // Normaliser les dates pour la comparaison (sans l'heure)
+    const reminderStart = new Date(reminder.startDate);
+    reminderStart.setHours(0, 0, 0, 0);
+    const startTimestamp = reminderStart.getTime();
+    
+    const reminderEnd = reminder.endDate ? new Date(reminder.endDate) : new Date(reminderStart);
+    reminderEnd.setHours(0, 0, 0, 0);
+    const endTimestamp = reminderEnd.getTime();
+    
+    // Date sélectionnée sans l'heure
+    const selectedDate = new Date(currentDate.getFullYear(), currentDate.getMonth(), currentDate.getDate());
+    selectedDate.setHours(0, 0, 0, 0);
+    const selectedTimestamp = selectedDate.getTime();
+    
+    // Vérifier si la date sélectionnée est entre la date de début et la date de fin
+    const isWithinDateRange = selectedTimestamp >= startTimestamp && selectedTimestamp <= endTimestamp;
+    
+    return isWithinDateRange && reminder.active;
+  });
+  
+  // Obtenir les rappels pour aujourd'hui (pour l'affichage dans le calendrier)
   const todaysReminders = reminders.filter(reminder => {
     const reminderStart = new Date(reminder.startDate);
-    const reminderEnd = reminder.endDate ? new Date(reminder.endDate) : reminderStart;
+    reminderStart.setHours(0, 0, 0, 0);
+    
+    const reminderEnd = reminder.endDate ? new Date(reminder.endDate) : new Date(reminderStart);
+    reminderEnd.setHours(0, 0, 0, 0);
     
     const todayDate = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-    const startDate = new Date(reminderStart.getFullYear(), reminderStart.getMonth(), reminderStart.getDate());
-    const endDate = new Date(reminderEnd.getFullYear(), reminderEnd.getMonth(), reminderEnd.getDate());
+    todayDate.setHours(0, 0, 0, 0);
     
-    return todayDate >= startDate && todayDate <= endDate && reminder.active;
+    return todayDate >= reminderStart && todayDate <= reminderEnd && reminder.active;
   });
 
   return (
@@ -198,15 +245,15 @@ export default function LogbookCalendar({ currentDate, onDateChange, reminders }
         
         <div className="space-y-2">
           <div className="text-sm text-warm-600 text-center py-2">
-            Aujourd'hui
+            {currentDate.toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })}
           </div>
           
-          {todaysReminders.length === 0 ? (
+          {selectedDateReminders.length === 0 ? (
             <div className="text-center py-4">
-              <p className="text-sm text-warm-500">Aucun rappel pour aujourd'hui</p>
+              <p className="text-sm text-warm-500">Aucun rappel pour cette date</p>
             </div>
           ) : (
-            todaysReminders.map((reminder) => (
+            selectedDateReminders.map((reminder) => (
               <div key={reminder.id} className="bg-amber-50 border border-amber-200 rounded-lg p-3">
                 <div className="flex items-start justify-between">
                   <div className="flex-1">
