@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useUserPermissions } from '../hooks/useUserPermissions';
 import Layout from '../components/Layout/Layout';
 import ParameterModal from '../components/Parameters/ParameterModal';
 import HotelModal from '../components/Hotels/HotelModal';
@@ -117,6 +118,7 @@ const serviceLabels: { [key: string]: string } = {
 };
 
 export default function Parameters() {
+  const { isSystemAdmin } = useUserPermissions();
   const [activeTab, setActiveTab] = useState('parameters');
   const [activeGamificationTab, setActiveGamificationTab] = useState('levels');
   const [activeParameterType, setActiveParameterType] = useState(0);
@@ -252,6 +254,11 @@ export default function Parameters() {
   };
 
   const handleDeleteParameter = async (id: string) => {
+    if (!isSystemAdmin) {
+      alert('Seuls les administrateurs système peuvent supprimer des paramètres.');
+      return;
+    }
+    
     if (!confirm('Êtes-vous sûr de vouloir supprimer ce paramètre ?')) return;
     
     try {
@@ -293,6 +300,11 @@ export default function Parameters() {
   };
 
   const handleDeleteHotel = async (id: string) => {
+    if (!isSystemAdmin) {
+      alert('Seuls les administrateurs système peuvent supprimer des hôtels.');
+      return;
+    }
+    
     if (!confirm('Êtes-vous sûr de vouloir supprimer cet hôtel ?')) return;
     
     try {
@@ -347,6 +359,11 @@ export default function Parameters() {
   };
 
   const handleDeleteMission = async (id: string) => {
+    if (!isSystemAdmin) {
+      alert('Seuls les administrateurs système peuvent supprimer des missions.');
+      return;
+    }
+    
     if (!confirm('Êtes-vous sûr de vouloir supprimer cette mission ?')) return;
     
     try {
@@ -379,6 +396,11 @@ export default function Parameters() {
   };
 
   const handleDeleteLevel = async (id: string) => {
+    if (!isSystemAdmin) {
+      alert('Seuls les administrateurs système peuvent supprimer des niveaux d\'expérience.');
+      return;
+    }
+    
     if (!confirm('Êtes-vous sûr de vouloir supprimer ce niveau ?')) return;
     
     try {
@@ -411,6 +433,11 @@ export default function Parameters() {
   };
 
   const handleDeleteAction = async (id: string) => {
+    if (!isSystemAdmin) {
+      alert('Seuls les administrateurs système peuvent supprimer des actions.');
+      return;
+    }
+    
     if (!confirm('Êtes-vous sûr de vouloir supprimer cette action ?')) return;
     
     try {
@@ -443,6 +470,11 @@ export default function Parameters() {
   };
 
   const handleDeleteBadge = async (id: string) => {
+    if (!isSystemAdmin) {
+      alert('Seuls les administrateurs système peuvent supprimer des badges.');
+      return;
+    }
+    
     if (!confirm('Êtes-vous sûr de vouloir supprimer ce badge ?')) return;
     
     try {

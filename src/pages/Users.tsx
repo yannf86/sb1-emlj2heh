@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useUserPermissions } from '../hooks/useUserPermissions';
 import Layout from '../components/Layout/Layout';
 import UserModal from '../components/Users/UserModal';
 import PasswordResetModal from '../components/Users/PasswordResetModal';
@@ -20,6 +21,7 @@ import { usersService } from '../services/firebase/usersService';
 import { hotelsService } from '../services/firebase/hotelsService';
 
 export default function Users() {
+  const { isSystemAdmin } = useUserPermissions();
   const [users, setUsers] = useState<User[]>([]);
   const [hotels, setHotels] = useState<Hotel[]>([]);
   const [loading, setLoading] = useState(true);
@@ -339,13 +341,15 @@ export default function Users() {
                           >
                             <Edit className="w-4 h-4" />
                           </button>
-                          <button
-                            onClick={() => openDeleteModal(user)}
-                            className="text-red-600 hover:text-red-900 transition-colors"
-                            title="Supprimer"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
+                          {isSystemAdmin && (
+                            <button
+                              onClick={() => openDeleteModal(user)}
+                              className="text-red-600 hover:text-red-900 transition-colors"
+                              title="Supprimer"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          )}
                         </div>
                       </td>
                     </tr>

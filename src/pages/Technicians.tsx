@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useUserPermissions } from '../hooks/useUserPermissions';
 import Layout from '../components/Layout/Layout';
 import TechnicianModal from '../components/Technicians/TechnicianModal';
 import TechnicianPasswordResetModal from '../components/Technicians/TechnicianPasswordResetModal';
@@ -23,6 +24,7 @@ import { techniciansService } from '../services/firebase/techniciansService';
 import { hotelsService } from '../services/firebase/hotelsService';
 
 export default function Technicians() {
+  const { isSystemAdmin } = useUserPermissions();
   const [technicians, setTechnicians] = useState<Technician[]>([]);
   const [hotels, setHotels] = useState<Hotel[]>([]);
   const [loading, setLoading] = useState(true);
@@ -364,13 +366,15 @@ export default function Technicians() {
                           >
                             <Edit className="w-4 h-4" />
                           </button>
-                          <button
-                            onClick={() => openDeleteModal(technician)}
-                            className="text-red-600 hover:text-red-900 transition-colors"
-                            title="Supprimer"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
+                          {isSystemAdmin && (
+                            <button
+                              onClick={() => openDeleteModal(technician)}
+                              className="text-red-600 hover:text-red-900 transition-colors"
+                              title="Supprimer"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          )}
                         </div>
                       </td>
                     </tr>
