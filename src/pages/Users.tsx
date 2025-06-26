@@ -73,6 +73,12 @@ export default function Users() {
   const handleUpdateUser = async (userData: Omit<User, 'id'>) => {
     try {
       if (selectedUser) {
+        // Vérifier si l'utilisateur est un admin système et si l'utilisateur actuel n'est pas un admin système
+        if (selectedUser.role === 'system_admin' && !isSystemAdmin) {
+          alert('Seul un administrateur système peut modifier un autre administrateur système.');
+          return;
+        }
+        
         await usersService.updateUser(selectedUser.id, userData);
         loadData();
       }
@@ -113,6 +119,11 @@ export default function Users() {
   };
 
   const openEditModal = (user: User) => {
+    // Vérifier si l'utilisateur est un admin système et si l'utilisateur actuel n'est pas un admin système
+    if (user.role === 'system_admin' && !isSystemAdmin) {
+      alert('Seul un administrateur système peut modifier un autre administrateur système.');
+      return;
+    }
     setSelectedUser(user);
     setIsEditMode(true);
     setIsUserModalOpen(true);

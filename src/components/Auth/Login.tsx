@@ -22,9 +22,15 @@ export default function Login() {
       await login(email, password);
       // Redirection explicite vers le dashboard après connexion réussie
       navigate('/dashboard');
-    } catch (error) {
+    } catch (error: any) {
       console.error('Erreur de connexion:', error);
-      setError('Identifiants incorrects. Veuillez réessayer.');
+      
+      // Afficher un message d'erreur spécifique si le compte est désactivé
+      if (error.message && error.message.includes('désactivé')) {
+        setError(error.message);
+      } else {
+        setError('Identifiants incorrects. Veuillez réessayer.');
+      }
     } finally {
       setLoading(false);
     }

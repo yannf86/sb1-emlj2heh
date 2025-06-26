@@ -4,6 +4,7 @@ import { User, userRoles } from '../../types/users';
 import { Hotel as HotelType } from '../../types/parameters';
 import { hotelsService } from '../../services/firebase/hotelsService';
 import { modulesService, FirebaseModule } from '../../services/firebase/modulesService';
+import { useUserPermissions } from '../../hooks/useUserPermissions';
 
 interface UserModalProps {
   isOpen: boolean;
@@ -20,6 +21,7 @@ export default function UserModal({
   user, 
   isEdit = false 
 }: UserModalProps) {
+  const { isSystemAdmin } = useUserPermissions();
   const [formData, setFormData] = useState({
     name: '',
     email: '',
@@ -264,6 +266,7 @@ export default function UserModal({
                     checked={formData.role === role.key}
                     onChange={(e) => setFormData({ ...formData, role: e.target.value as User['role'] })}
                     className="mt-1 text-creho-500 focus:ring-creho-500"
+                    disabled={isEdit && user?.role === 'system_admin' && !isSystemAdmin && role.key !== 'system_admin'}
                   />
                   <div className="ml-3">
                     <div className="text-sm font-medium text-warm-900">{role.label}</div>
