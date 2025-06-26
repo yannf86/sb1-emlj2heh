@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, Calendar, Hotel as HotelIcon } from 'lucide-react';
+import { X } from 'lucide-react';
 import { logbookServices } from '../../types/logbook';
 import { Hotel } from '../../types/parameters';
 import { hotelsService } from '../../services/firebase/hotelsService';
@@ -89,6 +89,14 @@ export default function LogbookModal({ isOpen, onClose, onSubmit, entry, isEdit 
       }
 
       setHotels(accessibleHotels);
+      
+      // Pré-remplir l'hôtel si l'utilisateur n'a qu'un seul hôtel accessible et que ce n'est pas en mode édition
+      if (!isEdit && loggedInUser && accessibleHotels.length === 1) {
+        setFormData(prev => ({
+          ...prev,
+          hotelId: accessibleHotels[0].id
+        }));
+      }
     } catch (error) {
       console.error('Error loading data:', error);
     }

@@ -6,6 +6,7 @@ interface LogbookCalendarProps {
   currentDate: Date;
   onDateChange: (date: Date) => void;
   reminders: LogbookReminder[];
+  onReminderClick?: (entryId: string) => void;
 }
 
 const daysOfWeek = ['L', 'M', 'M', 'J', 'V', 'S', 'D'];
@@ -14,7 +15,7 @@ const monthNames = [
   'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre'
 ];
 
-export default function LogbookCalendar({ currentDate, onDateChange, reminders }: LogbookCalendarProps) {
+export default function LogbookCalendar({ currentDate, onDateChange, reminders, onReminderClick }: LogbookCalendarProps) {
   const today = new Date();
   const currentMonth = currentDate.getMonth();
   const currentYear = currentDate.getFullYear();
@@ -121,26 +122,27 @@ export default function LogbookCalendar({ currentDate, onDateChange, reminders }
     }
   };
 
-  // Obtenir les rappels pour la date sélectionnée (currentDate)
+  // Obtenir les rappels pour la date sélectionnée
   const selectedDateReminders = reminders.filter(reminder => {
-    // Normaliser les dates pour la comparaison (sans l'heure)
     const reminderStart = new Date(reminder.startDate);
     reminderStart.setHours(0, 0, 0, 0);
-    const startTimestamp = reminderStart.getTime();
-    
-    const reminderEnd = reminder.endDate ? new Date(reminder.endDate) : new Date(reminderStart);
-    reminderEnd.setHours(0, 0, 0, 0);
-    const endTimestamp = reminderEnd.getTime();
     
     // Date sélectionnée sans l'heure
     const selectedDate = new Date(currentDate.getFullYear(), currentDate.getMonth(), currentDate.getDate());
     selectedDate.setHours(0, 0, 0, 0);
-    const selectedTimestamp = selectedDate.getTime();
     
-    // Vérifier si la date sélectionnée est entre la date de début et la date de fin
-    const isWithinDateRange = selectedTimestamp >= startTimestamp && selectedTimestamp <= endTimestamp;
+    // Date d'aujourd'hui sans l'heure
+    const todayDate = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+    todayDate.setHours(0, 0, 0, 0);
     
-    return isWithinDateRange && reminder.active;
+    // Afficher le rappel si :
+    // 1. La date sélectionnée est >= aujourd'hui
+    // 2. La date sélectionnée est <= date de la consigne
+    // 3. Le rappel est actif
+    const isAfterToday = selectedDate.getTime() >= todayDate.getTime();
+    const isBeforeOrOnReminderDate = selectedDate.getTime() <= reminderStart.getTime();
+    
+    return isAfterToday && isBeforeOrOnReminderDate && reminder.active;
   });
   
   // Obtenir les rappels pour aujourd'hui (pour l'affichage dans le calendrier)
@@ -148,13 +150,11 @@ export default function LogbookCalendar({ currentDate, onDateChange, reminders }
     const reminderStart = new Date(reminder.startDate);
     reminderStart.setHours(0, 0, 0, 0);
     
-    const reminderEnd = reminder.endDate ? new Date(reminder.endDate) : new Date(reminderStart);
-    reminderEnd.setHours(0, 0, 0, 0);
-    
     const todayDate = new Date(today.getFullYear(), today.getMonth(), today.getDate());
     todayDate.setHours(0, 0, 0, 0);
     
-    return todayDate >= reminderStart && todayDate <= reminderEnd && reminder.active;
+    // Afficher le rappel aujourd'hui si la date de la consigne est >= aujourd'hui
+    return todayDate.getTime() <= reminderStart.getTime() && reminder.active;
   });
 
   return (
@@ -254,9 +254,13 @@ export default function LogbookCalendar({ currentDate, onDateChange, reminders }
             </div>
           ) : (
             selectedDateReminders.map((reminder) => (
-              <div key={reminder.id} className="bg-amber-50 border border-amber-200 rounded-lg p-3">
+              <button
+                key={reminder.id}
+                onClick={() => onReminderClick?.(reminder.entryId)}
+                className="w-full bg-amber-50 border border-amber-200 rounded-lg p-3 hover:bg-amber-100 transition-colors cursor-pointer"
+              >
                 <div className="flex items-start justify-between">
-                  <div className="flex-1">
+                  <div className="flex-1 text-left">
                     <p className="text-sm font-medium text-amber-900">{reminder.title}</p>
                     {reminder.description && (
                       <p className="text-xs text-amber-700 mt-1">{reminder.description}</p>
@@ -271,7 +275,7 @@ export default function LogbookCalendar({ currentDate, onDateChange, reminders }
                   </div>
                   <Bell className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
                 </div>
-              </div>
+              </button>
             ))
           )}
         </div>

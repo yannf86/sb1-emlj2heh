@@ -10,9 +10,13 @@ export interface LogbookEntry {
   roomNumber?: string;
   isTask: boolean;
   completed: boolean;
+  completedBy?: string; // ID de l'utilisateur qui a marqué la tâche comme terminée
+  completedByName?: string; // Nom de l'utilisateur qui a marqué la tâche comme terminée
+  completedAt?: Date; // Date de completion de la tâche
   authorId: string;
   authorName: string;
   comments?: LogbookComment[];
+  history?: LogbookHistoryEntry[]; // Historique des modifications
   createdAt: Date;
   updatedAt: Date;
 }
@@ -23,6 +27,18 @@ export interface LogbookComment {
   authorId: string;
   authorName: string;
   createdAt: Date;
+}
+
+export interface LogbookHistoryEntry {
+  id: string;
+  action: 'created' | 'updated' | 'completed' | 'uncompleted' | 'commented';
+  field?: string; // Champ modifié (pour les updates)
+  oldValue?: any; // Ancienne valeur
+  newValue?: any; // Nouvelle valeur
+  userId: string;
+  userName: string;
+  timestamp: Date;
+  description: string; // Description lisible de l'action
 }
 
 export interface LogbookReminder {
@@ -58,6 +74,8 @@ export interface ServiceGroup {
   service: LogbookService;
   entries: LogbookEntry[];
   count: number;
+  tasks: number;
+  infoCount: number;
   completed: number;
   percentage: number;
   isExpanded: boolean;

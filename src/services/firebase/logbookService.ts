@@ -63,18 +63,23 @@ export class LogbookService {
       const q = query(collection(db, 'logbook_entries'), ...constraints);
       const querySnapshot = await getDocs(q);
       
-      const entries = querySnapshot.docs.map(doc => {
+      const entries = querySnapshot.docs.map((doc: any) => {
         const data = doc.data();
         return {
           id: doc.id,
           ...data,
           startDate: data.startDate instanceof Timestamp ? data.startDate.toDate() : new Date(data.startDate),
           endDate: data.endDate instanceof Timestamp ? data.endDate.toDate() : data.endDate ? new Date(data.endDate) : undefined,
+          completedAt: data.completedAt instanceof Timestamp ? data.completedAt.toDate() : data.completedAt ? new Date(data.completedAt) : undefined,
           createdAt: data.createdAt instanceof Timestamp ? data.createdAt.toDate() : new Date(data.createdAt),
           updatedAt: data.updatedAt instanceof Timestamp ? data.updatedAt.toDate() : new Date(data.updatedAt),
           comments: Array.isArray(data.comments) ? data.comments.map((comment: any) => ({
             ...comment,
             createdAt: comment.createdAt instanceof Timestamp ? comment.createdAt.toDate() : new Date(comment.createdAt)
+          })) : [],
+          history: Array.isArray(data.history) ? data.history.map((historyItem: any) => ({
+            ...historyItem,
+            timestamp: historyItem.timestamp instanceof Timestamp ? historyItem.timestamp.toDate() : new Date(historyItem.timestamp)
           })) : [],
         };
       }) as LogbookEntry[];
@@ -103,6 +108,10 @@ export class LogbookService {
         authorId: entry.authorId,
         authorName: entry.authorName,
         comments: [],
+        history: entry.history ? entry.history.map(historyItem => ({
+          ...historyItem,
+          timestamp: Timestamp.fromDate(historyItem.timestamp)
+        })) : [],
         createdAt: Timestamp.now(),
         updatedAt: Timestamp.now(),
       };
@@ -130,6 +139,21 @@ export class LogbookService {
       if (entry.endDate) {
         updateData.endDate = Timestamp.fromDate(entry.endDate);
       }
+
+      // Gérer completedAt - peut être une Date ou null
+      if (entry.completedAt !== undefined) {
+        updateData.completedAt = entry.completedAt ? Timestamp.fromDate(entry.completedAt) : null;
+      }
+
+      // Gérer l'historique
+      if (entry.history) {
+        updateData.history = entry.history.map(historyItem => ({
+          ...historyItem,
+          timestamp: Timestamp.fromDate(historyItem.timestamp)
+        }));
+      }
+
+      console.log('Service updating with data:', updateData); // Debug
 
       const docRef = doc(db, 'logbook_entries', id);
       await updateDoc(docRef, updateData);

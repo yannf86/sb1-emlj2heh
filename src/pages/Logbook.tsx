@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import Layout from '../components/Layout/Layout';
 import LogbookModal from '../components/Logbook/LogbookModal';
 import LogbookCalendar from '../components/Logbook/LogbookCalendar';
@@ -15,7 +15,7 @@ import {
   Calendar,
   User,
   MapPin,
-  Clock,
+
   CheckCircle2,
   Circle,
   ChevronDown,
@@ -47,10 +47,9 @@ export default function Logbook() {
   const [expandedServices, setExpandedServices] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   const [dayProgress, setDayProgress] = useState({ completed: 0, total: 0, percentage: 0 });
-
-  // États pour le modal de confirmation de suppression
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const [entryToDelete, setEntryToDelete] = useState<LogbookEntry | null>(null);
+  const [currentUserData, setCurrentUserData] = useState<any>(null);
 
   useEffect(() => {
     loadData();
@@ -58,7 +57,7 @@ export default function Logbook() {
 
   useEffect(() => {
     loadTodaysEntries();
-  }, [selectedDate, entries]);
+  }, [selectedDate, entries, selectedHotel, selectedService, searchTerm]);
 
   const loadData = async () => {
     setLoading(true);
@@ -69,9 +68,33 @@ export default function Logbook() {
         hotelsService.getHotels()
       ]);
       
+      let filteredHotels = hotelsData;
+      
+      if (currentUser) {
+        const users = await usersService.getUsers();
+        const loggedInUser = users.find(user => user.email === currentUser.email);
+        
+        if (loggedInUser) {
+          setCurrentUserData(loggedInUser); // Stocker les données utilisateur
+          console.log('User data loaded:', loggedInUser); // Debug
+          
+          if (loggedInUser.role === 'system_admin') {
+            filteredHotels = hotelsData;
+          } else {
+            filteredHotels = hotelsData.filter(hotel => 
+              loggedInUser.hotels && loggedInUser.hotels.includes(hotel.id)
+            );
+          }
+        }
+      }
+      
       setEntries(entriesData);
       setReminders(remindersData);
-      setHotels(hotelsData);
+      setHotels(filteredHotels);
+      
+      if (selectedHotel !== 'all' && filteredHotels.length > 0 && !filteredHotels.some(h => h.id === selectedHotel)) {
+        setSelectedHotel(filteredHotels[0].id);
+      }
     } catch (error) {
       console.error('Error loading data:', error);
     } finally {
@@ -85,6 +108,21 @@ export default function Logbook() {
       
       // Filtrer selon les critères sélectionnés
       let filteredEntries = entriesForDate;
+      
+      // Filtrer par hôtels accessibles à l'utilisateur (sauf si admin)
+      if (currentUser && selectedHotel === 'all') {
+        const users = await usersService.getUsers();
+        const loggedInUser = users.find(user => user.email === currentUser.email);
+        
+        if (loggedInUser && loggedInUser.role !== 'system_admin') {
+          // Pour les utilisateurs non-admin, filtrer par leurs hôtels assignés
+          if (loggedInUser.hotels && loggedInUser.hotels.length > 0) {
+            filteredEntries = filteredEntries.filter(entry => 
+              loggedInUser.hotels.includes(entry.hotelId)
+            );
+          }
+        }
+      }
       
       if (selectedHotel !== 'all') {
         filteredEntries = filteredEntries.filter(entry => entry.hotelId === selectedHotel);
@@ -102,28 +140,32 @@ export default function Logbook() {
         );
       }
 
-      // Calculer le progrès du jour
-      const totalEntries = filteredEntries.length;
-      const completedEntries = filteredEntries.filter(entry => entry.completed).length;
-      const dayPercentage = totalEntries > 0 ? Math.round((completedEntries / totalEntries) * 100) : 0;
+      // Calculer le progrès du jour - ne prendre en compte que les tâches
+      const taskEntries = filteredEntries.filter(entry => entry.isTask);
+      const totalTasks = taskEntries.length;
+      const completedTasks = taskEntries.filter(entry => entry.completed).length;
+      const dayPercentage = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 100;
       
       setDayProgress({
-        completed: completedEntries,
-        total: totalEntries,
+        completed: completedTasks,
+        total: totalTasks,
         percentage: dayPercentage
       });
 
-      // Grouper par service avec calcul de progression
+      // Grouper par service avec calcul de progression - ne prendre en compte que les tâches
       const groups = logbookServices.map(service => {
         const serviceEntries = filteredEntries.filter(entry => entry.service === service.key);
-        const completedServiceEntries = serviceEntries.filter(entry => entry.completed).length;
-        const servicePercentage = serviceEntries.length > 0 ? Math.round((completedServiceEntries / serviceEntries.length) * 100) : 0;
+        const serviceTaskEntries = serviceEntries.filter(entry => entry.isTask);
+        const completedServiceTasks = serviceTaskEntries.filter(entry => entry.completed).length;
+        const servicePercentage = serviceTaskEntries.length > 0 ? Math.round((completedServiceTasks / serviceTaskEntries.length) * 100) : 100;
         
         return {
           service,
           entries: serviceEntries,
           count: serviceEntries.length,
-          completed: completedServiceEntries,
+          tasks: serviceTaskEntries.length,
+          infoCount: serviceEntries.filter(entry => !entry.isTask).length,
+          completed: completedServiceTasks,
           percentage: servicePercentage,
           isExpanded: expandedServices.has(service.key) || serviceEntries.length === 0
         };
@@ -143,18 +185,37 @@ export default function Logbook() {
   };
 
   const handleCreateEntry = async (data: any) => {
+    if (!currentUser) return;
+
     try {
+      // Récupérer les données de l'utilisateur
+      const users = await usersService.getUsers();
+      const userData = users.find(user => user.email === currentUser.email);
+      const userName = userData?.name || currentUser.email?.split('@')[0] || 'Utilisateur';
+
       const entryData = {
         service: data.service,
         hotelId: data.hotelId,
-        title: data.content.substring(0, 100), // Premier partie du contenu comme titre
+        title: data.content.substring(0, 100),
         content: data.content,
         importance: data.importance,
-        roomNumber: data.roomNumber,
+        roomNumber: data.roomNumber || '',
         isTask: data.isTask,
         completed: false,
-        authorId: data.authorId,
-        authorName: data.authorName
+        authorId: userData?.id || currentUser.uid,
+        authorName: userName,
+        createdAt: new Date(),
+        updatedAt: new Date()
+      };
+
+      // Créer l'entrée d'historique pour la création
+      const historyEntry = {
+        id: Date.now().toString(),
+        action: 'created' as const,
+        userId: currentUser.uid,
+        userName: userName,
+        timestamp: new Date(),
+        description: `Consigne créée par ${userName}`
       };
 
       const reminderData = data.createReminder ? {
@@ -167,7 +228,8 @@ export default function Logbook() {
         const entryId = await logbookService.addLogbookEntry({
           ...entryData,
           startDate: data.dates[0],
-          endDate: data.dates[0]
+          endDate: data.dates[0],
+          history: [historyEntry]
         });
 
         // Créer un rappel si demandé
@@ -178,13 +240,15 @@ export default function Logbook() {
             description: reminderData.description,
             startDate: data.dates[0],
             endDate: data.dates[0],
-            active: true
+            active: true,
+            createdAt: new Date(),
+            updatedAt: new Date()
           });
         }
       } else {
         // Créer plusieurs entrées pour la plage de dates
         await logbookService.createEntriesForDateRange(
-          entryData,
+          { ...entryData, history: [historyEntry] },
           data.dates,
           reminderData
         );
@@ -197,9 +261,14 @@ export default function Logbook() {
   };
 
   const handleUpdateEntry = async (data: any) => {
-    if (!selectedEntryForEdit) return;
+    if (!selectedEntryForEdit || !currentUser) return;
 
     try {
+      // Récupérer les données de l'utilisateur
+      const users = await usersService.getUsers();
+      const userData = users.find(user => user.email === currentUser.email);
+      const userName = userData?.name || currentUser.email?.split('@')[0] || 'Utilisateur';
+
       const updateData = {
         service: data.service,
         hotelId: data.hotelId,
@@ -209,28 +278,94 @@ export default function Logbook() {
         roomNumber: data.roomNumber,
         isTask: data.isTask,
         startDate: data.dates[0],
-        endDate: data.dates[0]
+        endDate: data.dates[0],
+        updatedAt: new Date()
       };
 
-      await logbookService.updateLogbookEntry(selectedEntryForEdit.id, updateData);
+      // Créer l'entrée d'historique pour la modification
+      const historyEntry = {
+        id: Date.now().toString(),
+        action: 'updated' as const,
+        userId: currentUser.uid,
+        userName: userName,
+        timestamp: new Date(),
+        description: `Consigne modifiée par ${userName}`
+      };
+
+      // Ajouter l'historique à l'entrée existante
+      const existingHistory = selectedEntryForEdit.history || [];
+      const updatedHistory = [...existingHistory, historyEntry];
+
+      await logbookService.updateLogbookEntry(selectedEntryForEdit.id, {
+        ...updateData,
+        history: updatedHistory
+      });
+      
       await loadData();
     } catch (error) {
       console.error('Error updating entry:', error);
     }
   };
 
-  const toggleEntryCompletion = async (id: string, completed: boolean) => {
+  const toggleTaskCompletion = async (entry: LogbookEntry) => {
+    if (!currentUser) return;
+    
+    console.log('Toggle task completion for entry:', entry.id, 'Current completed:', entry.completed);
+    
     try {
-      await logbookService.toggleEntryCompletion(id, completed);
-      await loadData();
-    } catch (error) {
-      console.error('Error toggling entry completion:', error);
-    }
-  };
+      // Récupérer les données de l'utilisateur
+      const users = await usersService.getUsers();
+      const userData = users.find(user => user.email === currentUser.email);
+      const userName = userData?.name || currentUser.email?.split('@')[0] || 'Utilisateur';
+      
+      const newCompletedState = !entry.completed;
+      console.log('New completed state will be:', newCompletedState);
+      
+      // Créer l'entrée d'historique
+      const historyEntry = {
+        id: Date.now().toString(),
+        action: (newCompletedState ? 'completed' : 'uncompleted') as 'completed' | 'uncompleted',
+        userId: currentUser.uid,
+        userName: userData?.name || currentUser.email?.split('@')[0] || 'Utilisateur',
+        timestamp: new Date(),
+        description: newCompletedState 
+          ? `Tâche marquée comme terminée par ${userData?.name || currentUser.email?.split('@')[0] || 'Utilisateur'}`
+          : `Tâche marquée comme non terminée par ${userData?.name || currentUser.email?.split('@')[0] || 'Utilisateur'}`
+      };
 
-  const openDeleteModal = (entry: LogbookEntry) => {
-    setEntryToDelete(entry);
-    setIsDeleteModalOpen(true);
+      const existingHistory = entry.history || [];
+      const updatedHistory = [...existingHistory, historyEntry];
+
+      // Préparer seulement les champs à mettre à jour
+      const updateData: any = {
+        completed: newCompletedState,
+        history: updatedHistory,
+        updatedAt: new Date()
+      };
+
+      // Ajouter les champs de completion seulement si nécessaire
+      if (newCompletedState) {
+        updateData.completedBy = currentUser.uid;
+        updateData.completedByName = userData?.name || currentUser.email?.split('@')[0] || 'Utilisateur';
+        updateData.completedAt = new Date();
+      } else {
+        // Supprimer les champs de completion
+        updateData.completedBy = null;
+        updateData.completedByName = null;
+        updateData.completedAt = null;
+      }
+
+      console.log('Updating entry with:', updateData);
+      await logbookService.updateLogbookEntry(entry.id, updateData);
+      console.log('Entry updated successfully');
+      
+      // Petit délai pour s'assurer que Firestore a bien mis à jour
+      setTimeout(async () => {
+        await loadData();
+      }, 500);
+    } catch (error) {
+      console.error('Error toggling task completion:', error);
+    }
   };
 
   const confirmDelete = async () => {
@@ -239,10 +374,16 @@ export default function Logbook() {
     try {
       await logbookService.deleteLogbookEntry(entryToDelete.id);
       await loadData();
+      setIsDeleteModalOpen(false);
       setEntryToDelete(null);
     } catch (error) {
       console.error('Error deleting entry:', error);
     }
+  };
+
+  const openDeleteModal = (entry: LogbookEntry) => {
+    setEntryToDelete(entry);
+    setIsDeleteModalOpen(true);
   };
 
   const openEditModal = (entry: LogbookEntry) => {
@@ -271,11 +412,29 @@ export default function Logbook() {
       const users = await usersService.getUsers();
       const userData = users.find(user => user.email === currentUser.email);
       
+      // Créer l'entrée d'historique pour l'ajout de commentaire
+      const historyEntry = {
+        id: Date.now().toString(),
+        action: 'commented' as const,
+        userId: currentUser.uid,
+        userName: userData?.name || currentUser.email?.split('@')[0] || 'Utilisateur',
+        timestamp: new Date(),
+        description: `Commentaire ajouté par ${userData?.name || currentUser.email?.split('@')[0] || 'Utilisateur'}`
+      };
+
       await logbookService.addCommentToEntry(selectedEntryForComment.id, {
         content: comment,
         authorId: userData?.id || currentUser.uid,
         authorName: userData?.name || currentUser.email?.split('@')[0] || 'Utilisateur',
         createdAt: new Date()
+      });
+
+      // Ajouter l'historique à l'entrée existante
+      const existingHistory = selectedEntryForComment.history || [];
+      const updatedHistory = [...existingHistory, historyEntry];
+
+      await logbookService.updateLogbookEntry(selectedEntryForComment.id, {
+        history: updatedHistory
       });
       
       await loadData();
@@ -334,6 +493,20 @@ export default function Logbook() {
   const isToday = () => {
     const today = new Date();
     return selectedDate.toDateString() === today.toDateString();
+  };
+
+  const handleReminderClick = (entryId: string) => {
+    // Trouver la consigne correspondante
+    const entry = entries.find(e => e.id === entryId);
+    if (entry) {
+      // Changer la date pour celle de la consigne
+      setSelectedDate(entry.startDate);
+      
+      // Optionnel : ouvrir directement la modal d'édition
+      setSelectedEntryForEdit(entry);
+      setIsEditMode(true);
+      setIsModalOpen(true);
+    }
   };
 
   return (
@@ -481,16 +654,21 @@ export default function Logbook() {
                           <div className="flex items-center justify-between">
                             <div>
                               <h3 className="font-semibold text-warm-900">{group.service.label}</h3>
-                              <p className="text-sm text-warm-600">
-                                {group.completed}/{group.count} consigne{group.count > 1 ? 's' : ''} terminée{group.completed > 1 ? 's' : ''}
-                                {group.percentage === 100 && (
-                                  <span className="ml-2 text-green-600 font-medium">✓ Terminé</span>
-                                )}
-                              </p>
+                              <div className="space-y-1">
+                                <p className="text-sm text-warm-600">
+                                  {group.completed}/{group.tasks} tâche{group.tasks > 1 ? 's' : ''} terminée{group.completed > 1 ? 's' : ''}
+                                  {group.tasks > 0 && group.percentage === 100 && (
+                                    <span className="ml-2 text-green-600 font-medium">✓ Terminé</span>
+                                  )}
+                                </p>
+                                <p className="text-sm text-blue-600">
+                                  {group.infoCount} consigne{group.infoCount > 1 ? 's' : ''} à lire
+                                </p>
+                              </div>
                             </div>
                             <div className="flex items-center space-x-3">
                               <span className="text-lg font-bold text-warm-700">{group.count}</span>
-                              <span className={`text-sm font-medium ${group.percentage === 100 ? 'text-green-600' : 'text-warm-600'}`}>
+                              <span className="text-sm font-medium text-warm-700">
                                 {group.percentage}%
                               </span>
                               {expandedServices.has(group.service.key) ? (
@@ -518,33 +696,27 @@ export default function Logbook() {
                       </div>
                     </div>
 
-                    {/* Service Entries */}
-                    {expandedServices.has(group.service.key) && (
-                      <div>
-                        {group.entries.map((entry, index) => (
+                    {/* Service Entries - Consignes informatives (toujours affichées) */}
+                    <div>
+                      {group.entries
+                        .filter(entry => !entry.isTask)
+                        .map((entry, index, filteredArray) => (
                           <div
                             key={entry.id}
                             className={`border-l-4 ${getImportanceColor(entry.importance)} ${
-                              index !== group.entries.length - 1 ? 'border-b border-warm-100' : ''
+                              index !== filteredArray.length - 1 ? 'border-b border-warm-100' : ''
                             }`}
                           >
                             <div className="p-4">
                               <div className="flex items-start justify-between">
                                 <div className="flex-1">
                                   <div className="flex items-center space-x-2 mb-2">
-                                    {entry.isTask && (
-                                      <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">
-                                        Tâche
-                                      </span>
-                                    )}
+                                    <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">
+                                      À lire
+                                    </span>
                                     <span className={`px-2 py-1 text-xs font-medium rounded-full border ${getImportanceBadgeColor(entry.importance)}`}>
                                       {entry.importance}
                                     </span>
-                                    {entry.completed && (
-                                      <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">
-                                        ✓ Terminé
-                                      </span>
-                                    )}
                                   </div>
                                   
                                   <div className="flex items-center text-warm-500 mb-2 space-x-3">
@@ -573,7 +745,7 @@ export default function Logbook() {
                                     )}
                                   </div>
 
-                                  <p className={`text-warm-800 ${entry.completed ? 'line-through text-warm-500' : ''}`}>
+                                  <p className="text-warm-800">
                                     {entry.content}
                                   </p>
 
@@ -596,31 +768,38 @@ export default function Logbook() {
                                       </div>
                                     </div>
                                   )}
+
+                                  {/* Historique des modifications */}
+                                  {entry.history && entry.history.length > 0 && (
+                                    <details className="mt-3">
+                                      <summary className="cursor-pointer text-xs font-medium text-gray-600 hover:text-gray-800">
+                                        📋 Historique des modifications ({entry.history.length})
+                                      </summary>
+                                      <div className="mt-2 bg-gray-50 rounded-lg p-3">
+                                        <div className="space-y-2">
+                                          {entry.history.slice(-5).reverse().map((historyItem) => (
+                                            <div key={historyItem.id} className="text-xs border-l-2 border-gray-300 pl-2">
+                                              <div className="flex items-center justify-between">
+                                                <span className="font-medium text-gray-900">{historyItem.userName}</span>
+                                                <span className="text-gray-600">
+                                                  {historyItem.timestamp.toLocaleDateString('fr-FR')} à {historyItem.timestamp.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
+                                                </span>
+                                              </div>
+                                              <p className="text-gray-700 mt-1">{historyItem.description}</p>
+                                            </div>
+                                          ))}
+                                          {entry.history.length > 5 && (
+                                            <p className="text-xs text-gray-500 italic">... et {entry.history.length - 5} autres modifications</p>
+                                          )}
+                                        </div>
+                                      </div>
+                                    </details>
+                                  )}
                                 </div>
                               </div>
 
                               <div className="flex items-center justify-between mt-4 pt-3 border-t border-warm-100">
                                 <div className="flex items-center space-x-4">
-                                  <button
-                                    onClick={() => toggleEntryCompletion(entry.id, !entry.completed)}
-                                    className={`flex items-center text-xs font-medium transition-colors ${
-                                      entry.completed 
-                                        ? 'text-green-600 hover:text-green-700' 
-                                        : 'text-warm-600 hover:text-green-600'
-                                    }`}
-                                  >
-                                    {entry.completed ? (
-                                      <>
-                                        <CheckCircle2 className="w-3 h-3 mr-1" />
-                                        Terminé
-                                      </>
-                                    ) : (
-                                      <>
-                                        <Circle className="w-3 h-3 mr-1" />
-                                        Marquer comme terminé
-                                      </>
-                                    )}
-                                  </button>
                                   <button 
                                     onClick={() => {
                                       setSelectedEntryForComment(entry);
@@ -640,18 +819,207 @@ export default function Logbook() {
                                   >
                                     <Edit className="w-4 h-4 text-warm-400 hover:text-creho-600" />
                                   </button>
-                                  <button
-                                    onClick={() => openDeleteModal(entry)}
-                                    className="p-1 hover:bg-warm-100 rounded transition-colors"
-                                    title="Supprimer la consigne"
-                                  >
-                                    <Trash2 className="w-4 h-4 text-warm-400 hover:text-red-600" />
-                                  </button>
+                                  {(currentUser && (
+                                    entry.authorId === currentUser.uid || 
+                                    (currentUserData && (
+                                      currentUserData.role === 'system_admin' || 
+                                      currentUserData.role === 'hotel_admin'
+                                    ))
+                                  )) && (
+                                    <button
+                                      onClick={() => openDeleteModal(entry)}
+                                      className="p-1 hover:bg-warm-100 rounded transition-colors"
+                                      title="Supprimer la consigne"
+                                    >
+                                      <Trash2 className="w-4 h-4 text-warm-400 hover:text-red-600" />
+                                    </button>
+                                  )}
                                 </div>
                               </div>
                             </div>
                           </div>
                         ))}
+                    </div>
+
+                    {/* Service Entries - Tâches */}
+                    {expandedServices.has(group.service.key) && (
+                      <div>
+                        {group.entries
+                          .filter(entry => entry.isTask)
+                          .map((entry, index, filteredArray) => (
+                            <div
+                              key={entry.id}
+                              className={`border-l-4 ${getImportanceColor(entry.importance)} ${
+                                index !== filteredArray.length - 1 ? 'border-b border-warm-100' : ''
+                              }`}
+                            >
+                              <div className="p-4">
+                                <div className="flex items-start justify-between">
+                                  <div className="flex-1">
+                                    <div className="flex items-center space-x-2 mb-2">
+                                      <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">
+                                        Tâche
+                                      </span>
+                                      <span className={`px-2 py-1 text-xs font-medium rounded-full border ${getImportanceBadgeColor(entry.importance)}`}>
+                                        {entry.importance}
+                                      </span>
+                                      {entry.completed && (
+                                        <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">
+                                          ✓ Terminé
+                                        </span>
+                                      )}
+                                    </div>
+                                    
+                                    <div className="flex items-center text-warm-500 mb-2 space-x-3">
+                                      <div className="flex items-center">
+                                        <Calendar className="w-3 h-3 mr-1" />
+                                        <span className="text-xs">
+                                          {entry.startDate.toLocaleDateString('fr-FR')}
+                                          {entry.endDate && entry.startDate.getTime() !== entry.endDate.getTime() && (
+                                            ` - ${entry.endDate.toLocaleDateString('fr-FR')}`
+                                          )}
+                                        </span>
+                                      </div>
+                                      <div className="flex items-center">
+                                        <MapPin className="w-3 h-3 mr-1" />
+                                        <span className="text-xs">{getHotelName(entry.hotelId)}</span>
+                                      </div>
+                                      <div className="flex items-center">
+                                        <User className="w-3 h-3 mr-1" />
+                                        <span className="text-xs">Par {entry.authorName}</span>
+                                      </div>
+                                      {entry.roomNumber && (
+                                        <div className="flex items-center">
+                                          <MapPin className="w-3 h-3 mr-1" />
+                                          <span className="text-xs">Chambre {entry.roomNumber}</span>
+                                        </div>
+                                      )}
+                                    </div>
+
+                                    <p className={`text-warm-800 ${entry.completed ? 'line-through text-warm-500' : ''}`}>
+                                      {entry.content}
+                                    </p>
+
+                                    {/* Affichage de qui a complété la tâche */}
+                                    {entry.isTask && entry.completed && entry.completedByName && (
+                                      <div className="flex items-center text-xs text-green-600 mb-2">
+                                        <CheckCircle2 className="w-3 h-3 mr-1" />
+                                        <span>Terminé par {entry.completedByName}</span>
+                                        {entry.completedAt && (
+                                          <span className="ml-2 text-warm-500">
+                                            le {entry.completedAt.toLocaleDateString('fr-FR')} à {entry.completedAt.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
+                                          </span>
+                                        )}
+                                      </div>
+                                    )}
+
+                                    {/* Affichage de l'historique */}
+                                    {entry.history && entry.history.length > 0 && (
+                                      <details className="mb-2">
+                                        <summary className="text-xs text-warm-500 cursor-pointer hover:text-warm-700">
+                                          Historique des modifications ({entry.history.length})
+                                        </summary>
+                                        <div className="mt-2 pl-4 border-l-2 border-warm-200">
+                                          {entry.history.slice(-5).reverse().map((historyItem) => (
+                                            <div key={historyItem.id} className="text-xs text-warm-600 mb-1">
+                                              <span className="font-medium">{historyItem.description}</span>
+                                              <span className="text-warm-400 ml-2">
+                                                {historyItem.timestamp.toLocaleDateString('fr-FR')} à {historyItem.timestamp.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
+                                              </span>
+                                            </div>
+                                          ))}
+                                          {entry.history.length > 5 && (
+                                            <div className="text-xs text-warm-400 italic">
+                                              ... et {entry.history.length - 5} autres modifications
+                                            </div>
+                                          )}
+                                        </div>
+                                      </details>
+                                    )}
+
+                                    {/* Comments */}
+                                    {entry.comments && entry.comments.length > 0 && (
+                                      <div className="mt-3 bg-blue-50 rounded-lg p-3">
+                                        <h4 className="text-xs font-medium text-blue-800 mb-2">
+                                          Commentaires ({entry.comments.length})
+                                        </h4>
+                                        <div className="space-y-2">
+                                          {entry.comments.map((comment) => (
+                                            <div key={comment.id} className="text-xs">
+                                              <div className="flex items-center justify-between">
+                                                <span className="font-medium text-blue-900">{comment.authorName}</span>
+                                                <span className="text-blue-600">{comment.createdAt.toLocaleDateString('fr-FR')}</span>
+                                              </div>
+                                              <p className="text-blue-700 mt-1">{comment.content}</p>
+                                            </div>
+                                          ))}
+                                        </div>
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+
+                                <div className="flex items-center justify-between mt-4 pt-3 border-t border-warm-100">
+                                  <div className="flex items-center space-x-4">
+                                    <button
+                                      onClick={() => toggleTaskCompletion(entry)}
+                                      className={`flex items-center text-xs font-medium transition-colors ${
+                                        entry.completed 
+                                          ? 'text-green-600 hover:text-orange-600' 
+                                          : 'text-warm-600 hover:text-green-600'
+                                      }`}
+                                    >
+                                      {entry.completed ? (
+                                        <>
+                                          <CheckCircle2 className="w-3 h-3 mr-1" />
+                                          Marquer comme non terminé
+                                        </>
+                                      ) : (
+                                        <>
+                                          <Circle className="w-3 h-3 mr-1" />
+                                          Marquer comme terminé
+                                        </>
+                                      )}
+                                    </button>
+                                    <button 
+                                      onClick={() => {
+                                        setSelectedEntryForComment(entry);
+                                        setIsCommentModalOpen(true);
+                                      }}
+                                      className="flex items-center text-xs text-warm-600 hover:text-warm-800"
+                                    >
+                                      <MessageCircle className="w-3 h-3 mr-1" />
+                                      Commenter
+                                    </button>
+                                  </div>
+                                  <div className="flex items-center space-x-2">
+                                    <button 
+                                      onClick={() => openEditModal(entry)}
+                                      className="p-1 hover:bg-warm-100 rounded transition-colors"
+                                      title="Modifier la consigne"
+                                    >
+                                      <Edit className="w-4 h-4 text-warm-400 hover:text-creho-600" />
+                                    </button>
+                                    {(currentUser && (
+                                      entry.authorId === currentUser.uid || 
+                                      (currentUserData && (
+                                        currentUserData.role === 'system_admin' || 
+                                        currentUserData.role === 'hotel_admin'
+                                      ))
+                                    )) && (
+                                      <button
+                                        onClick={() => openDeleteModal(entry)}
+                                        className="p-1 hover:bg-warm-100 rounded transition-colors"
+                                        title="Supprimer la consigne"
+                                      >
+                                        <Trash2 className="w-4 h-4 text-warm-400 hover:text-red-600" />
+                                      </button>
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          ))}
                       </div>
                     )}
                   </div>
@@ -667,6 +1035,7 @@ export default function Logbook() {
             currentDate={selectedDate}
             onDateChange={setSelectedDate}
             reminders={reminders}
+            onReminderClick={handleReminderClick}
           />
         </div>
       </div>
@@ -695,7 +1064,7 @@ export default function Logbook() {
         onConfirm={confirmDelete}
         title="Confirmer la suppression"
         message="Êtes-vous sûr de vouloir supprimer cette consigne ?"
-        itemName={entryToDelete?.content.substring(0, 50) + (entryToDelete?.content.length > 50 ? '...' : '')}
+        itemName={entryToDelete?.content ? entryToDelete.content.substring(0, 50) + (entryToDelete.content.length > 50 ? '...' : '') : ''}
       />
     </Layout>
   );
