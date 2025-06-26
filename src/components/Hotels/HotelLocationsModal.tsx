@@ -33,7 +33,32 @@ export default function HotelLocationsModal({
     setLoading(true);
     try {
       const data = await parametersService.getParameters('parameters_location');
-      setLocations(data.filter(loc => loc.active));
+      // Filtrer les lieux actifs
+      const activeLocations = data.filter(loc => loc.active);
+      
+      // Trier les lieux par ordre numérique puis alphabétique
+      const sortedLocations = [...activeLocations].sort((a, b) => {
+        // Vérifier si les deux labels sont des nombres
+        const aNum = parseInt(a.label);
+        const bNum = parseInt(b.label);
+        
+        // Si les deux sont des nombres valides, comparer numériquement
+        if (!isNaN(aNum) && !isNaN(bNum)) {
+          return aNum - bNum;
+        }
+        // Si seulement a est un nombre, a vient en premier
+        else if (!isNaN(aNum)) {
+          return -1;
+        }
+        // Si seulement b est un nombre, b vient en premier
+        else if (!isNaN(bNum)) {
+          return 1;
+        }
+        // Sinon, tri alphabétique standard
+        return a.label.localeCompare(b.label, undefined, { sensitivity: 'base' });
+      });
+      
+      setLocations(sortedLocations);
     } catch (error) {
       console.error('Error loading locations:', error);
     } finally {
