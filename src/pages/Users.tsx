@@ -13,7 +13,8 @@ import {
   RefreshCw,
   User as UserIcon,
   Shield,
-  ShieldCheck
+  ShieldCheck,
+  Hotel as HotelIcon
 } from 'lucide-react';
 import { User, userRoles, appModules } from '../types/users';
 import { Hotel } from '../types/parameters';
@@ -21,13 +22,14 @@ import { usersService } from '../services/firebase/usersService';
 import { hotelsService } from '../services/firebase/hotelsService';
 
 export default function Users() {
-  const { isSystemAdmin } = useUserPermissions();
+  const { isSystemAdmin, isHotelAdmin, accessibleHotels } = useUserPermissions();
   const [users, setUsers] = useState<User[]>([]);
   const [hotels, setHotels] = useState<Hotel[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedRole, setSelectedRole] = useState('all');
   const [selectedStatus, setSelectedStatus] = useState('all');
+  const [selectedHotel, setSelectedHotel] = useState('all');
   const [isUserModalOpen, setIsUserModalOpen] = useState(false);
   const [isPasswordResetModalOpen, setIsPasswordResetModalOpen] = useState(false);
   const [selectedUser, setSelectedUser] = useState<User | null>(null);
@@ -48,8 +50,31 @@ export default function Users() {
         usersService.getUsers(),
         hotelsService.getHotels()
       ]);
-      setUsers(usersData);
+      
+      // Filtrer les utilisateurs en fonction du rôle de l'utilisateur connecté
+      let filteredUsers = usersData;
+      
+      // Si l'utilisateur est un administrateur d'hôtel, ne montrer que les utilisateurs de ses hôtels
+      if (isHotelAdmin && !isSystemAdmin && accessibleHotels.length > 0) {
+        filteredUsers = usersData.filter(user => {
+          // Inclure l'utilisateur s'il appartient à au moins un des hôtels accessibles
+          if (!user.hotels || user.hotels.length === 0) return false;
+          
+          // Vérifier si au moins un hôtel de l'utilisateur est dans la liste des hôtels accessibles
+          return user.hotels.some(hotelId => accessibleHotels.includes(hotelId));
+        });
+      }
+      
+      setUsers(filteredUsers);
       setHotels(hotelsData);
+      
+      // Si c'est un admin d'hôtel, préparer la liste des hôtels pour le filtre
+      if (isHotelAdmin && !isSystemAdmin && accessibleHotels.length > 0) {
+        // Sélectionner automatiquement le premier hôtel accessible si aucun n'est sélectionné
+        if (selectedHotel === 'all' && accessibleHotels.length === 1) {
+          setSelectedHotel(accessibleHotels[0]);
+        }
+      }
     } catch (error) {
       console.error('Error loading data:', error);
     } finally {
@@ -182,9 +207,16 @@ export default function Users() {
     const matchesStatus = selectedStatus === 'all' || 
                          (selectedStatus === 'active' && user.active) ||
                          (selectedStatus === 'inactive' && !user.active);
+    const matchesHotel = selectedHotel === 'all' || 
+                         (user.hotels && user.hotels.includes(selectedHotel));
     
-    return matchesSearch && matchesRole && matchesStatus;
+    return matchesSearch && matchesRole && matchesStatus && matchesHotel;
   });
+  
+  // Préparer la liste des hôtels pour le filtre
+  const availableHotels = isSystemAdmin 
+    ? hotels 
+    : hotels.filter(hotel => accessibleHotels.includes(hotel.id));
 
   return (
     <Layout title="Utilisateurs" subtitle="Gestion des utilisateurs">
@@ -207,17 +239,16 @@ export default function Users() {
 
           {/* Filters */}
           <div className="flex items-center space-x-4">
-            <div className="relative flex-1 max-w-md">
+            <div className="relative">
               <Search className="w-4 h-4 text-warm-400 absolute left-3 top-1/2 transform -translate-y-1/2" />
               <input
                 type="text"
                 placeholder="Rechercher un utilisateur..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                className="pl-10 pr-4 py-2 border border-warm-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-creho-500 w-full"
+                className="pl-10 pr-4 py-2 border border-warm-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-creho-500 w-64"
               />
             </div>
-
             <select
               value={selectedRole}
               onChange={(e) => setSelectedRole(e.target.value)}
@@ -228,7 +259,6 @@ export default function Users() {
                 <option key={role.key} value={role.key}>{role.label}</option>
               ))}
             </select>
-
             <select
               value={selectedStatus}
               onChange={(e) => setSelectedStatus(e.target.value)}
@@ -236,14 +266,28 @@ export default function Users() {
             >
               <option value="all">Tous les statuts</option>
               <option value="active">Actifs</option>
-              <option value="inactive">Inactifs</option>
+              <option value="inactive">Désactivés</option>
             </select>
-
+            {/* Filtre par hôtel */}
+            <div className="relative">
+              <HotelIcon className="w-4 h-4 text-warm-400 absolute left-3 top-1/2 transform -translate-y-1/2" />
+              <select
+                value={selectedHotel}
+                onChange={(e) => setSelectedHotel(e.target.value)}
+                className="pl-10 px-3 py-2 border border-warm-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-creho-500"
+              >
+                <option value="all">Tous les hôtels</option>
+                {availableHotels.map(hotel => (
+                  <option key={hotel.id} value={hotel.id}>{hotel.name}</option>
+                ))}
+              </select>
+            </div>
             <button
               onClick={loadData}
-              className="p-2 border border-warm-300 rounded-lg hover:bg-warm-50 transition-colors"
+              className="p-2 hover:bg-warm-100 rounded-lg"
+              title="Rafraîchir"
             >
-              <RefreshCw className="w-4 h-4 text-warm-600" />
+              <RefreshCw className="w-4 h-4 text-warm-500" />
             </button>
           </div>
         </div>

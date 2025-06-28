@@ -137,6 +137,12 @@ export default function UserModal({
       alert('Veuillez sélectionner au moins un module accessible');
       return;
     }
+    
+    // Vérifier si l'utilisateur tente de modifier le rôle sans être admin système
+    if (isEdit && !isSystemAdmin && user && user.role !== formData.role) {
+      alert('Seul un administrateur système peut modifier le rôle d\'un utilisateur');
+      return;
+    }
 
     onSubmit(formData, !isEdit ? password : undefined);
     onClose();
@@ -255,6 +261,9 @@ export default function UserModal({
           <div>
             <label className="block text-sm font-medium text-warm-700 mb-2">
               Rôle *
+              {isEdit && !isSystemAdmin && (
+                <span className="text-xs text-orange-600 ml-2">(Seuls les administrateurs système peuvent modifier les rôles)</span>
+              )}
             </label>
             <div className="space-y-3">
               {userRoles.map((role) => (
@@ -266,7 +275,7 @@ export default function UserModal({
                     checked={formData.role === role.key}
                     onChange={(e) => setFormData({ ...formData, role: e.target.value as User['role'] })}
                     className="mt-1 text-creho-500 focus:ring-creho-500"
-                    disabled={isEdit && user?.role === 'system_admin' && !isSystemAdmin && role.key !== 'system_admin'}
+                    disabled={(isEdit && !isSystemAdmin) || (isEdit && user?.role === 'system_admin' && !isSystemAdmin && role.key !== 'system_admin')}
                   />
                   <div className="ml-3">
                     <div className="text-sm font-medium text-warm-900">{role.label}</div>
