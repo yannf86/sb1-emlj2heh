@@ -1,20 +1,18 @@
 import {
-  collection,
-  getDocs,
-  doc,
   addDoc,
-  updateDoc,
-  deleteDoc,
-  query,
+  arrayUnion,
+  collection,
+  doc,
+  getDocs,
   orderBy,
+  query,
+  updateDoc,
   where,
   Timestamp,
-  writeBatch,
-  arrayUnion
+  writeBatch
 } from 'firebase/firestore';
 import { db } from '../../lib/firebase';
-import { DailyChecklist, DayCompletion, ChecklistComment } from '../../types/checklist';
-import { ChecklistMission } from '../../types/parameters';
+import { DailyChecklist, ChecklistComment } from '../../types/checklist';
 import { checklistMissionsService } from './checklistMissionsService';
 
 export class DailyChecklistService {
@@ -46,21 +44,18 @@ export class DailyChecklistService {
 
       const querySnapshot = await getDocs(q);
       
-      return querySnapshot.docs.map(doc => {
-        const data = doc.data();
+      const tasks = querySnapshot.docs.map((docSnapshot: any) => {
+        const data = docSnapshot.data();
         return {
-          id: doc.id,
+          id: docSnapshot.id,
           ...data,
           date: data.date instanceof Timestamp ? data.date.toDate() : new Date(data.date),
-          completedAt: data.completedAt instanceof Timestamp ? data.completedAt.toDate() : data.completedAt ? new Date(data.completedAt) : undefined,
           createdAt: data.createdAt instanceof Timestamp ? data.createdAt.toDate() : new Date(data.createdAt),
           updatedAt: data.updatedAt instanceof Timestamp ? data.updatedAt.toDate() : new Date(data.updatedAt),
-          comments: Array.isArray(data.comments) ? data.comments.map((comment: any) => ({
-            ...comment,
-            createdAt: comment.createdAt instanceof Timestamp ? comment.createdAt.toDate() : new Date(comment.createdAt)
-          })) : [],
-        };
-      }) as DailyChecklist[];
+        } as DailyChecklist;
+      });
+
+      return tasks;
     } catch (error) {
       console.error('Error getting daily checklists:', error);
       throw error;
@@ -128,15 +123,18 @@ export class DailyChecklistService {
 
   async generateDailyChecklistsFromMissions(date: Date, hotelId: string): Promise<void> {
     try {
-      // Récupérer toutes les missions actives pour cet hôtel
+      console.log('Génération des tâches quotidiennes pour la date:', date, 'et l\'hôtel:', hotelId);
       const missions = await checklistMissionsService.getChecklistMissions();
+      console.log('Missions récupérées:', missions.length);
+      
       const activeMissions = missions.filter(mission => 
         mission.active && 
         mission.hotels.includes(hotelId)
       );
-
-      // Vérifier si les tâches existent déjà pour cette date et cet hôtel
+      console.log('Missions actives pour cet hôtel:', activeMissions.length);
+      
       const existingTasks = await this.getDailyChecklists(date, hotelId);
+      console.log('Tâches existantes pour cette date:', existingTasks.length);
       if (existingTasks.length > 0) {
         console.log('Tasks already exist for this date and hotel');
         return;
@@ -210,6 +208,42 @@ export class DailyChecklistService {
     }
   }
 
+  async cancelDayCompletion(date: Date, hotelId: string): Promise<void> {
+    try {
+      const startOfDay = new Date(date);
+      startOfDay.setHours(0, 0, 0, 0);
+      const endOfDay = new Date(date);
+      endOfDay.setHours(23, 59, 59, 999);
+
+      // Trouver les documents de complétion pour cette date et cet hôtel
+      const q = query(
+        collection(db, 'day_completions'),
+        where('hotelId', '==', hotelId)
+      );
+
+      const querySnapshot = await getDocs(q);
+      
+      // Filtrer les résultats en mémoire pour vérifier la plage de dates
+      const completions = querySnapshot.docs.filter((docSnapshot: any) => {
+        const data = docSnapshot.data();
+        const docDate = data.date instanceof Timestamp ? data.date.toDate() : new Date(data.date);
+        return docDate >= startOfDay && docDate <= endOfDay && data.completed === true;
+      });
+
+      // Supprimer tous les documents de complétion trouvés
+      const batch = writeBatch(db);
+      completions.forEach((completion: any) => {
+        batch.delete(doc(db, 'day_completions', completion.id));
+      });
+
+      await batch.commit();
+      console.log(`Cancelled day completion for ${date.toDateString()} at hotel ${hotelId}`);
+    } catch (error) {
+      console.error('Error cancelling day completion:', error);
+      throw error;
+    }
+  }
+
   async isDayCompleted(date: Date, hotelId: string): Promise<boolean> {
     try {
       const startOfDay = new Date(date);
@@ -227,8 +261,8 @@ export class DailyChecklistService {
       const querySnapshot = await getDocs(q);
       
       // Filter results in memory to check the date range
-      const completions = querySnapshot.docs.filter(doc => {
-        const data = doc.data();
+      const completions = querySnapshot.docs.filter((docSnapshot: any) => {
+        const data = docSnapshot.data();
         const docDate = data.date instanceof Timestamp ? data.date.toDate() : new Date(data.date);
         return docDate >= startOfDay && docDate <= endOfDay && data.completed === true;
       });
@@ -252,14 +286,88 @@ export class DailyChecklistService {
   }
 
   // Initialiser les tâches pour une date donnée si elles n'existent pas
+  // ou ajouter les nouvelles missions qui n'existent pas encore
   async initializeDailyTasks(date: Date, hotelId: string): Promise<void> {
     try {
+      console.log('Initialisation des tâches pour la date:', date, 'et l\'hôtel:', hotelId);
       const existingTasks = await this.getDailyChecklists(date, hotelId);
+      console.log('Nombre de tâches existantes:', existingTasks.length);
+      
       if (existingTasks.length === 0) {
+        console.log('Aucune tâche existante, génération de toutes les tâches...');
+        // Aucune tâche n'existe, générer toutes les tâches
         await this.generateDailyChecklistsFromMissions(date, hotelId);
+      } else {
+        console.log('Des tâches existent déjà, vérification des nouvelles missions...');
+        // Des tâches existent déjà, vérifier s'il y a de nouvelles missions à ajouter
+        await this.addNewMissionsToExistingDay(date, hotelId, existingTasks);
       }
     } catch (error) {
       console.error('Error initializing daily tasks:', error);
+      throw error;
+    }
+  }
+  
+  // Ajouter uniquement les nouvelles missions aux tâches existantes
+  async addNewMissionsToExistingDay(date: Date, hotelId: string, existingTasks: DailyChecklist[]): Promise<void> {
+    try {
+      console.log('Ajout de nouvelles missions aux tâches existantes pour la date:', date, 'et l\'hôtel:', hotelId);
+      // Récupérer toutes les missions actives pour cet hôtel
+      const missions = await checklistMissionsService.getChecklistMissions();
+      console.log('Nombre total de missions:', missions.length);
+      
+      const activeMissions = missions.filter(mission => 
+        mission.active && 
+        mission.hotels.includes(hotelId)
+      );
+      console.log('Nombre de missions actives pour cet hôtel:', activeMissions.length);
+      console.log('Missions actives:', activeMissions);
+
+      // Identifier les missions qui n'ont pas encore de tâches quotidiennes
+      const existingMissionIds = existingTasks.map(task => task.missionId);
+      console.log('IDs des missions existantes:', existingMissionIds);
+      
+      const newMissions = activeMissions.filter(mission => 
+        !existingMissionIds.includes(mission.id)
+      );
+      console.log('Nouvelles missions à ajouter:', newMissions);
+
+      if (newMissions.length === 0) {
+        console.log('Aucune nouvelle mission à ajouter pour cette date et cet hôtel');
+        return;
+      }
+
+      console.log(`Ajout de ${newMissions.length} nouvelles missions aux tâches existantes`);
+
+      // Créer les nouvelles tâches quotidiennes
+      const batch = writeBatch(db);
+      
+      for (const mission of newMissions) {
+        const taskRef = doc(collection(db, 'daily_checklists'));
+        const taskData = {
+          date: Timestamp.fromDate(date),
+          hotelId,
+          missionId: mission.id,
+          title: mission.title,
+          description: mission.description || '',
+          service: mission.service,
+          completed: false,
+          imageUrl: mission.imageUrl || '',
+          pdfUrl: mission.pdfUrl || '',
+          pdfFileName: mission.pdfFileName || '',
+          order: mission.order,
+          comments: [],
+          createdAt: Timestamp.now(),
+          updatedAt: Timestamp.now(),
+        };
+        
+        batch.set(taskRef, taskData);
+      }
+      
+      await batch.commit();
+      console.log(`Added ${newMissions.length} new daily tasks for ${date.toDateString()}`);
+    } catch (error) {
+      console.error('Error adding new missions to existing day:', error);
       throw error;
     }
   }

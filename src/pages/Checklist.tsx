@@ -22,7 +22,8 @@ import {
   Hotel,
   RotateCcw,
   MessageCircle,
-  XCircle
+  XCircle,
+  RefreshCw
 } from 'lucide-react';
 import { DailyChecklist, ServiceProgress, ChecklistProgress } from '../types/checklist';
 import { Hotel as HotelType } from '../types/parameters';
@@ -58,49 +59,129 @@ export default function Checklist() {
   const [selectedTaskForComment, setSelectedTaskForComment] = useState<DailyChecklist | null>(null);
   const [isDayCompleted, setIsDayCompleted] = useState(false);
 
+  // Référence pour suivre si le composant est monté
+  const isMounted = React.useRef(true);
+  
+  // État pour suivre si c'est le premier chargement
+  const [isInitialLoad, setIsInitialLoad] = useState(true);
+
   useEffect(() => {
+    // Définir le composant comme monté
+    isMounted.current = true;
+    
+    // Charger les données initiales
     loadData();
+    
+    // Nettoyer lors du démontage
+    return () => {
+      isMounted.current = false;
+    };
   }, []);
 
   useEffect(() => {
-    loadTodaysTasks();
-  }, [selectedDate, selectedHotel, selectedService, completionFilter, searchTerm]);
+    // Ne pas charger les tâches lors du premier rendu, car loadData le fera déjà
+    if (!isInitialLoad) {
+      loadTodaysTasks();
+    }
+  }, [selectedDate, selectedHotel, selectedService, completionFilter, searchTerm, isInitialLoad]);
 
   const loadData = async () => {
-    setLoading(true);
     try {
-      const [hotelsData, usersData] = await Promise.all([
-        hotelsService.getHotels(),
-        usersService.getUsers()
-      ]);
+      if (!isMounted.current) return;
+      setLoading(true);
+
+      // Charger les hôtels
+      console.log('Début du chargement des hôtels...');
+      const hotelsData = await hotelsService.getHotels();
+      console.log('Hôtels récupérés de la base de données:', hotelsData);
+      const activeHotels = hotelsData.filter(hotel => hotel.active === true || hotel.active === undefined);
+      console.log('Hôtels actifs filtrés:', activeHotels);
       
-      setHotels(hotelsData);
+      if (!isMounted.current) return;
+      setHotels(activeHotels);
+
+      // Charger les utilisateurs
+      const usersData = await usersService.getUsers();
+      if (!isMounted.current) return;
       setUsers(usersData);
 
-      // Trouver l'utilisateur connecté
-      const loggedInUser = usersData.find(user => user.email === currentUser?.email);
-      setCurrentUserData(loggedInUser || null);
+      // Récupérer les données de l'utilisateur actuel
+      if (currentUser) {
+        console.log('Utilisateur connecté:', currentUser);
+        // Essayer de trouver l'utilisateur par uid ou par email
+        const userData = usersData.find(
+          user => user.id === currentUser.uid || 
+                 user.email === currentUser.email
+        );
+        
+        console.log('Données utilisateur trouvées:', userData);
+        
+        if (!isMounted.current) return;
+        setCurrentUserData(userData || null);
 
-      // Si on a un utilisateur et qu'aucun hôtel n'est sélectionné, sélectionner le premier hôtel accessible
-      if (loggedInUser && loggedInUser.hotels.length > 0 && selectedHotel === 'all') {
-        setSelectedHotel(loggedInUser.hotels[0]);
+        // Si l'utilisateur n'est pas admin système, filtrer les hôtels accessibles
+        if (userData) {
+          console.log('Role utilisateur:', userData.role);
+          console.log('Hôtels assignés:', userData.hotels);
+          
+          // Vérifier si l'utilisateur a accès à des hôtels
+          if (userData.role !== 'system_admin' && Array.isArray(userData.hotels) && userData.hotels.length > 0) {
+            console.log('Filtrage des hôtels pour utilisateur non-admin');
+            const accessibleHotels = activeHotels.filter(hotel => 
+              userData.hotels.includes(hotel.id)
+            );
+            console.log('Hôtels accessibles:', accessibleHotels);
+            
+            if (!isMounted.current) return;
+            setHotels(accessibleHotels);
+            
+            // Sélectionner le premier hôtel par défaut si aucun n'est sélectionné
+            if (selectedHotel === 'all' && accessibleHotels.length > 0) {
+              if (!isMounted.current) return;
+              setSelectedHotel(accessibleHotels[0].id);
+            }
+          } else if (userData.role === 'system_admin') {
+            console.log('Admin système - accès à tous les hôtels');
+            // Pour les admins système, sélectionner le premier hôtel par défaut
+            if (selectedHotel === 'all' && activeHotels.length > 0) {
+              if (!isMounted.current) return;
+              setSelectedHotel(activeHotels[0].id);
+            }
+          }
+        }
+      }
+
+      // Charger les tâches pour aujourd'hui
+      await loadTodaysTasks();
+      
+      // Marquer que le chargement initial est terminé
+      if (isMounted.current) {
+        setIsInitialLoad(false);
       }
     } catch (error) {
       console.error('Error loading data:', error);
     } finally {
-      setLoading(false);
+      if (isMounted.current) {
+        setLoading(false);
+        console.log('Chargement terminé');
+      }
     }
   };
 
   const loadTodaysTasks = async () => {
+    if (!isMounted.current) return;
     if (!selectedHotel || selectedHotel === 'all') return;
-
+    
     try {
+      setLoading(true);
+      console.log('Chargement des tâches pour la date:', selectedDate, 'et l\'hôtel:', selectedHotel);
       // Initialiser les tâches pour cette date si elles n'existent pas
+      // ou ajouter les nouvelles missions qui n'existent pas encore
       await dailyChecklistService.initializeDailyTasks(selectedDate, selectedHotel);
       
       // Charger les tâches
       const tasksForDate = await dailyChecklistService.getDailyChecklists(selectedDate, selectedHotel);
+      console.log('Tâches récupérées:', tasksForDate);
       
       // Appliquer tous les filtres
       let filteredTasks = tasksForDate;
@@ -159,6 +240,7 @@ export default function Checklist() {
         };
       }).filter(group => group.total > 0); // Ne garder que les services qui ont des tâches
 
+      console.log('Groupes de services créés:', groups);
       setServiceGroups(groups);
 
       // Déployer automatiquement seulement les services avec des tâches incomplètes
@@ -169,6 +251,10 @@ export default function Checklist() {
 
     } catch (error) {
       console.error('Error loading today\'s tasks:', error);
+    } finally {
+      if (isMounted.current) {
+        setLoading(false);
+      }
     }
   };
 
@@ -220,6 +306,21 @@ export default function Checklist() {
       console.error('Error completing day:', error);
     }
   };
+  
+  // Fonction pour annuler la complétion d'une journée (réservée aux administrateurs)
+  const handleCancelDayCompletion = async () => {
+    try {
+      await dailyChecklistService.cancelDayCompletion(
+        selectedDate,
+        selectedHotel
+      );
+      
+      // Recharger les tâches pour mettre à jour l'affichage
+      await loadTodaysTasks();
+    } catch (error) {
+      console.error('Error cancelling day completion:', error);
+    }
+  };
 
   const toggleServiceExpansion = (serviceKey: string) => {
     const newExpanded = new Set(expandedServices);
@@ -245,6 +346,10 @@ export default function Checklist() {
     setSelectedService('all');
     setCompletionFilter('all');
     setSearchTerm('');
+  };
+  
+  const refreshTasks = async () => {
+    await loadTodaysTasks();
   };
 
   const getServiceInfo = (serviceKey: string) => {
@@ -285,10 +390,11 @@ export default function Checklist() {
     return selectedDate.toDateString() === yesterday.toDateString();
   };
 
-  // Filtrer les hôtels accessibles
-  const accessibleHotels = currentUserData ? 
-    hotels.filter(hotel => currentUserData.hotels.includes(hotel.id)) : 
-    hotels;
+  // Afficher les hôtels disponibles dans la console pour débogage
+  console.log('Hôtels disponibles pour le sélecteur:', hotels);
+  
+  // Utiliser tous les hôtels disponibles pour le sélecteur
+  const accessibleHotels = hotels;
 
   const hasActiveFilters = selectedService !== 'all' || completionFilter !== 'all' || searchTerm !== '';
 
@@ -319,9 +425,13 @@ export default function Checklist() {
                   className="appearance-none px-4 py-2 pr-8 border border-warm-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-creho-500 bg-white min-w-[200px]"
                 >
                   <option value="all">Sélectionner un hôtel</option>
-                  {accessibleHotels.map(hotel => (
-                    <option key={hotel.id} value={hotel.id}>{hotel.name}</option>
-                  ))}
+                  {accessibleHotels && accessibleHotels.length > 0 ? (
+                    accessibleHotels.map(hotel => (
+                      <option key={hotel.id} value={hotel.id}>{hotel.name}</option>
+                    ))
+                  ) : (
+                    <option value="" disabled>Aucun hôtel disponible</option>
+                  )}
                 </select>
                 <Hotel className="w-4 h-4 text-warm-400 absolute right-2 top-1/2 transform -translate-y-1/2 pointer-events-none" />
               </div>
@@ -347,6 +457,17 @@ export default function Checklist() {
                 >
                   <CheckCircle className="w-4 h-4 mr-2 inline" />
                   Terminer la journée
+                </button>
+              )}
+              
+              {/* Bouton Annuler la complétion (visible uniquement pour les administrateurs) */}
+              {isDayCompleted && currentUserData && (currentUserData.role === 'system_admin' || currentUserData.role === 'hotel_admin') && (
+                <button
+                  onClick={handleCancelDayCompletion}
+                  className="px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors font-medium"
+                >
+                  <XCircle className="w-4 h-4 mr-2 inline" />
+                  Annuler la complétion
                 </button>
               )}
             </div>
@@ -409,6 +530,14 @@ export default function Checklist() {
         {/* Date Navigation */}
         <div className="flex items-center justify-center mb-6">
           <div className="flex items-center space-x-4">
+            <button
+              onClick={refreshTasks}
+              className="flex items-center px-3 py-1.5 text-xs font-medium text-blue-700 bg-blue-100 hover:bg-blue-200 rounded-md transition-colors"
+              title="Rafraîchir les tâches (pour voir les nouvelles missions)"
+            >
+              <RefreshCw className="w-3.5 h-3.5 mr-1" />
+              Rafraîchir
+            </button>
             <button
               onClick={() => navigateDate('prev')}
               className="p-2 hover:bg-warm-100 rounded-lg"
