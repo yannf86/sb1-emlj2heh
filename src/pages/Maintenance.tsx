@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import Layout from '../components/Layout/Layout';
 import TechnicalInterventionModal from '../components/TechnicalInterventions/TechnicalInterventionModal';
 import TechnicalInterventionHistoryModal from '../components/TechnicalInterventions/TechnicalInterventionHistoryModal';
@@ -51,8 +51,8 @@ export default function Maintenance() {
   const [locations, setLocations] = useState<Parameter[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
-  // Définir le statut par défaut sur "tous les statuts" pour afficher toutes les interventions
-  const [selectedStatus, setSelectedStatus] = useState('all'); // Valeur par défaut: tous les statuts
+  // Définir le statut par défaut sur "En cours" pour limiter les appels à la base de données
+  const [selectedStatus, setSelectedStatus] = useState('CZa3iy84r8pVqjVOQHNL'); // ID du statut "En cours"
   const [selectedHotel, setSelectedHotel] = useState('all');
   const [selectedPeriod, setSelectedPeriod] = useState('7days'); // Valeur par défaut: 7 derniers jours
   const [isInterventionModalOpen, setIsInterventionModalOpen] = useState(false);
@@ -304,13 +304,17 @@ export default function Maintenance() {
   };
 
   const getStatusColor = (statusId: string) => {
-    const colors: { [key: string]: string } = {
-      'pending': 'bg-orange-100 text-orange-700',
-      'in_progress': 'bg-blue-100 text-blue-700', 
-      'completed': 'bg-green-100 text-green-700',
-      'cancelled': 'bg-gray-100 text-gray-700'
-    };
-    return colors[statusId] || 'bg-gray-100 text-gray-700';
+    // Mise en évidence des deux seuls statuts existants : "En cours" et "Clôturé"
+    if (statusId === 'CZa3iy84r8pVqjVOQHNL') {
+      // Style distinctif pour "En cours"
+      return 'bg-blue-100 text-blue-800 border-2 border-blue-400 font-semibold shadow-sm px-3 py-1.5';
+    } else if (statusId === '3ElZmcduy3R8NUd1kuzn') {
+      // Style distinctif pour "Clôturé"
+      return 'bg-gray-100 text-gray-700 border-2 border-gray-400 font-medium px-3 py-1.5';
+    }
+    
+    // Style par défaut (ne devrait pas arriver puisqu'il n'y a que deux statuts)
+    return 'bg-gray-100 text-gray-700 border border-gray-300 px-2 py-1';
   };
 
   const getStatusLabel = (statusId: string) => {

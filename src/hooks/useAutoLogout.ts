@@ -38,18 +38,22 @@ export const useAutoLogout = () => {
     warningTimeoutRef.current = setTimeout(() => {
       if (!warningShownRef.current) {
         warningShownRef.current = true;
-        const userWantsToStay = window.confirm(
-          'Vous serez déconnecté dans 5 minutes par inactivité.\n\nCliquez sur OK pour prolonger votre session ou Annuler pour être déconnecté.'
-        );
-        
-        if (userWantsToStay) {
-          resetTimer();
-          console.log('Session prolongée par l\'utilisateur');
-        }
+        // Utiliser setTimeout pour éviter de bloquer la déconnexion
+        setTimeout(() => {
+          const userWantsToStay = window.confirm(
+            'Vous serez déconnecté dans 5 minutes par inactivité.\n\nCliquez sur OK pour prolonger votre session ou Annuler pour être déconnecté.'
+          );
+          
+          if (userWantsToStay) {
+            resetTimer();
+            console.log('Session prolongée par l\'utilisateur');
+          }
+        }, 0);
       }
     }, WARNING_TIMEOUT);
 
     // Programmer la déconnexion à 30 minutes
+    // Cette déconnexion se produira indépendamment de la réponse à l'avertissement
     timeoutRef.current = setTimeout(logout, INACTIVITY_TIMEOUT);
   }, [logout]);
 

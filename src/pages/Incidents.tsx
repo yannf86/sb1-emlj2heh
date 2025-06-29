@@ -272,13 +272,17 @@ export default function Incidents() {
   };
 
   const getStatusColor = (statusId: string) => {
-    const colors: { [key: string]: string } = {
-      'open': 'bg-red-100 text-red-700',
-      'in_progress': 'bg-yellow-100 text-yellow-700', 
-      'resolved': 'bg-green-100 text-green-700',
-      'closed': 'bg-gray-100 text-gray-700'
-    };
-    return colors[statusId] || 'bg-gray-100 text-gray-700';
+    // Mise en évidence des deux seuls statuts existants : "En cours" et "Clôturé"
+    if (statusId === 'CZa3iy84r8pVqjVOQHNL') {
+      // Style distinctif pour "En cours"
+      return 'bg-blue-100 text-blue-800 border-2 border-blue-400 font-semibold shadow-sm px-3 py-1.5';
+    } else if (statusId === '3ElZmcduy3R8NUd1kuzn') {
+      // Style distinctif pour "Clôturé"
+      return 'bg-gray-100 text-gray-700 border-2 border-gray-400 font-medium px-3 py-1.5';
+    }
+    
+    // Style par défaut (ne devrait pas arriver puisqu'il n'y a que deux statuts)
+    return 'bg-gray-100 text-gray-700 border border-gray-300 px-2 py-1';
   };
 
   const getStatusLabel = (statusId: string) => {
