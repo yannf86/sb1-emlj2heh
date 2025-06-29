@@ -3,11 +3,12 @@ import { X, FileText, CheckCircle, Clock, Users, History, Edit, RefreshCw } from
 import { Procedure } from '../../types/procedure';
 import { procedureService } from '../../services/firebase/procedureService';
 import { useAuth } from '../../contexts/AuthContext';
+import { useUserPermissions } from '../../hooks/useUserPermissions';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { hotelsService } from '../../services/firebase/hotelsService';
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
-import ProcedureDiagnostic from './ProcedureDiagnostic';
+// Import ProcedureDiagnostic supprimé
 
 interface ProcedureDetailProps {
   isOpen: boolean;
@@ -19,6 +20,7 @@ interface ProcedureDetailProps {
 
 export default function ProcedureDetail({ isOpen, onClose, procedure, onAcknowledge, onEdit }: ProcedureDetailProps) {
   const { currentUser } = useAuth();
+  const { isSystemAdmin, isHotelAdmin, accessibleHotels } = useUserPermissions();
   const queryClient = useQueryClient();
   const [acknowledging, setAcknowledging] = useState(false);
   const [hasAcknowledged, setHasAcknowledged] = useState(false);
@@ -30,13 +32,13 @@ export default function ProcedureDetail({ isOpen, onClose, procedure, onAcknowle
     if (!currentUser || !procedure) return false;
     
     // Les administrateurs système peuvent tout modifier
-    if (currentUser.role === 'system_admin') return true;
+    if (isSystemAdmin) return true;
     
-    // Les administrateurs d'hôtel peuvent modifier les procédures de leurs hôtels
-    if (currentUser.role === 'hotel_admin' && currentUser.hotels) {
-      // Vérifier si au moins un hôtel de la procédure est dans les hôtels de l'admin
+    // Les administrateurs d'hôtel peuvent modifier les procédures des hôtels auxquels ils ont accès
+    if (isHotelAdmin && accessibleHotels.length > 0) {
+      // Vérifier si au moins un hôtel de la procédure est dans les hôtels accessibles
       const hasAccessToHotel = procedure.hotels.some(hotelId => 
-        currentUser.hotels?.includes(hotelId)
+        accessibleHotels.includes(hotelId)
       );
       if (hasAccessToHotel) return true;
     }
@@ -319,8 +321,7 @@ export default function ProcedureDetail({ isOpen, onClose, procedure, onAcknowle
           </div>
         </div>
 
-        {/* Composant de diagnostic pour les administrateurs système */}
-        {procedure && <ProcedureDiagnostic procedureId={procedure.id} />}
+        {/* Composant de diagnostic supprimé */}
 
         <div className="flex justify-between p-6 border-t">
           {/* Boutons d'administration (uniquement pour les admins) */}

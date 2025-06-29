@@ -1,31 +1,41 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Plus, Download } from 'lucide-react';
+import { Plus, Download, CheckCircle, Clock } from 'lucide-react';
 import Layout from '../components/Layout/Layout';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { procedureService } from '../services/firebase/procedureService';
-import { hotelsService } from '../services/firebase/hotelsService';
 import { useAuth } from '../contexts/AuthContext';
+import { useUserPermissions } from '../hooks/useUserPermissions';
 import { procedureServices } from '../types/procedure';
 import ProcedureModal from '../components/Procedures/ProcedureModal';
 
 export default function Procedures() {
-  const { currentUser } = useAuth();
   const navigate = useNavigate();
+  const { currentUser } = useAuth();
+  const { isSystemAdmin, isHotelAdmin, accessibleHotels } = useUserPermissions();
   const queryClient = useQueryClient();
   const [isModalOpen, setIsModalOpen] = useState(false);
+  
   
 
 
   // Récupération des données avec permissions
   const { data: procedures = [], isLoading: proceduresLoading } = useQuery({
-    queryKey: ['procedures', currentUser?.uid],
+    queryKey: ['procedures', currentUser?.uid, accessibleHotels.join(',')],
     queryFn: async () => {
       if (!currentUser) return [];
       
-      // Les administrateurs système et d'hôtel peuvent voir toutes les procédures
-      if (currentUser.role === 'system_admin' || currentUser.role === 'hotel_admin') {
+      // Les administrateurs système peuvent voir toutes les procédures
+      if (isSystemAdmin) {
         return procedureService.getAllProcedures();
+      }
+      
+      // Les administrateurs d'hôtel ne voient que les procédures des hôtels auxquels ils ont accès
+      if (isHotelAdmin && accessibleHotels.length > 0) {
+        const allProcedures = await procedureService.getAllProcedures();
+        return allProcedures.filter(procedure => 
+          procedure.hotels.some(hotelId => accessibleHotels.includes(hotelId))
+        );
       }
       
       // Les autres utilisateurs ne voient que les procédures qui leur sont assignées
@@ -34,24 +44,85 @@ export default function Procedures() {
     enabled: !!currentUser
   });
 
+  // Filtrer les procédures selon les permissions
+  const filteredProcedures = useMemo(() => {
+    if (!currentUser) return [];
+    
+    let filtered = [];
+    
+    if (isSystemAdmin) {
+      // Les admin système voient toutes les procédures
+      filtered = procedures;
+    } else if (isHotelAdmin && accessibleHotels.length > 0) {
+      // Les admin hôtel ne voient que les procédures des hôtels auxquels ils ont accès
+      filtered = procedures.filter(procedure => 
+        procedure.hotels?.some(hotelId => accessibleHotels.includes(hotelId))
+      );
+    } else {
+      // Les utilisateurs standards ne voient que les procédures qui leur sont assignées
+      filtered = procedures.filter(procedure => 
+        procedure.assignedUsers?.includes(currentUser.uid)
+      );
+    }
+    
+    return filtered;
+  }, [currentUser, procedures, isSystemAdmin, isHotelAdmin, accessibleHotels]);
 
-
-  const { data: hotels = [] } = useQuery({
-    queryKey: ['hotels'],
-    queryFn: () => hotelsService.getHotels()
+  // Récupérer les validations de l'utilisateur connecté
+  const { data: userAcknowledgments = [] } = useQuery<any[]>({
+    queryKey: ['user-acknowledgments', currentUser?.uid],
+    queryFn: async () => {
+      if (!currentUser) return [];
+      
+      // Récupérer toutes les validations de l'utilisateur
+      const allAcknowledgments = [];
+      for (const procedure of procedures) {
+        try {
+          const procedureAcks = await procedureService.getProcedureAcknowledgments(procedure.id);
+          // Filtrer pour ne garder que les validations de l'utilisateur connecté
+          const userAcks = procedureAcks.filter(ack => ack.userId === currentUser.uid);
+          allAcknowledgments.push(...userAcks);
+        } catch (error) {
+          console.error(`Erreur lors de la récupération des validations pour ${procedure.id}:`, error);
+        }
+      }
+      return allAcknowledgments;
+    },
+    enabled: !!currentUser && procedures.length > 0
   });
-
-
 
   // Grouper les procédures par service pour afficher les compteurs
   const proceduresByService = procedureServices.reduce((acc, service) => {
-    acc[service] = procedures.filter(p => p.service === service);
+    acc[service] = filteredProcedures.filter((p: any) => p.service === service);
     return acc;
   }, {} as Record<string, any[]>);
 
+  // Fonction pour calculer les procédures à valider par service pour l'utilisateur connecté
+  const getProceduresToValidateByService = (service: string) => {
+    if (!currentUser) return { toValidate: 0, total: 0 };
+    
+    const serviceProcedures = proceduresByService[service] || [];
+    // Filtrer les procédures assignées à l'utilisateur connecté
+    const assignedProcedures = serviceProcedures.filter(p => 
+      p.assignedUsers && p.assignedUsers.includes(currentUser.uid)
+    );
+    
+    // Compter les procédures déjà validées par l'utilisateur
+    const validatedProcedures = assignedProcedures.filter(p => 
+      userAcknowledgments.some(ack => ack.procedureId === p.id)
+    );
+    
+    return {
+      toValidate: assignedProcedures.length - validatedProcedures.length,
+      total: assignedProcedures.length,
+      validated: validatedProcedures.length
+    };
+  };
+
+
   const canCreateProcedure = () => {
     if (!currentUser) return false;
-    return currentUser.role === 'system_admin' || currentUser.role === 'hotel_admin';
+    return isSystemAdmin || isHotelAdmin;
   };
 
   const handleCreateProcedure = () => {
@@ -63,7 +134,7 @@ export default function Procedures() {
   };
 
   const handleInitializeVersions = async () => {
-    if (!currentUser || currentUser.role !== 'system_admin') return;
+    if (!currentUser || !isSystemAdmin) return;
     
     const confirmed = window.confirm(
       'Voulez-vous initialiser les versions pour toutes les procédures existantes ?'
@@ -129,11 +200,8 @@ export default function Procedures() {
       <div className="space-y-6">
         {/* En-tête avec actions */}
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-          <div className="flex items-center text-sm text-gray-600">
-            <span className="bg-blue-100 text-blue-800 px-2 py-1 rounded-full">
-              {hotels.length} hôtels
-            </span>
-          </div>
+          {/* Espace réservé pour maintenir la mise en page */}
+          <div></div>
           
           <div className="flex flex-col sm:flex-row gap-2">
             {canCreateProcedure() && (
@@ -145,7 +213,7 @@ export default function Procedures() {
                 Nouvelle Procédure
               </button>
             )}
-            {currentUser?.role === 'system_admin' && (
+            {isSystemAdmin && (
               <button
                 onClick={handleInitializeVersions}
                 className="flex items-center px-3 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 text-sm"
@@ -173,32 +241,67 @@ export default function Procedures() {
               onClick={() => navigate('/procedures/service/toutes-les-procedures')}
               className="p-4 rounded-lg border text-left transition-colors border-gray-200 hover:border-gray-300 hover:bg-gray-50"
             >
-              <div className="flex items-center justify-between">
-                <div>
-                  <div className="text-2xl mb-2">📋</div>
-                  <h4 className="font-medium">Toutes les procédures</h4>
-                  <p className="text-sm text-gray-600">{procedures.length} procédures</p>
+              <div className="flex justify-between items-center mb-2">
+                <div className="flex items-center">
+                  <span className="text-3xl mr-3">📋</span>
+                  <h3 className="text-lg font-medium text-gray-900">Toutes les procédures</h3>
                 </div>
-                <span className="text-sm text-gray-500">Voir →</span>
+                <div className="flex items-center space-x-2">
+                  <span className="bg-blue-100 text-blue-800 px-2 py-1 rounded-full text-sm">
+                    {filteredProcedures.length} procédure{filteredProcedures.length !== 1 ? 's' : ''}
+                  </span>
+                </div>
               </div>
+              {/* Indicateur de validation pour l'utilisateur */}
+              {(() => {
+                // Calculer le total de toutes les procédures à valider
+                const totalStats = procedureServices.reduce((acc, service) => {
+                  const stats = getProceduresToValidateByService(service);
+                  acc.toValidate += stats.toValidate;
+                  acc.total += stats.total;
+                  return acc;
+                }, { toValidate: 0, total: 0 });
+                
+                return totalStats.total > 0 ? (
+                  <div className={`text-sm mt-1 ${totalStats.toValidate === 0 ? 'text-green-600' : 'text-orange-600'}`}>
+                    {totalStats.toValidate === 0 
+                      ? <span className="flex items-center"><CheckCircle className="w-4 h-4 mr-1" /> Validation OK</span>
+                      : <span className="flex items-center"><Clock className="w-4 h-4 mr-1" /> À valider : {totalStats.toValidate}/{totalStats.total}</span>
+                    }
+                  </div>
+                ) : null;
+              })()}
             </button>
 
             {procedureServices.map(service => {
               const serviceCount = proceduresByService[service]?.length || 0;
+              const validationStats = getProceduresToValidateByService(service);
               return (
                 <button
                   key={service}
                   onClick={() => navigate(`/procedures/service/${getServiceUrl(service)}`)}
                   className="p-4 rounded-lg border text-left transition-colors border-gray-200 hover:border-gray-300 hover:bg-gray-50"
                 >
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <div className="text-2xl mb-2">{getServiceIcon(service)}</div>
-                      <h4 className="font-medium">{service}</h4>
-                      <p className="text-sm text-gray-600">{serviceCount} procédures</p>
+                  <div className="flex justify-between items-center mb-2">
+                    <div className="flex items-center">
+                      <span className="text-3xl mr-3">{getServiceIcon(service)}</span>
+                      <h3 className="text-lg font-medium text-gray-900">{service}</h3>
                     </div>
-                    <span className="text-sm text-gray-500">Voir →</span>
+                    <div className="flex items-center space-x-2">
+                      <span className="bg-blue-100 text-blue-800 px-2 py-1 rounded-full text-sm">
+                        {proceduresByService[service]?.length || 0} procédure{(proceduresByService[service]?.length || 0) !== 1 ? 's' : ''}
+                      </span>
+                    </div>
                   </div>
+                  {/* Indicateur de validation pour l'utilisateur */}
+                  {getProceduresToValidateByService(service).total > 0 && (
+                    <div className={`text-sm mt-1 ${getProceduresToValidateByService(service).toValidate === 0 ? 'text-green-600' : 'text-orange-600'}`}>
+                      {getProceduresToValidateByService(service).toValidate === 0 
+                        ? <span className="flex items-center"><CheckCircle className="w-4 h-4 mr-1" /> Validation OK</span>
+                        : <span className="flex items-center"><Clock className="w-4 h-4 mr-1" /> À valider : {getProceduresToValidateByService(service).toValidate}/{getProceduresToValidateByService(service).total}</span>
+                      }
+                    </div>
+                  )}
                 </button>
               );
             })}
