@@ -20,7 +20,8 @@ import {
   Circle,
   ChevronDown,
   ChevronUp,
-  Target
+  Target,
+  History
 } from 'lucide-react';
 import { LogbookEntry, LogbookReminder, logbookServices, ServiceGroup } from '../types/logbook';
 import { Hotel } from '../types/parameters';
@@ -45,6 +46,7 @@ export default function Logbook() {
   const [hotels, setHotels] = useState<Hotel[]>([]);
   const [serviceGroups, setServiceGroups] = useState<ServiceGroup[]>([]);
   const [expandedServices, setExpandedServices] = useState<Set<string>>(new Set());
+  const [expandedHistories, setExpandedHistories] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   const [dayProgress, setDayProgress] = useState({ completed: 0, total: 0, percentage: 0 });
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
@@ -453,6 +455,16 @@ export default function Logbook() {
     setExpandedServices(newExpanded);
   };
 
+  const toggleHistoryExpansion = (entryId: string) => {
+    const newExpanded = new Set(expandedHistories);
+    if (newExpanded.has(entryId)) {
+      newExpanded.delete(entryId);
+    } else {
+      newExpanded.add(entryId);
+    }
+    setExpandedHistories(newExpanded);
+  };
+
   const navigateDate = (direction: 'prev' | 'next') => {
     const newDate = new Date(selectedDate);
     newDate.setDate(newDate.getDate() + (direction === 'next' ? 1 : -1));
@@ -745,9 +757,44 @@ export default function Logbook() {
                                     )}
                                   </div>
 
-                                  <p className="text-warm-800">
-                                    {entry.content}
-                                  </p>
+                                  <div className="flex items-start justify-between mb-2">
+                                    <p className="text-warm-800 flex-1">
+                                      {entry.content}
+                                    </p>
+                                    {entry.history && entry.history.length > 0 && (
+                                      <button
+                                        onClick={() => toggleHistoryExpansion(entry.id)}
+                                        className="flex items-center text-xs text-warm-500 hover:text-warm-700 ml-3 flex-shrink-0"
+                                      >
+                                        <History className="w-3 h-3 mr-1" />
+                                        <span className="hidden sm:inline">{entry.history.length}</span>
+                                        {expandedHistories.has(entry.id) ? (
+                                          <ChevronUp className="w-3 h-3 ml-1" />
+                                        ) : (
+                                          <ChevronDown className="w-3 h-3 ml-1" />
+                                        )}
+                                      </button>
+                                    )}
+                                  </div>
+
+                                  {/* Affichage de l'historique */}
+                                  {entry.history && entry.history.length > 0 && expandedHistories.has(entry.id) && (
+                                    <div className="mb-2 pl-4 border-l-2 border-warm-200">
+                                      {entry.history.slice(-5).reverse().map((historyItem) => (
+                                        <div key={historyItem.id} className="text-xs text-warm-600 mb-1">
+                                          <span className="font-medium">{historyItem.description}</span>
+                                          <span className="text-warm-400 ml-2">
+                                            {historyItem.timestamp.toLocaleDateString('fr-FR')} à {historyItem.timestamp.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
+                                          </span>
+                                        </div>
+                                      ))}
+                                      {entry.history.length > 5 && (
+                                        <div className="text-xs text-warm-400 italic">
+                                          ... et {entry.history.length - 5} autres modifications
+                                        </div>
+                                      )}
+                                    </div>
+                                  )}
 
                                   {/* Comments */}
                                   {entry.comments && entry.comments.length > 0 && (
@@ -767,33 +814,6 @@ export default function Logbook() {
                                         ))}
                                       </div>
                                     </div>
-                                  )}
-
-                                  {/* Historique des modifications */}
-                                  {entry.history && entry.history.length > 0 && (
-                                    <details className="mt-3">
-                                      <summary className="cursor-pointer text-xs font-medium text-gray-600 hover:text-gray-800">
-                                        📋 Historique des modifications ({entry.history.length})
-                                      </summary>
-                                      <div className="mt-2 bg-gray-50 rounded-lg p-3">
-                                        <div className="space-y-2">
-                                          {entry.history.slice(-5).reverse().map((historyItem) => (
-                                            <div key={historyItem.id} className="text-xs border-l-2 border-gray-300 pl-2">
-                                              <div className="flex items-center justify-between">
-                                                <span className="font-medium text-gray-900">{historyItem.userName}</span>
-                                                <span className="text-gray-600">
-                                                  {historyItem.timestamp.toLocaleDateString('fr-FR')} à {historyItem.timestamp.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
-                                                </span>
-                                              </div>
-                                              <p className="text-gray-700 mt-1">{historyItem.description}</p>
-                                            </div>
-                                          ))}
-                                          {entry.history.length > 5 && (
-                                            <p className="text-xs text-gray-500 italic">... et {entry.history.length - 5} autres modifications</p>
-                                          )}
-                                        </div>
-                                      </div>
-                                    </details>
                                   )}
                                 </div>
                               </div>
@@ -896,9 +916,25 @@ export default function Logbook() {
                                       )}
                                     </div>
 
-                                    <p className={`text-warm-800 ${entry.completed ? 'line-through text-warm-500' : ''}`}>
-                                      {entry.content}
-                                    </p>
+                                    <div className="flex items-start justify-between mb-2">
+                                      <p className={`text-warm-800 flex-1 ${entry.completed ? 'line-through text-warm-500' : ''}`}>
+                                        {entry.content}
+                                      </p>
+                                      {entry.history && entry.history.length > 0 && (
+                                        <button
+                                          onClick={() => toggleHistoryExpansion(entry.id)}
+                                          className="flex items-center text-xs text-warm-500 hover:text-warm-700 ml-3 flex-shrink-0"
+                                        >
+                                          <History className="w-3 h-3 mr-1" />
+                                          <span className="hidden sm:inline">{entry.history.length}</span>
+                                          {expandedHistories.has(entry.id) ? (
+                                            <ChevronUp className="w-3 h-3 ml-1" />
+                                          ) : (
+                                            <ChevronDown className="w-3 h-3 ml-1" />
+                                          )}
+                                        </button>
+                                      )}
+                                    </div>
 
                                     {/* Affichage de qui a complété la tâche */}
                                     {entry.isTask && entry.completed && entry.completedByName && (
@@ -914,27 +950,22 @@ export default function Logbook() {
                                     )}
 
                                     {/* Affichage de l'historique */}
-                                    {entry.history && entry.history.length > 0 && (
-                                      <details className="mb-2">
-                                        <summary className="text-xs text-warm-500 cursor-pointer hover:text-warm-700">
-                                          Historique des modifications ({entry.history.length})
-                                        </summary>
-                                        <div className="mt-2 pl-4 border-l-2 border-warm-200">
-                                          {entry.history.slice(-5).reverse().map((historyItem) => (
-                                            <div key={historyItem.id} className="text-xs text-warm-600 mb-1">
-                                              <span className="font-medium">{historyItem.description}</span>
-                                              <span className="text-warm-400 ml-2">
-                                                {historyItem.timestamp.toLocaleDateString('fr-FR')} à {historyItem.timestamp.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
-                                              </span>
-                                            </div>
-                                          ))}
-                                          {entry.history.length > 5 && (
-                                            <div className="text-xs text-warm-400 italic">
-                                              ... et {entry.history.length - 5} autres modifications
-                                            </div>
-                                          )}
-                                        </div>
-                                      </details>
+                                    {entry.history && entry.history.length > 0 && expandedHistories.has(entry.id) && (
+                                      <div className="mb-2 pl-4 border-l-2 border-warm-200">
+                                        {entry.history.slice(-5).reverse().map((historyItem) => (
+                                          <div key={historyItem.id} className="text-xs text-warm-600 mb-1">
+                                            <span className="font-medium">{historyItem.description}</span>
+                                            <span className="text-warm-400 ml-2">
+                                              {historyItem.timestamp.toLocaleDateString('fr-FR')} à {historyItem.timestamp.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
+                                            </span>
+                                          </div>
+                                        ))}
+                                        {entry.history.length > 5 && (
+                                          <div className="text-xs text-warm-400 italic">
+                                            ... et {entry.history.length - 5} autres modifications
+                                          </div>
+                                        )}
+                                      </div>
                                     )}
 
                                     {/* Comments */}

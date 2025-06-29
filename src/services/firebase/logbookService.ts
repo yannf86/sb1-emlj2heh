@@ -14,7 +14,9 @@ import {
   limit
 } from 'firebase/firestore';
 import { db } from '../../lib/firebase';
-import { LogbookEntry, LogbookReminder, LogbookComment } from '../../types/logbook';
+import { LogbookEntry, LogbookReminder, LogbookComment, LogbookHistoryEntry } from '../../types/logbook';
+import { usersService } from './usersService';
+import { getDoc } from 'firebase/firestore';
 
 export class LogbookService {
   // Cache pour les données fréquemment utilisées

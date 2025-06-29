@@ -4,6 +4,7 @@ import {
   collection,
   doc,
   getDocs,
+  getDoc,
   orderBy,
   query,
   updateDoc,
@@ -12,10 +13,50 @@ import {
   writeBatch
 } from 'firebase/firestore';
 import { db } from '../../lib/firebase';
-import { DailyChecklist, ChecklistComment } from '../../types/checklist';
+import { DailyChecklist, ChecklistComment, ChecklistHistoryEntry } from '../../types/checklist';
 import { checklistMissionsService } from './checklistMissionsService';
+import { usersService } from './usersService';
 
 export class DailyChecklistService {
+  /**
+   * Ajoute une entrée d'historique à une tâche
+   */
+  private async addHistoryEntry(
+    taskId: string,
+    action: 'completed' | 'uncompleted' | 'commented' | 'updated',
+    userId: string,
+    description: string,
+    oldValue?: any,
+    newValue?: any
+  ): Promise<void> {
+    try {
+      // Récupérer les informations de l'utilisateur
+      const users = await usersService.getUsers();
+      const user = users.find(u => u.id === userId);
+      const userName = user ? `${user.firstName} ${user.lastName}`.trim() : 'Utilisateur inconnu';
+      
+      const historyEntry: ChecklistHistoryEntry = {
+        id: `history_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+        action,
+        userId,
+        userName,
+        timestamp: Timestamp.now(),
+        description,
+        oldValue,
+        newValue
+      };
+      
+      // Ajouter l'entrée d'historique à la tâche
+      const docRef = doc(db, 'daily_checklists', taskId);
+      await updateDoc(docRef, {
+        history: arrayUnion(historyEntry),
+        updatedAt: Timestamp.now()
+      });
+    } catch (error) {
+      console.error('Error adding history entry:', error);
+      // Ne pas faire échouer l'opération principale si l'historique échoue
+    }
+  }
   async getDailyChecklists(date: Date, hotelId?: string): Promise<DailyChecklist[]> {
     try {
       const startOfDay = new Date(date);
@@ -69,6 +110,7 @@ export class DailyChecklistService {
         date: Timestamp.fromDate(checklist.date),
         completedAt: checklist.completedAt ? Timestamp.fromDate(checklist.completedAt) : null,
         comments: [],
+        history: [],
         createdAt: Timestamp.now(),
         updatedAt: Timestamp.now(),
       });
@@ -81,6 +123,11 @@ export class DailyChecklistService {
 
   async toggleTaskCompletion(id: string, completed: boolean, completedBy?: string): Promise<void> {
     try {
+      // Récupérer l'état actuel de la tâche pour l'historique
+      const docRef = doc(db, 'daily_checklists', id);
+      const docSnap = await getDoc(docRef);
+      const currentData = docSnap.exists() ? docSnap.data() : null;
+      
       const updateData: any = {
         completed,
         updatedAt: Timestamp.now(),
@@ -94,8 +141,24 @@ export class DailyChecklistService {
         updateData.completedBy = null;
       }
 
-      const docRef = doc(db, 'daily_checklists', id);
       await updateDoc(docRef, updateData);
+      
+      // Ajouter l'entrée d'historique
+      if (completedBy) {
+        const action = completed ? 'completed' : 'uncompleted';
+        const description = completed 
+          ? 'Tâche marquée comme terminée'
+          : 'Tâche marquée comme non terminée';
+        
+        await this.addHistoryEntry(
+          id,
+          action,
+          completedBy,
+          description,
+          { completed: currentData?.completed || false },
+          { completed }
+        );
+      }
     } catch (error) {
       console.error('Error toggling task completion:', error);
       throw error;
@@ -115,6 +178,18 @@ export class DailyChecklistService {
         comments: arrayUnion(commentWithId),
         updatedAt: Timestamp.now(),
       });
+      
+      // Ajouter l'entrée d'historique pour le commentaire
+      if (comment.userId) {
+        await this.addHistoryEntry(
+          taskId,
+          'commented',
+          comment.userId,
+          `Commentaire ajouté : "${comment.text.substring(0, 50)}${comment.text.length > 50 ? '...' : ''}"`,
+          undefined,
+          { comment: comment.text }
+        );
+      }
     } catch (error) {
       console.error('Error adding comment to task:', error);
       throw error;
@@ -158,6 +233,7 @@ export class DailyChecklistService {
           pdfFileName: mission.pdfFileName || '',
           order: mission.order,
           comments: [],
+          history: [],
           createdAt: Timestamp.now(),
           updatedAt: Timestamp.now(),
         };
@@ -357,6 +433,7 @@ export class DailyChecklistService {
           pdfFileName: mission.pdfFileName || '',
           order: mission.order,
           comments: [],
+          history: [],
           createdAt: Timestamp.now(),
           updatedAt: Timestamp.now(),
         };

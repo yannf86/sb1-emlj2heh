@@ -1,3 +1,23 @@
+export interface ChecklistComment {
+  id: string;
+  content: string;
+  authorId: string;
+  authorName: string;
+  createdAt: Date;
+}
+
+export interface ChecklistHistoryEntry {
+  id: string;
+  action: 'created' | 'updated' | 'completed' | 'uncompleted' | 'commented';
+  field?: string; // Champ modifié (pour les updates)
+  oldValue?: any; // Ancienne valeur
+  newValue?: any; // Nouvelle valeur
+  userId: string;
+  userName: string;
+  timestamp: Date;
+  description: string; // Description lisible de l'action
+}
+
 export interface DailyChecklist {
   id: string;
   date: Date;
@@ -14,16 +34,9 @@ export interface DailyChecklist {
   pdfFileName?: string;
   order: number;
   comments?: ChecklistComment[];
+  history?: ChecklistHistoryEntry[]; // Historique des modifications
   createdAt: Date;
   updatedAt: Date;
-}
-
-export interface ChecklistComment {
-  id: string;
-  content: string;
-  authorId: string;
-  authorName: string;
-  createdAt: Date;
 }
 
 export interface ChecklistProgress {
