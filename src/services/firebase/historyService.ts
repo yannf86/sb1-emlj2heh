@@ -382,55 +382,6 @@ class HistoryService {
     }
   }
   
-  /**
-   * Ajoute une entrée d'historique pour un objet trouvé
-   */
-  async addLostItemHistory(
-    lostItemId: string,
-    previousState: any,
-    newState: any,
-    userId: string,
-    operation: 'create' | 'update' | 'delete'
-  ): Promise<string> {
-    try {
-      // Récupérer les informations de l'utilisateur
-      const userDoc = await getDoc(doc(db, 'users', userId));
-      const userData = userDoc.exists() ? userDoc.data() : null;
-      
-      // Utiliser le nom complet ou le nom d'affichage, ou l'email comme fallback, ou l'ID comme dernier recours
-      let userName = 'Utilisateur inconnu';
-      if (userData) {
-        userName = userData.name || userData.displayName || userData.email || `Utilisateur ${userId.substring(0, 8)}...`;
-      }
-      
-      // Déterminer les champs qui ont été modifiés
-      const changedFields = this.detectChangedFields(previousState, newState);
-      
-      const historyEntry: Omit<HistoryEntry, 'id'> = {
-        entityId: lostItemId,
-        entityType: 'lost_item',
-        previousState,
-        newState,
-        changedFields,
-        userId,
-        userName: userName,
-        userEmail: userData?.email || 'Email inconnu',
-        timestamp: Timestamp.now(),
-        operation,
-        action: operation
-      };
-      
-      const docRef = await addDoc(collection(db, 'history'), historyEntry);
-      console.log(`Entrée d'historique créée avec l'ID: ${docRef.id}`);
-      
-      return docRef.id;
-    } catch (error) {
-      console.error('Erreur lors de l\'ajout d\'une entrée d\'historique:', error);
-      throw error;
-    }
-  }
-
-
 
   /**
    * Détecte les champs qui ont été modifiés entre deux états

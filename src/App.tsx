@@ -1,6 +1,7 @@
 import React, { Suspense } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
+import { useAutoLogout } from './hooks/useAutoLogout';
 import Login from './components/Auth/Login';
 import LoadingScreen from './components/common/LoadingScreen';
 
@@ -24,14 +25,16 @@ const Planning = React.lazy(() => import('./pages/Planning'));
 const MailAutomation = React.lazy(() => import('./pages/MailAutomation'));
 const Chat = React.lazy(() => import('./pages/Chat'));
 const LostItemsHistoryPage = React.lazy(() => import('./pages/LostItemsHistoryPage'));
+const Procedures = React.lazy(() => import('./pages/Procedures'));
+const ProceduresByService = React.lazy(() => import('./pages/ProceduresByService'));
 
-function PrivateRoute({ children }: { children: React.ReactNode }) {
-  const { currentUser } = useAuth();
-  return currentUser ? <>{children}</> : <Navigate to="/login" />;
-}
+
 
 function AppRoutes() {
   const { currentUser } = useAuth();
+  
+  // Activer la déconnexion automatique pour les utilisateurs connectés
+  useAutoLogout();
 
   if (!currentUser) {
     return <Login />;
@@ -71,16 +74,8 @@ function AppRoutes() {
             />
           }
         />
-        <Route
-          path="/procedures"
-          element={
-            <EmptyModule
-              title="Procédures"
-              subtitle="Gestion des procédures"
-              icon={<div className="w-8 h-8 text-gray-400">📄</div>}
-            />
-          }
-        />
+        <Route path="/procedures" element={<Procedures />} />
+        <Route path="/procedures/service/:service" element={<ProceduresByService />} />
         <Route
           path="/gamification"
           element={

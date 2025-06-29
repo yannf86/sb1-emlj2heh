@@ -48,8 +48,31 @@ export function AuthProvider({ children }: AuthProviderProps) {
   }
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (user) => {
-      setCurrentUser(user);
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      if (user) {
+        try {
+          // Récupérer les données utilisateur depuis Firestore
+          const userDoc = await getDoc(doc(db, 'users', user.uid));
+          const userData = userDoc.data();
+          
+          if (userData) {
+            // Combiner les données Firebase Auth avec les données Firestore
+            setCurrentUser({
+              uid: user.uid,
+              email: user.email,
+              ...userData
+            });
+          } else {
+            console.error('Aucune donnée utilisateur trouvée dans Firestore');
+            setCurrentUser(null);
+          }
+        } catch (error) {
+          console.error('Erreur lors de la récupération des données utilisateur:', error);
+          setCurrentUser(null);
+        }
+      } else {
+        setCurrentUser(null);
+      }
       setLoading(false);
     });
 
