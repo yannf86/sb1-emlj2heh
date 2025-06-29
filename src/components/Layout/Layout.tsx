@@ -1,6 +1,7 @@
 import React from 'react';
 import Sidebar from './Sidebar';
 import Header from './Header';
+import { SidebarProvider, useSidebar } from '../../contexts/SidebarContext';
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -8,10 +9,12 @@ interface LayoutProps {
   subtitle?: string;
 }
 
-export default function Layout({ children, title, subtitle }: LayoutProps) {
+function LayoutContent({ children, title, subtitle }: LayoutProps) {
+  const { isCollapsed } = useSidebar();
+
   return (
     <div className="flex h-screen bg-gray-50">
-      <div className="w-64 flex-shrink-0">
+      <div className={`flex-shrink-0 transition-all duration-300 ${isCollapsed ? 'w-20' : 'w-64'}`}>
         <Sidebar />
       </div>
       <div className="flex-1 flex flex-col overflow-hidden">
@@ -21,5 +24,13 @@ export default function Layout({ children, title, subtitle }: LayoutProps) {
         </main>
       </div>
     </div>
+  );
+}
+
+export default function Layout({ children, title, subtitle }: LayoutProps) {
+  return (
+    <SidebarProvider>
+      <LayoutContent title={title} subtitle={subtitle} children={children} />
+    </SidebarProvider>
   );
 }

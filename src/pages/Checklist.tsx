@@ -497,7 +497,7 @@ const Checklist = () => {
             </div>
           </div>
 
-          {/* Deuxième ligne : Tous les filtres */}
+          {/* Deuxième ligne : Filtres et navigation de date */}
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-4">
               {/* Filtre par service */}
@@ -538,65 +538,68 @@ const Checklist = () => {
               </div>
             </div>
 
-            {/* Bouton de réinitialisation des filtres */}
-            {hasActiveFilters && (
+            {/* Navigation de date et actions */}
+            <div className="flex items-center space-x-3">
+              {/* Bouton Rafraîchir */}
               <button
-                onClick={resetFilters}
-                className="flex items-center space-x-2 px-3 py-2 text-sm text-warm-600 hover:text-warm-800 hover:bg-warm-50 rounded-lg transition-colors"
+                onClick={refreshTasks}
+                className="flex items-center px-3 py-1.5 text-xs font-medium text-blue-700 bg-blue-100 hover:bg-blue-200 rounded-md transition-colors"
+                title="Rafraîchir les tâches (pour voir les nouvelles missions)"
               >
-                <RotateCcw className="w-4 h-4" />
-                <span>Réinitialiser</span>
+                <RefreshCw className="w-3.5 h-3.5 mr-1" />
+                Rafraîchir
               </button>
-            )}
+              
+              {/* Navigation de date */}
+              <div className="flex items-center space-x-2">
+                <button
+                  onClick={() => navigateDate('prev')}
+                  className="p-1.5 hover:bg-warm-100 rounded-lg"
+                >
+                  <ChevronLeft className="w-4 h-4 text-warm-400" />
+                </button>
+                <div className="text-center px-2">
+                  <div className="text-sm font-semibold text-warm-900">
+                    {selectedDate.toLocaleDateString('fr-FR', { 
+                      day: 'numeric', 
+                      month: 'short'
+                    })}
+                  </div>
+                  <div className="flex items-center justify-center space-x-1 text-xs">
+                    {isToday() && (
+                      <span className="text-blue-600 font-medium">AUJOURD'HUI</span>
+                    )}
+                    {isYesterday() && (
+                      <span className="text-orange-600 font-medium">HIER</span>
+                    )}
+                    {isDayCompleted && (
+                      <span className="text-green-600 font-medium">✓ TERMINÉE</span>
+                    )}
+                  </div>
+                </div>
+                <button
+                  onClick={() => navigateDate('next')}
+                  className="p-1.5 hover:bg-warm-100 rounded-lg"
+                >
+                  <ChevronRight className="w-4 h-4 text-warm-400" />
+                </button>
+              </div>
+              
+              {/* Bouton de réinitialisation des filtres */}
+              {hasActiveFilters && (
+                <button
+                  onClick={resetFilters}
+                  className="flex items-center space-x-2 px-3 py-2 text-sm text-warm-600 hover:text-warm-800 hover:bg-warm-50 rounded-lg transition-colors"
+                >
+                  <RotateCcw className="w-4 h-4" />
+                  <span>Réinitialiser</span>
+                </button>
+              )}
+            </div>
           </div>
         </div>
 
-        {/* Date Navigation */}
-        <div className="flex items-center justify-center mb-6">
-          <div className="flex items-center space-x-4">
-            <button
-              onClick={refreshTasks}
-              className="flex items-center px-3 py-1.5 text-xs font-medium text-blue-700 bg-blue-100 hover:bg-blue-200 rounded-md transition-colors"
-              title="Rafraîchir les tâches (pour voir les nouvelles missions)"
-            >
-              <RefreshCw className="w-3.5 h-3.5 mr-1" />
-              Rafraîchir
-            </button>
-            <button
-              onClick={() => navigateDate('prev')}
-              className="p-2 hover:bg-warm-100 rounded-lg"
-            >
-              <ChevronLeft className="w-4 h-4 text-warm-400" />
-            </button>
-            <div className="text-center">
-              <h2 className="text-lg font-semibold text-warm-900 capitalize">
-                {selectedDate.toLocaleDateString('fr-FR', { 
-                  weekday: 'long', 
-                  day: 'numeric', 
-                  month: 'long', 
-                  year: 'numeric' 
-                })}
-              </h2>
-              <div className="flex items-center justify-center space-x-3 text-sm mt-1">
-                {isToday() && (
-                  <span className="text-blue-600 font-medium">AUJOURD'HUI</span>
-                )}
-                {isYesterday() && (
-                  <span className="text-orange-600 font-medium">HIER</span>
-                )}
-                {isDayCompleted && (
-                  <span className="text-green-600 font-medium">✓ JOURNÉE TERMINÉE</span>
-                )}
-              </div>
-            </div>
-            <button
-              onClick={() => navigateDate('next')}
-              className="p-2 hover:bg-warm-100 rounded-lg"
-            >
-              <ChevronRight className="w-4 h-4 text-warm-400" />
-            </button>
-          </div>
-        </div>
+
 
         {/* Progression globale */}
         {dayProgress.total > 0 && (

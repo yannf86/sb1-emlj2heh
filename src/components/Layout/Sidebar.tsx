@@ -23,6 +23,7 @@ import {
   MessageCircle
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
+import { useSidebar } from '../../contexts/SidebarContext';
 import { appModules } from '../../types/users';
 import { usersService } from '../../services/firebase/usersService';
 import { modulesService } from '../../services/firebase/modulesService';
@@ -54,6 +55,7 @@ export default function Sidebar() {
   const location = useLocation();
   const { currentUser, logout } = useAuth();
   const { userData, accessibleHotels, loading } = useUserPermissions();
+  const { isCollapsed, toggleSidebar } = useSidebar();
   const [userModules, setUserModules] = React.useState<string[]>([]);
   const [modulesInitialized, setModulesInitialized] = React.useState(false);
 
@@ -161,26 +163,28 @@ export default function Sidebar() {
   }
 
   return (
-    <div className="flex flex-col h-full bg-white border-r border-warm-200">
+    <div className="flex flex-col h-full bg-white border-r border-warm-200 transition-all duration-300">
       {/* Header */}
       <div className="p-4 border-b border-warm-200">
         <div className="flex items-center space-x-2">
-          <div className="w-8 h-8 bg-creho-500 rounded-lg flex items-center justify-center">
+          <div className="w-8 h-8 bg-creho-500 rounded-lg flex items-center justify-center flex-shrink-0">
             <span className="text-white font-bold text-sm">C</span>
           </div>
-          <span className="font-bold text-warm-900">CREHO</span>
+          <div className={`transition-all duration-300 overflow-hidden ${isCollapsed ? 'w-0 opacity-0' : 'w-auto opacity-100'}`}>
+            <span className="font-bold text-warm-900 whitespace-nowrap">CREHO</span>
+          </div>
         </div>
       </div>
 
       {/* User Info */}
       <div className="p-4 border-b border-warm-200">
         <div className="flex items-center space-x-3">
-          <div className="w-10 h-10 bg-creho-100 rounded-full flex items-center justify-center">
+          <div className="w-10 h-10 bg-creho-100 rounded-full flex items-center justify-center flex-shrink-0">
             <span className="text-creho-600 font-semibold text-sm">
               {currentUser?.email?.charAt(0).toUpperCase()}
             </span>
           </div>
-          <div className="flex-1 min-w-0">
+          <div className={`flex-1 min-w-0 transition-all duration-300 overflow-hidden ${isCollapsed ? 'w-0 opacity-0' : 'w-auto opacity-100'}`}>
             <p className="text-sm font-medium text-warm-900 truncate">
               {currentUser?.email?.split('@')[0]}
             </p>
@@ -199,7 +203,7 @@ export default function Sidebar() {
             )}
           </div>
         </div>
-        <div className="mt-2">
+        <div className={`mt-2 transition-all duration-300 overflow-hidden ${isCollapsed ? 'h-0 opacity-0' : 'h-auto opacity-100'}`}>
           <div className="flex items-center text-xs text-creho-600">
             <Trophy className="w-3 h-3 mr-1" />
             <span>Voir progression</span>
@@ -208,11 +212,15 @@ export default function Sidebar() {
       </div>
 
       {/* Navigation */}
-      <nav className="flex-1 p-4 space-y-1 overflow-y-auto">
+      <nav className={`flex-1 ${isCollapsed ? 'p-2' : 'p-4'} space-y-1 overflow-y-auto`}>
         {accessibleModules.length === 0 ? (
           <div className="text-center py-8">
-            <p className="text-sm text-warm-600">Aucun module accessible</p>
-            <p className="text-xs text-warm-500 mt-1">Contactez votre administrateur</p>
+            {!isCollapsed && (
+              <>
+                <p className="text-sm text-warm-600">Aucun module accessible</p>
+                <p className="text-xs text-warm-500 mt-1">Contactez votre administrateur</p>
+              </>
+            )}
           </div>
         ) : (
           accessibleModules.map((module) => {
@@ -223,16 +231,17 @@ export default function Sidebar() {
               <Link
                 key={module.key}
                 to={module.path}
-                className={`flex items-center px-3 py-2 text-sm font-medium rounded-lg transition-colors ${
+                className={`flex items-center ${isCollapsed ? 'justify-center px-3 py-3' : 'px-3 py-2'} text-sm font-medium rounded-lg transition-colors ${
                   isActive
                     ? 'bg-creho-50 text-creho-700 border-r-2 border-creho-500'
                     : 'text-warm-700 hover:bg-warm-50 hover:text-warm-900'
                 }`}
+                title={isCollapsed ? module.label : undefined}
               >
                 {IconComponent && (
-                  <IconComponent className={`w-5 h-5 mr-3 ${isActive ? 'text-creho-500' : 'text-warm-400'}`} />
+                  <IconComponent className={`w-5 h-5 ${isCollapsed ? '' : 'mr-3'} ${isActive ? 'text-creho-500' : 'text-warm-400'}`} />
                 )}
-                {module.label}
+                {!isCollapsed && module.label}
               </Link>
             );
           })
@@ -241,16 +250,17 @@ export default function Sidebar() {
 
       {/* Footer */}
       <div className="p-4 border-t border-warm-200 space-y-2">
-        <button className="flex items-center w-full px-3 py-2 text-sm font-medium text-warm-700 rounded-lg hover:bg-warm-50">
-          <Moon className="w-5 h-5 mr-3 text-warm-400" />
-          Mode Sombre
+        <button className={`flex items-center w-full ${isCollapsed ? 'justify-center px-3 py-3' : 'px-3 py-2'} text-sm font-medium text-warm-700 rounded-lg hover:bg-warm-50`} title={isCollapsed ? 'Mode Sombre' : undefined}>
+          <Moon className={`w-5 h-5 ${isCollapsed ? '' : 'mr-3'} text-warm-400`} />
+          {!isCollapsed && 'Mode Sombre'}
         </button>
         <button
           onClick={handleLogout}
-          className="flex items-center w-full px-3 py-2 text-sm font-medium text-red-600 rounded-lg hover:bg-red-50"
+          className={`flex items-center w-full ${isCollapsed ? 'justify-center px-3 py-3' : 'px-3 py-2'} text-sm font-medium text-red-600 rounded-lg hover:bg-red-50`}
+          title={isCollapsed ? 'Déconnexion' : undefined}
         >
-          <LogOut className="w-5 h-5 mr-3 text-red-500" />
-          Déconnexion
+          <LogOut className={`w-5 h-5 ${isCollapsed ? '' : 'mr-3'} text-red-500`} />
+          {!isCollapsed && 'Déconnexion'}
         </button>
       </div>
     </div>
